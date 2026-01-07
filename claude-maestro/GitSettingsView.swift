@@ -334,7 +334,7 @@ struct GitSettingsView: View {
 
     private func saveUserConfig() {
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 if editedUserName != gitManager.userName {
                     try await gitManager.setUserName(editedUserName, global: applyUserConfigGlobally)
@@ -352,7 +352,7 @@ struct GitSettingsView: View {
 
     private func saveDefaultBranch() {
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 try await gitManager.setDefaultBranch(editedDefaultBranch, global: applyDefaultBranchGlobally)
             } catch {
@@ -365,7 +365,7 @@ struct GitSettingsView: View {
 
     private func addRemote() {
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 try await gitManager.addRemote(name: newRemoteName, url: newRemoteURL)
                 showAddRemote = false
@@ -381,7 +381,7 @@ struct GitSettingsView: View {
 
     private func updateRemoteURL(name: String) {
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 try await gitManager.setRemoteURL(name: name, url: editedRemoteURL)
                 editingRemoteName = nil
@@ -395,7 +395,7 @@ struct GitSettingsView: View {
 
     private func deleteRemote(name: String) {
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 try await gitManager.removeRemote(name: name)
             } catch {
