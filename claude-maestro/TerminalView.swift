@@ -369,6 +369,7 @@ struct TerminalSessionView: View {
     var isAppRunning: Bool
     var serverURL: String?
     var onRunApp: () -> Void
+    var onCommitAndPush: () -> Void
     var onServerReady: ((String) -> Void)?
     var onControllerReady: ((TerminalController) -> Void)?  // Register controller with SessionManager
 
@@ -576,6 +577,20 @@ struct TerminalSessionView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .tint(.green)
+                    }
+
+                    // Commit & Push button (when AI CLI is running)
+                    if isClaudeRunning {
+                        Button(action: onCommitAndPush) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "arrow.up.circle")
+                                Text("Commit & Push")
+                            }
+                            .font(.caption2)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(.orange)
                     }
 
                     // Port badge (when app is running)

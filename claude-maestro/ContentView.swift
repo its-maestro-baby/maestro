@@ -415,6 +415,11 @@ class SessionManager: ObservableObject {
         terminalControllers[sessionId]?.sendCommand(prompt)
     }
 
+    func commitAndPush(for sessionId: Int) {
+        let prompt = "Please commit all changes with an appropriate commit message, then push to the remote repository."
+        terminalControllers[sessionId]?.sendCommand(prompt)
+    }
+
     func setAppRunning(_ running: Bool, url: String?, for sessionId: Int) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].isAppRunning = running
@@ -799,6 +804,7 @@ struct DynamicTerminalGridView: View {
                                     isAppRunning: manager.session(byId: sessionId)?.isAppRunning ?? false,
                                     serverURL: manager.session(byId: sessionId)?.serverURL,
                                     onRunApp: { manager.runApp(for: sessionId) },
+                                    onCommitAndPush: { manager.commitAndPush(for: sessionId) },
                                     onServerReady: { url in manager.setServerURL(url, for: sessionId) },
                                     onControllerReady: { controller in manager.terminalControllers[sessionId] = controller }
                                 )
