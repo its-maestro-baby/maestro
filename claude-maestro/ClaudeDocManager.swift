@@ -11,7 +11,16 @@ class ClaudeDocManager {
 
     /// Get the path to the bundled MCP server
     static func getMCPServerPath() -> String? {
-        // First check if running from Xcode (development)
+        // Primary: Check app bundle Resources (dist folder is copied directly to Resources)
+        if let bundlePath = Bundle.main.resourcePath {
+            let bundledPath = URL(fileURLWithPath: bundlePath)
+                .appendingPathComponent("dist/index.js")
+            if FileManager.default.fileExists(atPath: bundledPath.path) {
+                return bundledPath.path
+            }
+        }
+
+        // Fallback for development: relative to Xcode build output
         if let bundlePath = Bundle.main.resourcePath {
             let devPath = URL(fileURLWithPath: bundlePath)
                 .deletingLastPathComponent()
@@ -21,21 +30,6 @@ class ClaudeDocManager {
             if FileManager.default.fileExists(atPath: devPath.path) {
                 return devPath.path
             }
-
-            // Check bundled resources
-            let bundledPath = URL(fileURLWithPath: bundlePath)
-                .appendingPathComponent("maestro-mcp-server/dist/index.js")
-            if FileManager.default.fileExists(atPath: bundledPath.path) {
-                return bundledPath.path
-            }
-        }
-
-        // Fallback: check relative to the project
-        let projectPath = FileManager.default.currentDirectoryPath
-        let relativePath = URL(fileURLWithPath: projectPath)
-            .appendingPathComponent("maestro-mcp-server/dist/index.js")
-        if FileManager.default.fileExists(atPath: relativePath.path) {
-            return relativePath.path
         }
 
         return nil
