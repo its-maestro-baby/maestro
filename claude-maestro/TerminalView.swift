@@ -375,6 +375,7 @@ struct TerminalSessionView: View {
     @State private var terminalController = TerminalController()
     @State private var hasRegisteredController = false
     @State private var terminalOutput: String = ""
+    @State private var showOutputPane: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -430,59 +431,19 @@ struct TerminalSessionView: View {
                     .tint(mode.color)
                 }
 
-                // Run App button (when AI CLI is running, app not started)
-                if shouldLaunch && isClaudeRunning && !isAppRunning {
-                    Button(action: onRunApp) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "play.rectangle")
-                            Text("Run App")
-                        }
-                        .font(.caption2)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.green)
-                }
-
-                // Port badge (when app is running)
-                if isAppRunning, let port = assignedPort {
-                    Text(":\(port)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                        .foregroundColor(.green)
-                        .padding(.horizontal, 4)
-                        .background(Color.green.opacity(0.15))
-                        .cornerRadius(4)
-                }
-
-                // Open in Browser button (when server URL detected)
-                if let url = serverURL {
-                    Button(action: { openInBrowser(url) }) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "safari")
-                            Text("Open")
-                        }
-                        .font(.caption2)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(.blue)
-                }
-
-                // Running indicator (for native apps without URL)
-                if isAppRunning && serverURL == nil {
-                    HStack(spacing: 2) {
-                        Image(systemName: "app.badge.checkmark")
-                        Text("Running")
-                    }
-                    .font(.caption2)
-                    .foregroundColor(.green)
-                }
-
                 // Status label
                 Text(status.label)
                     .font(.caption2)
                     .foregroundColor(status.color)
+
+                // Toggle output pane button
+                Button(action: { showOutputPane.toggle() }) {
+                    Image(systemName: showOutputPane ? "rectangle.bottomhalf.filled" : "rectangle.bottomhalf.inset.filled")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help(showOutputPane ? "Hide terminal output" : "Show terminal output")
 
                 // Close button
                 Button(action: onClose) {
@@ -499,9 +460,46 @@ struct TerminalSessionView: View {
 
             // Terminal content area
             if shouldLaunch {
-                // VSplitView with terminal above and output pane below
-                VSplitView {
-                    // Top: Interactive terminal
+                if showOutputPane {
+                    // VSplitView with terminal above and output pane below
+                    VSplitView {
+                        // Top: Interactive terminal
+                        EmbeddedTerminalView(
+                            sessionId: session.id,
+                            workingDirectory: workingDirectory,
+                            status: $status,
+                            shouldLaunch: shouldLaunch,
+                            assignedBranch: assignedBranch,
+                            mode: mode,
+                            onLaunched: {
+                                onTerminalLaunched()
+                                // Register controller with SessionManager for Run App feature
+                                if !hasRegisteredController {
+                                    hasRegisteredController = true
+                                    onControllerReady?(terminalController)
+                                }
+                            },
+                            onCLILaunched: {
+                                onLaunchClaude()
+                            },
+                            onServerReady: onServerReady,
+                            onOutputReceived: { text in
+                                terminalOutput += text
+                                // Trim if too long to prevent memory issues
+                                if terminalOutput.count > 50000 {
+                                    terminalOutput = String(terminalOutput.suffix(25000))
+                                }
+                            },
+                            controller: terminalController
+                        )
+                        .frame(minHeight: 100)
+
+                        // Bottom: Output pane
+                        TerminalOutputPane(outputText: terminalOutput, onClear: { terminalOutput = "" })
+                            .frame(minHeight: 80)
+                    }
+                } else {
+                    // Terminal only (no output pane)
                     EmbeddedTerminalView(
                         sessionId: session.id,
                         workingDirectory: workingDirectory,
@@ -530,11 +528,6 @@ struct TerminalSessionView: View {
                         },
                         controller: terminalController
                     )
-                    .frame(minHeight: 100)
-
-                    // Bottom: Output pane
-                    TerminalOutputPane(outputText: terminalOutput, onClear: { terminalOutput = "" })
-                        .frame(minHeight: 80)
                 }
             } else {
                 // Pending state placeholder
@@ -566,6 +559,65 @@ struct TerminalSessionView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+            }
+
+            // Footer bar with Run App controls (only when terminal is launched)
+            if shouldLaunch {
+                HStack(spacing: 6) {
+                    // Run App button (when AI CLI is running, app not started)
+                    if isClaudeRunning && !isAppRunning {
+                        Button(action: onRunApp) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "play.rectangle")
+                                Text("Run App")
+                            }
+                            .font(.caption2)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(.green)
+                    }
+
+                    // Port badge (when app is running)
+                    if isAppRunning, let port = assignedPort {
+                        Text(":\(port)")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 4)
+                            .background(Color.green.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+
+                    // Open in Browser button (when server URL detected)
+                    if let url = serverURL {
+                        Button(action: { openInBrowser(url) }) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "safari")
+                                Text("Open")
+                            }
+                            .font(.caption2)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(.blue)
+                    }
+
+                    // Running indicator (for native apps without URL)
+                    if isAppRunning && serverURL == nil {
+                        HStack(spacing: 2) {
+                            Image(systemName: "app.badge.checkmark")
+                            Text("Running")
+                        }
+                        .font(.caption2)
+                        .foregroundColor(.green)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(status.color.opacity(0.15))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
