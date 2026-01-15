@@ -9,6 +9,38 @@ import Foundation
 
 class ClaudeDocManager {
 
+    /// Get the path to the bundled MCP server
+    static func getMCPServerPath() -> String? {
+        // First check if running from Xcode (development)
+        if let bundlePath = Bundle.main.resourcePath {
+            let devPath = URL(fileURLWithPath: bundlePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("maestro-mcp-server/dist/index.js")
+            if FileManager.default.fileExists(atPath: devPath.path) {
+                return devPath.path
+            }
+
+            // Check bundled resources
+            let bundledPath = URL(fileURLWithPath: bundlePath)
+                .appendingPathComponent("maestro-mcp-server/dist/index.js")
+            if FileManager.default.fileExists(atPath: bundledPath.path) {
+                return bundledPath.path
+            }
+        }
+
+        // Fallback: check relative to the project
+        let projectPath = FileManager.default.currentDirectoryPath
+        let relativePath = URL(fileURLWithPath: projectPath)
+            .appendingPathComponent("maestro-mcp-server/dist/index.js")
+        if FileManager.default.fileExists(atPath: relativePath.path) {
+            return relativePath.path
+        }
+
+        return nil
+    }
+
     /// Detect run command based on common project configuration files
     static func detectRunCommand(for projectPath: String) -> String? {
         let fm = FileManager.default
@@ -63,7 +95,8 @@ class ClaudeDocManager {
         runCommand: String?,
         branch: String?,
         sessionId: Int,
-        port: Int?
+        port: Int?,
+        mcpServerPath: String? = nil
     ) -> String {
         var content = """
         # Claude Code Session Context
@@ -84,6 +117,31 @@ class ClaudeDocManager {
             content += "\n- **Assigned Port:** \(port)"
         }
 
+        // Add MCP Server Integration section
+        if mcpServerPath != nil {
+            content += """
+
+
+            ## MCP Server Integration
+
+            This session is connected to Claude Maestro's process management server.
+
+            ### Available MCP Tools
+
+            Use these tools to manage your development server:
+
+            - `start_dev_server` - Start the dev server for this project
+              - Required: session_id=\(sessionId), command (e.g., "npm run dev"), working_directory
+              - Optional: port (will be auto-assigned from 3000-3099 range)
+            - `stop_dev_server` - Stop the running dev server (session_id=\(sessionId))
+            - `restart_dev_server` - Restart the dev server (session_id=\(sessionId))
+            - `get_server_status` - Check if your server is running
+            - `get_server_logs` - View recent server output
+            - `list_available_ports` - See available ports
+            - `detect_project_type` - Auto-detect project type and run command
+            """
+        }
+
         content += "\n\n## Running the Application\n"
 
         if let cmd = runCommand {
@@ -94,6 +152,17 @@ class ClaudeDocManager {
             \(cmd)
             ```
             """
+
+            if mcpServerPath != nil {
+                content += """
+
+
+            Or use the MCP tool:
+            ```
+            Use the start_dev_server tool with session_id=\(sessionId), command="\(cmd)", working_directory="\(projectPath)"
+            ```
+            """
+            }
         } else {
             content += """
 
@@ -104,6 +173,14 @@ class ClaudeDocManager {
             - `python main.py` - Python projects
             - `go run .` - Go projects
             """
+
+            if mcpServerPath != nil {
+                content += """
+
+
+            Use the `detect_project_type` MCP tool to auto-detect the run command.
+            """
+            }
         }
 
         content += """
@@ -121,6 +198,43 @@ class ClaudeDocManager {
         return content
     }
 
+    /// Generate .mcp.json content for Claude Code MCP configuration
+    static func generateMCPConfig(mcpServerPath: String, sessionId: Int, portRangeStart: Int = 3000, portRangeEnd: Int = 3099) -> String {
+        return """
+        {
+          "mcpServers": {
+            "maestro": {
+              "type": "stdio",
+              "command": "node",
+              "args": ["\(mcpServerPath)"],
+              "env": {
+                "MAESTRO_SESSION_ID": "\(sessionId)",
+                "MAESTRO_PORT_RANGE_START": "\(portRangeStart)",
+                "MAESTRO_PORT_RANGE_END": "\(portRangeEnd)"
+              }
+            }
+          }
+        }
+        """
+    }
+
+    /// Write .mcp.json to the specified directory
+    static func writeMCPConfig(
+        to directory: String,
+        mcpServerPath: String,
+        sessionId: Int
+    ) {
+        let content = generateMCPConfig(mcpServerPath: mcpServerPath, sessionId: sessionId)
+        let filePath = URL(fileURLWithPath: directory)
+            .appendingPathComponent(".mcp.json")
+
+        do {
+            try content.write(to: filePath, atomically: true, encoding: .utf8)
+        } catch {
+            print("Failed to generate .mcp.json: \(error)")
+        }
+    }
+
     /// Write claude.md to the specified directory
     static func writeClaudeMD(
         to directory: String,
@@ -131,13 +245,15 @@ class ClaudeDocManager {
         port: Int?
     ) {
         let effectiveRunCommand = runCommand ?? detectRunCommand(for: directory)
+        let mcpServerPath = getMCPServerPath()
 
         let content = generateContent(
             projectPath: projectPath,
             runCommand: effectiveRunCommand,
             branch: branch,
             sessionId: sessionId,
-            port: port
+            port: port,
+            mcpServerPath: mcpServerPath
         )
 
         let filePath = URL(fileURLWithPath: directory)
@@ -147,6 +263,11 @@ class ClaudeDocManager {
             try content.write(to: filePath, atomically: true, encoding: .utf8)
         } catch {
             print("Failed to generate claude.md: \(error)")
+        }
+
+        // Also write .mcp.json if MCP server is available
+        if let mcpPath = mcpServerPath {
+            writeMCPConfig(to: directory, mcpServerPath: mcpPath, sessionId: sessionId)
         }
     }
 }

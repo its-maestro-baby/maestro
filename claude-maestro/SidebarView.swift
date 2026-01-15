@@ -158,6 +158,12 @@ struct SidebarView: View {
                         StatusOverviewView(manager: manager)
                     }
                     .padding(.horizontal)
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // MCP Server Configuration Section
+                    MCPConfigSection()
                 }
                 .padding(.bottom, 8)
             }
@@ -534,6 +540,213 @@ struct SelectableSessionRow: View {
                 onSelect()
             }
         }
+    }
+}
+
+// MARK: - MCP Config Section
+
+struct MCPConfigSection: View {
+    @StateObject private var mcpManager = MCPServerManager.shared
+    @State private var isBuilding: Bool = false
+    @State private var buildError: String?
+    @State private var showDetails: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("MCP Server")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                // Status indicator
+                Circle()
+                    .fill(mcpManager.isServerAvailable ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+
+                // Expand/collapse
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showDetails.toggle()
+                    }
+                } label: {
+                    Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Status row
+                HStack(spacing: 6) {
+                    Image(systemName: mcpManager.isServerAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(mcpManager.isServerAvailable ? .green : .orange)
+                        .font(.caption)
+
+                    Text(mcpManager.isServerAvailable ? "Ready" : "Not Built")
+                        .font(.caption)
+                        .fontWeight(.medium)
+
+                    Spacer()
+
+                    if !mcpManager.isServerAvailable && !isBuilding {
+                        Button("Build") {
+                            buildServer()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+
+                    if isBuilding {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 16, height: 16)
+                    }
+                }
+
+                // Details (expanded)
+                if showDetails {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Divider()
+
+                        // Node.js status
+                        HStack(spacing: 4) {
+                            Image(systemName: mcpManager.verifyNodeAvailable() ? "checkmark.circle" : "xmark.circle")
+                                .foregroundColor(mcpManager.verifyNodeAvailable() ? .green : .red)
+                                .font(.caption2)
+                            Text("Node.js")
+                                .font(.caption2)
+                            Spacer()
+                            Text(mcpManager.verifyNodeAvailable() ? "Available" : "Missing")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        // Server path
+                        if let path = mcpManager.serverPath {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder")
+                                    .foregroundColor(.blue)
+                                    .font(.caption2)
+                                Text("Path")
+                                    .font(.caption2)
+                                Spacer()
+                            }
+                            Text(shortenPath(path))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(path)
+                        }
+
+                        // Available tools
+                        Divider()
+
+                        Text("Available Tools")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            ToolRow(name: "start_dev_server", description: "Start dev server")
+                            ToolRow(name: "stop_dev_server", description: "Stop dev server")
+                            ToolRow(name: "get_server_status", description: "Check status")
+                            ToolRow(name: "get_server_logs", description: "View logs")
+                            ToolRow(name: "detect_project_type", description: "Auto-detect project")
+                        }
+
+                        // Refresh button
+                        Divider()
+
+                        Button {
+                            mcpManager.checkServerAvailability()
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Refresh Status")
+                            }
+                            .font(.caption2)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
+                    }
+                }
+
+                // Error message
+                if let error = buildError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.red)
+                            .font(.caption2)
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .lineLimit(2)
+                    }
+                }
+
+                // Last error from manager
+                if let error = mcpManager.lastError, buildError == nil {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(8)
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(8)
+        }
+        .padding(.horizontal)
+    }
+
+    private func buildServer() {
+        isBuilding = true
+        buildError = nil
+
+        Task {
+            do {
+                try await mcpManager.buildServerIfNeeded()
+                await MainActor.run {
+                    isBuilding = false
+                }
+            } catch {
+                await MainActor.run {
+                    buildError = error.localizedDescription
+                    isBuilding = false
+                }
+            }
+        }
+    }
+
+    private func shortenPath(_ path: String) -> String {
+        let components = path.split(separator: "/")
+        if components.count > 3 {
+            return ".../" + components.suffix(3).joined(separator: "/")
+        }
+        return path
+    }
+}
+
+// MARK: - Tool Row
+
+struct ToolRow: View {
+    let name: String
+    let description: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "wrench.and.screwdriver")
+                .foregroundColor(.purple)
+                .font(.system(size: 8))
+            Text(name)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.primary)
+            Spacer()
+        }
+        .help(description)
     }
 }
 
