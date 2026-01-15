@@ -1,4 +1,7 @@
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
 // Regex patterns to detect server URLs in output
 const URL_PATTERNS = [
     /https?:\/\/localhost:\d+/gi,
@@ -90,6 +93,7 @@ export class ProcessManager {
             managed.stoppedAt = new Date();
             this.childProcesses.delete(sessionId);
             this.portManager.releasePort(sessionId);
+            this.writeStatusFile();
         });
         // Handle errors
         child.on('error', (error) => {
@@ -98,6 +102,7 @@ export class ProcessManager {
             this.logManager.append(sessionId, 'stderr', `Process error: ${error.message}`);
             this.childProcesses.delete(sessionId);
             this.portManager.releasePort(sessionId);
+            this.writeStatusFile();
         });
         // After a short delay, assume running if not already detected
         setTimeout(() => {
@@ -105,9 +110,14 @@ export class ProcessManager {
                 managed.status = 'running';
                 if (!managed.detectedUrl && managed.port) {
                     managed.detectedUrl = `http://localhost:${managed.port}`;
+                    // Auto-open browser with fallback URL
+                    exec(`open "${managed.detectedUrl}"`);
                 }
+                this.writeStatusFile();
             }
         }, 3000);
+        // Write initial status
+        this.writeStatusFile();
         return managed;
     }
     /**
@@ -140,6 +150,7 @@ export class ProcessManager {
         managed.status = 'stopped';
         managed.stoppedAt = new Date();
         this.portManager.releasePort(sessionId);
+        this.writeStatusFile();
     }
     /**
      * Restart a process.
@@ -217,10 +228,38 @@ export class ProcessManager {
             if (match) {
                 // Some patterns capture in group 1
                 managed.detectedUrl = match[1] || match[0];
+                // Auto-open browser on macOS
+                exec(`open "${managed.detectedUrl}"`);
+                // Notify Swift app via status file
+                this.writeStatusFile();
                 return;
             }
             // Reset regex lastIndex for global patterns
             pattern.lastIndex = 0;
+        }
+    }
+    /**
+     * Get path to the status file for IPC with Swift app.
+     */
+    getStatusFilePath() {
+        return join(homedir(), 'Library', 'Application Support', 'Claude Maestro', 'server-status.json');
+    }
+    /**
+     * Write current server statuses to file for Swift app to read.
+     */
+    writeStatusFile() {
+        const statuses = this.getAllStatuses();
+        const statusFile = this.getStatusFilePath();
+        try {
+            // Ensure directory exists
+            mkdirSync(dirname(statusFile), { recursive: true });
+            writeFileSync(statusFile, JSON.stringify({
+                servers: statuses,
+                updatedAt: new Date().toISOString()
+            }, null, 2));
+        }
+        catch (error) {
+            // Silent fail - status file is optional
         }
     }
     /**

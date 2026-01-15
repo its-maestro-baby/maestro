@@ -40,6 +40,14 @@ export declare class ProcessManager {
      */
     private detectServerUrl;
     /**
+     * Get path to the status file for IPC with Swift app.
+     */
+    private getStatusFilePath;
+    /**
+     * Write current server statuses to file for Swift app to read.
+     */
+    private writeStatusFile;
+    /**
      * Cleanup all processes (for shutdown).
      */
     cleanup(): Promise<void>;

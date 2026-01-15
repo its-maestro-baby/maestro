@@ -30092,7 +30092,10 @@ var LogManager = class {
 };
 
 // src/managers/ProcessManager.ts
-import { spawn } from "child_process";
+import { spawn, exec } from "child_process";
+import { writeFileSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
+import { homedir } from "os";
 var URL_PATTERNS = [
   /https?:\/\/localhost:\d+/gi,
   /https?:\/\/127\.0\.0\.1:\d+/gi,
@@ -30172,6 +30175,7 @@ var ProcessManager = class {
       managed.stoppedAt = /* @__PURE__ */ new Date();
       this.childProcesses.delete(sessionId);
       this.portManager.releasePort(sessionId);
+      this.writeStatusFile();
     });
     child.on("error", (error48) => {
       managed.status = "error";
@@ -30179,15 +30183,19 @@ var ProcessManager = class {
       this.logManager.append(sessionId, "stderr", `Process error: ${error48.message}`);
       this.childProcesses.delete(sessionId);
       this.portManager.releasePort(sessionId);
+      this.writeStatusFile();
     });
     setTimeout(() => {
       if (managed.status === "starting" && this.childProcesses.has(sessionId)) {
         managed.status = "running";
         if (!managed.detectedUrl && managed.port) {
           managed.detectedUrl = `http://localhost:${managed.port}`;
+          exec(`open "${managed.detectedUrl}"`);
         }
+        this.writeStatusFile();
       }
     }, 3e3);
+    this.writeStatusFile();
     return managed;
   }
   /**
@@ -30218,6 +30226,7 @@ var ProcessManager = class {
     managed.status = "stopped";
     managed.stoppedAt = /* @__PURE__ */ new Date();
     this.portManager.releasePort(sessionId);
+    this.writeStatusFile();
   }
   /**
    * Restart a process.
@@ -30289,9 +30298,32 @@ var ProcessManager = class {
       const match = pattern.exec(text);
       if (match) {
         managed.detectedUrl = match[1] || match[0];
+        exec(`open "${managed.detectedUrl}"`);
+        this.writeStatusFile();
         return;
       }
       pattern.lastIndex = 0;
+    }
+  }
+  /**
+   * Get path to the status file for IPC with Swift app.
+   */
+  getStatusFilePath() {
+    return join(homedir(), "Library", "Application Support", "Claude Maestro", "server-status.json");
+  }
+  /**
+   * Write current server statuses to file for Swift app to read.
+   */
+  writeStatusFile() {
+    const statuses = this.getAllStatuses();
+    const statusFile = this.getStatusFilePath();
+    try {
+      mkdirSync(dirname(statusFile), { recursive: true });
+      writeFileSync(statusFile, JSON.stringify({
+        servers: statuses,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      }, null, 2));
+    } catch (error48) {
     }
   }
   /**

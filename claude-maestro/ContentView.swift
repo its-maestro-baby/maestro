@@ -247,6 +247,9 @@ class SessionManager: ObservableObject {
     @Published var portManager = PortManager()
     var terminalControllers: [Int: TerminalController] = [:]
 
+    // MCP server status watcher for auto-open and UI sync
+    private var mcpWatcher = MCPStatusWatcher()
+
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -254,6 +257,14 @@ class SessionManager: ObservableObject {
         selectionManager.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        // Watch for MCP server status changes
+        mcpWatcher.$serverStatuses
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] statuses in
+                self?.handleMCPStatusUpdate(statuses)
             }
             .store(in: &cancellables)
 
@@ -446,6 +457,21 @@ class SessionManager: ObservableObject {
     func triggerTerminalLaunch(_ sessionId: Int) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].shouldLaunchTerminal = true
+        }
+    }
+
+    // MARK: - MCP Status Sync
+
+    private func handleMCPStatusUpdate(_ statuses: [MCPStatusWatcher.ServerStatus]) {
+        for status in statuses {
+            if let index = sessions.firstIndex(where: { $0.id == status.sessionId }) {
+                let isRunning = (status.status == "running" || status.status == "starting")
+                sessions[index].isAppRunning = isRunning
+                sessions[index].serverURL = status.url
+                if let port = status.port {
+                    sessions[index].assignedPort = port
+                }
+            }
         }
     }
 
