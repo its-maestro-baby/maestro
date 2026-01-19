@@ -122,6 +122,7 @@ struct SessionInfo: Identifiable {
     var mode: TerminalMode = .claudeCode
     var assignedBranch: String? = nil
     var currentBranch: String? = nil
+    var workingDirectory: String? = nil     // worktree path (nil = use main repo)
     var shouldLaunchTerminal: Bool = false  // per-session launch trigger
     var isTerminalLaunched: Bool = false    // shell is running
     var isClaudeRunning: Bool = false       // claude command has been launched
@@ -235,6 +236,7 @@ class SessionManager: ObservableObject {
     }
     @Published var defaultMode: TerminalMode = .claudeCode
     @Published var gitManager = GitManager()
+    @Published var worktreeManager = WorktreeManager()
 
     // Selection management
     @Published var selectionManager = SelectionManager()
@@ -281,6 +283,18 @@ class SessionManager: ObservableObject {
             projectPath = path
         }
         await gitManager.setRepository(path: path)
+
+        // Prune orphaned worktrees from previous sessions
+        if gitManager.isGitRepo {
+            do {
+                try await worktreeManager.pruneOrphanedWorktrees(
+                    repoPath: path,
+                    gitManager: gitManager
+                )
+            } catch {
+                print("Failed to prune orphaned worktrees: \(error)")
+            }
+        }
     }
 
     var claudeCodeCount: Int {
@@ -380,6 +394,19 @@ class SessionManager: ObservableObject {
         // Remove terminal controller
         terminalControllers.removeValue(forKey: sessionId)
 
+        // Clean up worktree if this session had one
+        Task {
+            do {
+                try await worktreeManager.removeWorktree(
+                    for: sessionId,
+                    repoPath: projectPath,
+                    gitManager: gitManager
+                )
+            } catch {
+                print("Failed to remove worktree for session \(sessionId): \(error)")
+            }
+        }
+
         // Remove the session entirely
         sessions.removeAll { $0.id == sessionId }
 
@@ -454,9 +481,52 @@ class SessionManager: ObservableObject {
         }
     }
 
+    /// Prepare worktree for a session if it has an assigned branch
+    /// Returns the working directory path (worktree path or main project path)
+    func prepareWorktree(for sessionId: Int) async -> String {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+            return projectPath
+        }
+
+        let session = sessions[index]
+
+        // If no branch assigned, use main repo
+        guard let branch = session.assignedBranch else {
+            return projectPath
+        }
+
+        // Create worktree for the assigned branch
+        do {
+            let worktreePath = try await worktreeManager.createWorktree(
+                for: sessionId,
+                branch: branch,
+                repoPath: projectPath,
+                gitManager: gitManager
+            )
+            // Store the worktree path in the session
+            await MainActor.run {
+                if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+                    sessions[idx].workingDirectory = worktreePath
+                }
+            }
+            return worktreePath
+        } catch {
+            print("Failed to create worktree for session \(sessionId): \(error)")
+            // Fall back to main repo
+            return projectPath
+        }
+    }
+
     func triggerTerminalLaunch(_ sessionId: Int) {
-        if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
-            sessions[index].shouldLaunchTerminal = true
+        // Prepare worktree asynchronously, then trigger launch
+        Task {
+            let workingDir = await prepareWorktree(for: sessionId)
+            await MainActor.run {
+                if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
+                    sessions[index].workingDirectory = workingDir
+                    sessions[index].shouldLaunchTerminal = true
+                }
+            }
         }
     }
 
@@ -804,7 +874,7 @@ struct DynamicTerminalGridView: View {
 
                                 TerminalSessionView(
                                     session: session,
-                                    workingDirectory: manager.projectPath,
+                                    workingDirectory: session.workingDirectory ?? manager.projectPath,
                                     shouldLaunch: manager.session(byId: sessionId)?.shouldLaunchTerminal ?? false,
                                     status: Binding(
                                         get: { manager.session(byId: sessionId)?.status ?? .idle },
