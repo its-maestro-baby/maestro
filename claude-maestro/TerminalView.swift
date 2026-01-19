@@ -100,10 +100,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             cd '\(workingDirectory)'
             """
 
-        // Checkout branch if assigned
-        if let branch = assignedBranch {
-            command += " && git checkout '\(branch)' 2>/dev/null || git checkout -b '\(branch)'"
-        }
+        // Note: Branch checkout is handled by worktree isolation
+        // Each session with an assigned branch gets its own worktree directory
 
         // Auto-launch CLI tool if in AI mode, otherwise just open shell
         if let cliCommand = mode.command {
