@@ -170,6 +170,12 @@ struct SidebarView: View {
 
                     // Custom MCP Servers Section
                     CustomMCPServersSection()
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // Quick Actions Section
+                    QuickActionsSection()
                 }
                 .padding(.bottom, 8)
             }
@@ -916,6 +922,175 @@ struct MCPServerRow: View {
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(server.isEnabled ? Color.accentColor.opacity(0.1) : Color.clear)
+        )
+    }
+}
+
+// MARK: - Quick Actions Section
+
+struct QuickActionsSection: View {
+    @StateObject private var quickActionManager = QuickActionManager.shared
+    @State private var showAddSheet: Bool = false
+    @State private var editingAction: QuickAction? = nil
+    @State private var showDeleteConfirmation: Bool = false
+    @State private var actionToDelete: QuickAction? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Quick Actions")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button {
+                    showAddSheet = true
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Add quick action")
+            }
+
+            VStack(spacing: 0) {
+                if quickActionManager.quickActions.isEmpty {
+                    HStack {
+                        Image(systemName: "bolt.circle")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("No quick actions")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                } else {
+                    VStack(spacing: 4) {
+                        ForEach(quickActionManager.quickActions) { action in
+                            QuickActionRow(
+                                action: action,
+                                onEdit: { editingAction = action },
+                                onDelete: {
+                                    actionToDelete = action
+                                    showDeleteConfirmation = true
+                                },
+                                onToggle: { enabled in
+                                    var updated = action
+                                    updated.isEnabled = enabled
+                                    quickActionManager.updateAction(updated)
+                                }
+                            )
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(8)
+        }
+        .padding(.horizontal)
+        .sheet(isPresented: $showAddSheet) {
+            QuickActionEditorSheet(
+                action: nil,
+                onSave: { action in
+                    quickActionManager.addAction(action)
+                    showAddSheet = false
+                },
+                onCancel: { showAddSheet = false }
+            )
+        }
+        .sheet(item: $editingAction) { action in
+            QuickActionEditorSheet(
+                action: action,
+                onSave: { updated in
+                    quickActionManager.updateAction(updated)
+                    editingAction = nil
+                },
+                onCancel: { editingAction = nil }
+            )
+        }
+        .alert("Delete Quick Action?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                actionToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let action = actionToDelete {
+                    quickActionManager.deleteAction(id: action.id)
+                }
+                actionToDelete = nil
+            }
+        } message: {
+            if let action = actionToDelete {
+                Text("Are you sure you want to delete \"\(action.name)\"? This cannot be undone.")
+            }
+        }
+    }
+}
+
+// MARK: - Quick Action Row
+
+struct QuickActionRow: View {
+    let action: QuickAction
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onToggle: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Enable toggle
+            Toggle("", isOn: Binding(
+                get: { action.isEnabled },
+                set: { onToggle($0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            // Action icon and info
+            Image(systemName: action.icon)
+                .foregroundColor(action.color)
+                .font(.caption)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(action.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Text(action.prompt)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer()
+
+            // Actions
+            HStack(spacing: 4) {
+                Button { onEdit() } label: {
+                    Image(systemName: "pencil")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Edit action")
+
+                Button { onDelete() } label: {
+                    Image(systemName: "trash")
+                        .font(.caption2)
+                        .foregroundColor(.red.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help("Delete action")
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(action.isEnabled ? action.color.opacity(0.1) : Color.clear)
         )
     }
 }

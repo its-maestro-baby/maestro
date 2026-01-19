@@ -370,8 +370,10 @@ struct TerminalSessionView: View {
     var onCommitAndPush: () -> Void
     var onServerReady: ((String) -> Void)?
     var onControllerReady: ((TerminalController) -> Void)?  // Register controller with SessionManager
+    var onCustomAction: ((String) -> Void)?  // Custom quick action callback
 
     @State private var terminalController = TerminalController()
+    @StateObject private var quickActionManager = QuickActionManager.shared
     @State private var hasRegisteredController = false
     @State private var terminalOutput: String = ""
     @State private var showOutputPane: Bool = false
@@ -589,6 +591,24 @@ struct TerminalSessionView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .tint(.orange)
+                    }
+
+                    // Custom Quick Actions (when AI CLI is running)
+                    if isClaudeRunning {
+                        ForEach(quickActionManager.enabledActions) { action in
+                            Button {
+                                onCustomAction?(action.prompt)
+                            } label: {
+                                HStack(spacing: 2) {
+                                    Image(systemName: action.icon)
+                                    Text(action.name)
+                                }
+                                .font(.caption2)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(action.color)
+                        }
                     }
 
                     // Port badge (when app is running)

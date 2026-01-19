@@ -458,6 +458,10 @@ class SessionManager: ObservableObject {
         terminalControllers[sessionId]?.sendCommand(prompt)
     }
 
+    func executeCustomAction(prompt: String, for sessionId: Int) {
+        terminalControllers[sessionId]?.sendCommand(prompt)
+    }
+
     func setAppRunning(_ running: Bool, url: String?, for sessionId: Int) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].isAppRunning = running
@@ -902,7 +906,8 @@ struct DynamicTerminalGridView: View {
                                     onRunApp: { manager.runApp(for: sessionId) },
                                     onCommitAndPush: { manager.commitAndPush(for: sessionId) },
                                     onServerReady: { url in manager.setServerURL(url, for: sessionId) },
-                                    onControllerReady: { controller in manager.terminalControllers[sessionId] = controller }
+                                    onControllerReady: { controller in manager.terminalControllers[sessionId] = controller },
+                                    onCustomAction: { prompt in manager.executeCustomAction(prompt: prompt, for: sessionId) }
                                 )
                             } else {
                                 Color.clear
