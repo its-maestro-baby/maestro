@@ -397,6 +397,13 @@ struct TerminalSessionView: View {
                     .fontWeight(.medium)
                     .foregroundColor(mode.color)
 
+                // MCP server selector
+                MCPSelector(
+                    sessionId: session.id,
+                    mcpManager: MCPServerManager.shared,
+                    isDisabled: shouldLaunch
+                )
+
                 Spacer()
 
                 // Branch selector (only when terminal not launched)
