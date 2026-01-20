@@ -1126,25 +1126,36 @@ struct ProcessesSection: View {
         }
         .padding(.horizontal)
         .sheet(isPresented: $isLogsSheetPresented) {
-            if let sessionId = selectedProcessForLogs {
-                ProcessLogsSheet(sessionId: sessionId) {
-                    isLogsSheetPresented = false
-                }
+            ProcessLogsSheet(sessionId: selectedProcessForLogs ?? 0) {
+                isLogsSheetPresented = false
+                selectedProcessForLogs = nil
             }
         }
     }
 
     private func killProcess(sessionId: Int) {
-        // Call MCP stop_dev_server via shell command
-        // This is a workaround since we can't directly call MCP tools from Swift
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", """
-            # Find and kill the process using lsof on the session's port
-            # This is a fallback - ideally we'd use the MCP tool
-            echo "Stopping process for session \(sessionId)"
-            """]
-        try? process.run()
+        guard let status = mcpWatcher.serverStatuses.first(where: { $0.sessionId == sessionId }),
+              let pid = status.pid else {
+            return
+        }
+
+        // Send SIGTERM for graceful shutdown
+        let killProcess = Process()
+        killProcess.executableURL = URL(fileURLWithPath: "/bin/kill")
+        killProcess.arguments = ["-TERM", String(pid)]
+        try? killProcess.run()
+        killProcess.waitUntilExit()
+
+        // After 2 seconds, force kill if still running
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak mcpWatcher] in
+            let forceKill = Process()
+            forceKill.executableURL = URL(fileURLWithPath: "/bin/kill")
+            forceKill.arguments = ["-KILL", String(pid)]
+            try? forceKill.run()
+
+            // Refresh status after kill attempt
+            mcpWatcher?.readStatusFile()
+        }
     }
 }
 
@@ -1340,6 +1351,7 @@ struct ProcessLogsSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .keyboardShortcut(.escape, modifiers: [])
             }
             .padding()
             .background(Color(NSColor.windowBackgroundColor))

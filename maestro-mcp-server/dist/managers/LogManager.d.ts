@@ -2,11 +2,25 @@ import type { LogEntry } from '../types.js';
 /**
  * Manages log capture and retrieval for managed processes.
  * Keeps a rolling buffer of recent log entries per session.
+ * Also persists logs to disk for the Swift app to read.
  */
 export declare class LogManager {
     private logs;
     private readonly maxEntriesPerSession;
+    private readonly logsDir;
     constructor(maxEntriesPerSession?: number);
+    /**
+     * Ensure the logs directory exists.
+     */
+    private ensureLogsDirExists;
+    /**
+     * Get the log file path for a session.
+     */
+    private getLogFilePath;
+    /**
+     * Append log entry to the file for a session.
+     */
+    private appendToFile;
     /**
      * Append a log entry for a session.
      */

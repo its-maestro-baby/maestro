@@ -1,15 +1,65 @@
 import type { LogEntry } from '../types.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 /**
  * Manages log capture and retrieval for managed processes.
  * Keeps a rolling buffer of recent log entries per session.
+ * Also persists logs to disk for the Swift app to read.
  */
 export class LogManager {
   private logs: Map<number, LogEntry[]> = new Map(); // sessionId -> logs
   private readonly maxEntriesPerSession: number;
+  private readonly logsDir: string;
 
   constructor(maxEntriesPerSession = 1000) {
     this.maxEntriesPerSession = maxEntriesPerSession;
+
+    // Set up logs directory in Application Support
+    this.logsDir = path.join(
+      os.homedir(),
+      'Library',
+      'Application Support',
+      'Claude Maestro',
+      'logs'
+    );
+    this.ensureLogsDirExists();
+  }
+
+  /**
+   * Ensure the logs directory exists.
+   */
+  private ensureLogsDirExists(): void {
+    try {
+      if (!fs.existsSync(this.logsDir)) {
+        fs.mkdirSync(this.logsDir, { recursive: true });
+      }
+    } catch (error) {
+      console.error('Failed to create logs directory:', error);
+    }
+  }
+
+  /**
+   * Get the log file path for a session.
+   */
+  private getLogFilePath(sessionId: number): string {
+    return path.join(this.logsDir, `session-${sessionId}.log`);
+  }
+
+  /**
+   * Append log entry to the file for a session.
+   */
+  private appendToFile(sessionId: number, stream: 'stdout' | 'stderr', data: string): void {
+    try {
+      const filePath = this.getLogFilePath(sessionId);
+      const timestamp = new Date().toISOString();
+      const prefix = stream === 'stderr' ? '[ERR]' : '[OUT]';
+      const logLine = `${timestamp} ${prefix} ${data}\n`;
+      fs.appendFileSync(filePath, logLine);
+    } catch (error) {
+      // Silently ignore file write errors to not disrupt the main process
+    }
   }
 
   /**
@@ -30,9 +80,12 @@ export class LogManager {
         stream,
         data: line,
       });
+
+      // Also persist to file for Swift app to read
+      this.appendToFile(sessionId, stream, line);
     }
 
-    // Trim to max entries
+    // Trim to max entries (in-memory only, file keeps growing)
     while (sessionLogs.length > this.maxEntriesPerSession) {
       sessionLogs.shift();
     }
@@ -91,12 +144,34 @@ export class LogManager {
    */
   clear(sessionId: number): void {
     this.logs.delete(sessionId);
+
+    // Also delete the log file
+    try {
+      const filePath = this.getLogFilePath(sessionId);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error) {
+      // Silently ignore file delete errors
+    }
   }
 
   /**
    * Clear all logs.
    */
   clearAll(): void {
+    // Clear all log files
+    try {
+      const files = fs.readdirSync(this.logsDir);
+      for (const file of files) {
+        if (file.startsWith('session-') && file.endsWith('.log')) {
+          fs.unlinkSync(path.join(this.logsDir, file));
+        }
+      }
+    } catch (error) {
+      // Silently ignore file delete errors
+    }
+
     this.logs.clear();
   }
 

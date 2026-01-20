@@ -10,6 +10,7 @@ class MCPStatusWatcher: ObservableObject {
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
     private var retryTimer: Timer?
+    private var pollingTimer: Timer? // Fallback polling in case file system events are missed
 
     // Debouncing to prevent missed updates from rapid file changes
     private var lastReadTime: Date = .distantPast
@@ -19,8 +20,11 @@ class MCPStatusWatcher: ObservableObject {
     struct ServerStatus: Codable {
         let sessionId: Int
         let status: String
+        let pid: Int?          // Needed for kill functionality
         let port: Int?
         let url: String?
+        let startedAt: String? // When the server started
+        let uptime: Int?       // Uptime in seconds
     }
 
     /// Represents a system process listening on a TCP port
@@ -54,12 +58,27 @@ class MCPStatusWatcher: ObservableObject {
     init() {
         readStatusFile()
         startWatching()
+        startPolling()
     }
 
     deinit {
         stopWatching()
+        stopPolling()
         retryTimer?.invalidate()
         pendingReadWorkItem?.cancel()
+    }
+
+    /// Start polling timer as fallback for missed file system events
+    private func startPolling() {
+        pollingTimer?.invalidate()
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.readStatusFile()
+        }
+    }
+
+    private func stopPolling() {
+        pollingTimer?.invalidate()
+        pollingTimer = nil
     }
 
     func startWatching() {
@@ -121,11 +140,6 @@ class MCPStatusWatcher: ObservableObject {
     }
 
     func readStatusFile() {
-        // Debounce rapid reads
-        let now = Date()
-        guard now.timeIntervalSince(lastReadTime) >= debounceInterval else { return }
-        lastReadTime = now
-
         guard FileManager.default.fileExists(atPath: statusFilePath.path) else {
             return
         }

@@ -3222,8 +3222,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path2) {
-      let input = path2;
+    function removeDotSegments(path3) {
+      let input = path3;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3422,8 +3422,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path2, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path2 && path2 !== "/" ? path2 : void 0;
+        const [path3, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6776,12 +6776,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs2, exportName) {
+    function addFormats(ajv, list, fs3, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs2[f]);
+        ajv.addFormat(f, fs3[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7559,10 +7559,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path2) {
-  if (!path2)
+function getElementAtPath(obj, path3) {
+  if (!path3)
     return obj;
-  return path2.reduce((acc, key) => acc?.[key], obj);
+  return path3.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7945,11 +7945,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path2, issues) {
+function prefixIssues(path3, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path2);
+    iss.path.unshift(path3);
     return iss;
   });
 }
@@ -8132,7 +8132,7 @@ function formatError(error48, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error48, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error49, path2 = []) => {
+  const processError = (error49, path3 = []) => {
     var _a2, _b;
     for (const issue2 of error49.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
@@ -8142,7 +8142,7 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
       } else if (issue2.code === "invalid_element") {
         processError({ issues: issue2.issues }, issue2.path);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path3, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -8174,8 +8174,8 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path2) {
+  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path3) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -20152,13 +20152,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path2 = ref.slice(1).split("/").filter(Boolean);
-  if (path2.length === 0) {
+  const path3 = ref.slice(1).split("/").filter(Boolean);
+  if (path3.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path2[0] === defsKey) {
-    const key = path2[1];
+  if (path3[0] === defsKey) {
+    const key = path3[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -22524,8 +22524,8 @@ function getErrorMap2() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path2, errorMaps, issueData } = params;
-  const fullPath = [...path2, ...issueData.path || []];
+  const { data, path: path3, errorMaps, issueData } = params;
+  const fullPath = [...path3, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -22640,11 +22640,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path2, key) {
+  constructor(parent, value, path3, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path2;
+    this._path = path3;
     this._key = key;
   }
   get path() {
@@ -30024,12 +30024,56 @@ var PortManager = class {
 };
 
 // src/managers/LogManager.ts
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 var LogManager = class {
   logs = /* @__PURE__ */ new Map();
   // sessionId -> logs
   maxEntriesPerSession;
+  logsDir;
   constructor(maxEntriesPerSession = 1e3) {
     this.maxEntriesPerSession = maxEntriesPerSession;
+    this.logsDir = path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Claude Maestro",
+      "logs"
+    );
+    this.ensureLogsDirExists();
+  }
+  /**
+   * Ensure the logs directory exists.
+   */
+  ensureLogsDirExists() {
+    try {
+      if (!fs.existsSync(this.logsDir)) {
+        fs.mkdirSync(this.logsDir, { recursive: true });
+      }
+    } catch (error48) {
+      console.error("Failed to create logs directory:", error48);
+    }
+  }
+  /**
+   * Get the log file path for a session.
+   */
+  getLogFilePath(sessionId) {
+    return path.join(this.logsDir, `session-${sessionId}.log`);
+  }
+  /**
+   * Append log entry to the file for a session.
+   */
+  appendToFile(sessionId, stream, data) {
+    try {
+      const filePath = this.getLogFilePath(sessionId);
+      const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+      const prefix = stream === "stderr" ? "[ERR]" : "[OUT]";
+      const logLine = `${timestamp} ${prefix} ${data}
+`;
+      fs.appendFileSync(filePath, logLine);
+    } catch (error48) {
+    }
   }
   /**
    * Append a log entry for a session.
@@ -30046,6 +30090,7 @@ var LogManager = class {
         stream,
         data: line
       });
+      this.appendToFile(sessionId, stream, line);
     }
     while (sessionLogs.length > this.maxEntriesPerSession) {
       sessionLogs.shift();
@@ -30083,11 +30128,27 @@ var LogManager = class {
    */
   clear(sessionId) {
     this.logs.delete(sessionId);
+    try {
+      const filePath = this.getLogFilePath(sessionId);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (error48) {
+    }
   }
   /**
    * Clear all logs.
    */
   clearAll() {
+    try {
+      const files = fs.readdirSync(this.logsDir);
+      for (const file2 of files) {
+        if (file2.startsWith("session-") && file2.endsWith(".log")) {
+          fs.unlinkSync(path.join(this.logsDir, file2));
+        }
+      }
+    } catch (error48) {
+    }
     this.logs.clear();
   }
   /**
@@ -30100,9 +30161,9 @@ var LogManager = class {
 
 // src/managers/ProcessManager.ts
 import { spawn, exec as exec2 } from "child_process";
-import { writeFileSync, mkdirSync, renameSync, existsSync, readFileSync, unlinkSync } from "fs";
-import { join, dirname } from "path";
-import { homedir, tmpdir } from "os";
+import { writeFileSync, mkdirSync as mkdirSync2, renameSync, existsSync as existsSync2, readFileSync, unlinkSync as unlinkSync2 } from "fs";
+import { join as join2, dirname } from "path";
+import { homedir as homedir2, tmpdir } from "os";
 
 // src/managers/PortScanner.ts
 import { exec } from "child_process";
@@ -30317,7 +30378,7 @@ var ProcessManager = class {
   loadStatusFromFile() {
     const statusFile = this.getStatusFilePath();
     try {
-      if (existsSync(statusFile)) {
+      if (existsSync2(statusFile)) {
         const data = JSON.parse(readFileSync(statusFile, "utf-8"));
         for (const server of data.servers || []) {
           if ((server.status === "running" || server.status === "starting") && server.port) {
@@ -30539,7 +30600,7 @@ var ProcessManager = class {
    * Get path to the status file for IPC with Swift app.
    */
   getStatusFilePath() {
-    return join(homedir(), "Library", "Application Support", "Claude Maestro", "server-status.json");
+    return join2(homedir2(), "Library", "Application Support", "Claude Maestro", "server-status.json");
   }
   /**
    * Write current server statuses to file for Swift app to read.
@@ -30549,12 +30610,12 @@ var ProcessManager = class {
   writeStatusFile() {
     const statuses = this.getAllStatuses();
     const statusFile = this.getStatusFilePath();
-    const tempFile = join(tmpdir(), `maestro-status-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const tempFile = join2(tmpdir(), `maestro-status-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
     const systemProcesses = this.portScanner.filterRelevantPorts(
       this.portScanner.getCachedProcesses()
     );
     try {
-      mkdirSync(dirname(statusFile), { recursive: true });
+      mkdirSync2(dirname(statusFile), { recursive: true });
       writeFileSync(tempFile, JSON.stringify({
         servers: statuses,
         systemProcesses,
@@ -30563,8 +30624,8 @@ var ProcessManager = class {
       renameSync(tempFile, statusFile);
     } catch (error48) {
       try {
-        if (existsSync(tempFile)) {
-          unlinkSync(tempFile);
+        if (existsSync2(tempFile)) {
+          unlinkSync2(tempFile);
         }
       } catch {
       }
@@ -30596,18 +30657,18 @@ var ProcessManager = class {
 };
 
 // src/utils/projectDetection.ts
-import * as fs from "fs";
-import * as path from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 function detectProjectType(directory) {
   const configFiles = [];
   let type = "unknown";
   let suggestedCommand = null;
-  const packageJsonPath = path.join(directory, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
+  const packageJsonPath = path2.join(directory, "package.json");
+  if (fs2.existsSync(packageJsonPath)) {
     configFiles.push("package.json");
     type = "nodejs";
     try {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+      const packageJson = JSON.parse(fs2.readFileSync(packageJsonPath, "utf-8"));
       const scripts = packageJson.scripts || {};
       if (scripts.dev) {
         suggestedCommand = "npm run dev";
@@ -30620,42 +30681,42 @@ function detectProjectType(directory) {
       suggestedCommand = "npm start";
     }
   }
-  if (fs.existsSync(path.join(directory, "Cargo.toml"))) {
+  if (fs2.existsSync(path2.join(directory, "Cargo.toml"))) {
     configFiles.push("Cargo.toml");
     if (type === "unknown") {
       type = "rust";
       suggestedCommand = "cargo run";
     }
   }
-  if (fs.existsSync(path.join(directory, "Package.swift"))) {
+  if (fs2.existsSync(path2.join(directory, "Package.swift"))) {
     configFiles.push("Package.swift");
     if (type === "unknown") {
       type = "swift";
       suggestedCommand = "swift run";
     }
   }
-  if (fs.existsSync(path.join(directory, "pyproject.toml"))) {
+  if (fs2.existsSync(path2.join(directory, "pyproject.toml"))) {
     configFiles.push("pyproject.toml");
     if (type === "unknown") {
       type = "python";
       suggestedCommand = "python -m pytest";
     }
   }
-  if (fs.existsSync(path.join(directory, "requirements.txt"))) {
+  if (fs2.existsSync(path2.join(directory, "requirements.txt"))) {
     configFiles.push("requirements.txt");
     if (type === "unknown") {
       type = "python";
       suggestedCommand = "python main.py";
     }
   }
-  if (fs.existsSync(path.join(directory, "go.mod"))) {
+  if (fs2.existsSync(path2.join(directory, "go.mod"))) {
     configFiles.push("go.mod");
     if (type === "unknown") {
       type = "go";
       suggestedCommand = "go run .";
     }
   }
-  if (fs.existsSync(path.join(directory, "Makefile"))) {
+  if (fs2.existsSync(path2.join(directory, "Makefile"))) {
     configFiles.push("Makefile");
     if (type === "unknown") {
       type = "makefile";
