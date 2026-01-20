@@ -55,3 +55,26 @@ export type ProjectType =
   | 'go'
   | 'makefile'
   | 'unknown';
+
+/**
+ * Represents a system process listening on a TCP port.
+ * Used by PortScanner to detect all TCP listeners.
+ */
+export interface SystemProcess {
+  pid: number;
+  command: string;
+  port: number;
+  address: string;   // '*', 'localhost', '127.0.0.1', etc.
+  user: string;
+  managed: boolean;  // true if started by MCP
+}
+
+/**
+ * Status file format for IPC with Swift app.
+ * Written by ProcessManager, read by MCPStatusWatcher.swift
+ */
+export interface StatusFile {
+  servers: ServerStatus[];
+  systemProcesses: SystemProcess[];
+  updatedAt: string;
+}

@@ -1011,6 +1011,7 @@ struct ProcessesSection: View {
     @StateObject private var mcpWatcher = MCPStatusWatcher()
     @State private var selectedProcessForLogs: Int? = nil
     @State private var isLogsSheetPresented: Bool = false
+    @State private var showSystemProcesses: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1033,7 +1034,9 @@ struct ProcessesSection: View {
             }
 
             VStack(spacing: 0) {
-                if mcpWatcher.serverStatuses.isEmpty {
+                let hasAnyProcesses = !mcpWatcher.serverStatuses.isEmpty || !mcpWatcher.systemProcesses.isEmpty
+
+                if !hasAnyProcesses {
                     // Empty state
                     HStack {
                         Image(systemName: "bolt.slash")
@@ -1046,24 +1049,73 @@ struct ProcessesSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                 } else {
-                    // Process list
-                    VStack(spacing: 4) {
-                        ForEach(mcpWatcher.serverStatuses, id: \.sessionId) { status in
-                            ProcessRow(
-                                status: status,
-                                onViewLogs: {
-                                    selectedProcessForLogs = status.sessionId
-                                    isLogsSheetPresented = true
-                                },
-                                onOpenBrowser: {
-                                    if let urlString = status.url, let url = URL(string: urlString) {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                },
-                                onKill: {
-                                    killProcess(sessionId: status.sessionId)
+                    VStack(spacing: 8) {
+                        // MCP Managed Servers Section
+                        if !mcpWatcher.serverStatuses.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.green)
+                                    Text("MCP Managed")
+                                        .font(.caption2)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.secondary)
                                 }
-                            )
+
+                                ForEach(mcpWatcher.serverStatuses, id: \.sessionId) { status in
+                                    ProcessRow(
+                                        status: status,
+                                        onViewLogs: {
+                                            selectedProcessForLogs = status.sessionId
+                                            isLogsSheetPresented = true
+                                        },
+                                        onOpenBrowser: {
+                                            if let urlString = status.url, let url = URL(string: urlString) {
+                                                NSWorkspace.shared.open(url)
+                                            }
+                                        },
+                                        onKill: {
+                                            killProcess(sessionId: status.sessionId)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // System Processes Section (non-MCP managed)
+                        let unmanagedProcesses = mcpWatcher.systemProcesses.filter { !$0.managed }
+                        if !unmanagedProcesses.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            showSystemProcesses.toggle()
+                                        }
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "network")
+                                                .font(.caption2)
+                                                .foregroundColor(.blue)
+                                            Text("System (\(unmanagedProcesses.count))")
+                                                .font(.caption2)
+                                                .fontWeight(.medium)
+                                                .foregroundColor(.secondary)
+                                            Spacer()
+                                            Image(systemName: showSystemProcesses ? "chevron.up" : "chevron.down")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                if showSystemProcesses {
+                                    ForEach(unmanagedProcesses) { process in
+                                        SystemProcessRow(process: process)
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(8)
@@ -1093,6 +1145,84 @@ struct ProcessesSection: View {
             echo "Stopping process for session \(sessionId)"
             """]
         try? process.run()
+    }
+}
+
+// MARK: - System Process Row
+
+struct SystemProcessRow: View {
+    let process: MCPStatusWatcher.SystemProcess
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Status indicator (blue for system processes)
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 8, height: 8)
+
+            // Process info
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(process.command)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    Text(":\(process.port)")
+                        .font(.caption2)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 3)
+                        .background(Color.blue.opacity(0.15))
+                        .cornerRadius(3)
+                }
+
+                HStack(spacing: 4) {
+                    Text("PID: \(process.pid)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    Text(process.address)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // Open in browser button (if it's a web port)
+            if isWebPort(process.port) {
+                Button {
+                    let urlString = "http://localhost:\(process.port)"
+                    if let url = URL(string: urlString) {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Image(systemName: "safari")
+                        .font(.caption2)
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+                .help("Open in browser")
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.blue.opacity(0.1))
+        )
+    }
+
+    private func isWebPort(_ port: Int) -> Bool {
+        // Common web development ports
+        let webPorts = [3000, 3001, 3002, 3003, 3004, 3005,
+                        4000, 4200, 5000, 5173, 5174,
+                        8000, 8080, 8888, 9000]
+        return webPorts.contains(port) || (3000...3099).contains(port) || (8000...8999).contains(port)
     }
 }
 

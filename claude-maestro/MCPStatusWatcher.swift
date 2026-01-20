@@ -5,6 +5,7 @@ import Combine
 /// This enables the Swift app to react to servers started via MCP tools.
 class MCPStatusWatcher: ObservableObject {
     @Published var serverStatuses: [ServerStatus] = []
+    @Published var systemProcesses: [SystemProcess] = []
 
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
@@ -22,8 +23,26 @@ class MCPStatusWatcher: ObservableObject {
         let url: String?
     }
 
+    /// Represents a system process listening on a TCP port
+    struct SystemProcess: Codable, Identifiable {
+        let pid: Int
+        let command: String
+        let port: Int
+        let address: String
+        let user: String
+        let managed: Bool
+
+        var id: Int { pid }
+
+        /// Display name combining command and port
+        var displayName: String {
+            "\(command):\(port)"
+        }
+    }
+
     private struct StatusFile: Codable {
         let servers: [ServerStatus]
+        let systemProcesses: [SystemProcess]?
         let updatedAt: String
     }
 
@@ -120,6 +139,7 @@ class MCPStatusWatcher: ObservableObject {
                 let data = try Data(contentsOf: statusFilePath)
                 let statusFile = try JSONDecoder().decode(StatusFile.self, from: data)
                 serverStatuses = statusFile.servers
+                systemProcesses = statusFile.systemProcesses ?? []
                 return
             } catch {
                 // File might be in the middle of being written (atomic rename)

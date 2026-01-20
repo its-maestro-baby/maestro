@@ -30099,10 +30099,189 @@ var LogManager = class {
 };
 
 // src/managers/ProcessManager.ts
-import { spawn, exec } from "child_process";
+import { spawn, exec as exec2 } from "child_process";
 import { writeFileSync, mkdirSync, renameSync, existsSync, readFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
+
+// src/managers/PortScanner.ts
+import { exec } from "child_process";
+import { promisify } from "util";
+var execAsync = promisify(exec);
+var PortScanner = class {
+  pollInterval = null;
+  cachedProcesses = [];
+  onChange = null;
+  managedPids = /* @__PURE__ */ new Set();
+  /**
+   * Create a new PortScanner.
+   * @param onChange Callback invoked when the list of processes changes
+   */
+  constructor(onChange) {
+    this.onChange = onChange || null;
+  }
+  /**
+   * Start periodic scanning for TCP listeners.
+   * @param intervalMs How often to scan (default: 3000ms)
+   */
+  start(intervalMs = 3e3) {
+    if (this.pollInterval) {
+      return;
+    }
+    this.scan().catch(() => {
+    });
+    this.pollInterval = setInterval(() => {
+      this.scan().catch(() => {
+      });
+    }, intervalMs);
+  }
+  /**
+   * Stop periodic scanning.
+   */
+  stop() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+  }
+  /**
+   * Register a PID as managed by MCP.
+   */
+  registerManagedPid(pid) {
+    this.managedPids.add(pid);
+  }
+  /**
+   * Unregister a PID from MCP management.
+   */
+  unregisterManagedPid(pid) {
+    this.managedPids.delete(pid);
+  }
+  /**
+   * Get the current cached list of processes.
+   */
+  getCachedProcesses() {
+    return [...this.cachedProcesses];
+  }
+  /**
+   * Scan for all TCP listeners using lsof.
+   * Returns structured data about each listening process.
+   */
+  async scan() {
+    try {
+      const { stdout } = await execAsync("lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null", {
+        timeout: 5e3
+      });
+      const processes = this.parseLsofOutput(stdout);
+      const changed = this.hasChanged(processes);
+      this.cachedProcesses = processes;
+      if (changed && this.onChange) {
+        this.onChange(processes);
+      }
+      return processes;
+    } catch (error48) {
+      return this.cachedProcesses;
+    }
+  }
+  /**
+   * Parse lsof output into structured SystemProcess objects.
+   *
+   * Example lsof output:
+   * COMMAND   PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+   * node    42992 jackwakem   22u  IPv4 0x...      0t0  TCP *:3000 (LISTEN)
+   * python3 19102 jackwakem    3u  IPv4 0x...      0t0  TCP 127.0.0.1:8000 (LISTEN)
+   */
+  parseLsofOutput(output) {
+    const lines = output.trim().split("\n");
+    if (lines.length < 2) {
+      return [];
+    }
+    const dataLines = lines.slice(1);
+    const processes = [];
+    const seenPorts = /* @__PURE__ */ new Set();
+    for (const line of dataLines) {
+      const parsed = this.parseLsofLine(line);
+      if (parsed && !seenPorts.has(parsed.port)) {
+        seenPorts.add(parsed.port);
+        processes.push(parsed);
+      }
+    }
+    return processes.sort((a, b) => a.port - b.port);
+  }
+  /**
+   * Parse a single lsof output line.
+   */
+  parseLsofLine(line) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 9) {
+      return null;
+    }
+    const command = parts[0];
+    const pid = parseInt(parts[1], 10);
+    const user = parts[2];
+    const name = parts[parts.length - 1].replace("(LISTEN)", "").trim();
+    const colonIndex = name.lastIndexOf(":");
+    if (colonIndex === -1) {
+      return null;
+    }
+    const address = name.substring(0, colonIndex) || "*";
+    const port = parseInt(name.substring(colonIndex + 1), 10);
+    if (isNaN(pid) || isNaN(port)) {
+      return null;
+    }
+    let displayAddress = address;
+    if (address === "*" || address === "0.0.0.0" || address === "[::]") {
+      displayAddress = "*";
+    } else if (address === "127.0.0.1" || address === "[::1]") {
+      displayAddress = "localhost";
+    }
+    return {
+      pid,
+      command,
+      port,
+      address: displayAddress,
+      user,
+      managed: this.managedPids.has(pid)
+    };
+  }
+  /**
+   * Check if the process list has changed from cached.
+   */
+  hasChanged(newProcesses) {
+    if (newProcesses.length !== this.cachedProcesses.length) {
+      return true;
+    }
+    const oldKeys = new Set(this.cachedProcesses.map((p) => `${p.port}:${p.pid}`));
+    const newKeys = new Set(newProcesses.map((p) => `${p.port}:${p.pid}`));
+    if (oldKeys.size !== newKeys.size) {
+      return true;
+    }
+    for (const key of newKeys) {
+      if (!oldKeys.has(key)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  /**
+   * Filter processes to only show relevant ports.
+   * @param includeAllPorts If true, return all ports. Otherwise filter to dev range + common services.
+   */
+  filterRelevantPorts(processes, includeAllPorts = false) {
+    if (includeAllPorts) {
+      return processes;
+    }
+    return processes.filter((p) => {
+      if (p.port >= 3e3 && p.port <= 3099) return true;
+      if (p.port >= 8e3 && p.port <= 8999) return true;
+      if (p.port >= 5e3 && p.port <= 5999) return true;
+      if (p.port === 5432 || p.port === 3306 || p.port === 6379 || p.port === 27017) return true;
+      if (p.managed) return true;
+      return false;
+    });
+  }
+};
+
+// src/managers/ProcessManager.ts
 var URL_PATTERNS = [
   /https?:\/\/localhost:\d+/gi,
   /https?:\/\/127\.0\.0\.1:\d+/gi,
@@ -30120,10 +30299,15 @@ var ProcessManager = class {
   childProcesses = /* @__PURE__ */ new Map();
   portManager;
   logManager;
+  portScanner;
   cleanupInterval = null;
   constructor(portManager, logManager) {
     this.portManager = portManager;
     this.logManager = logManager;
+    this.portScanner = new PortScanner(() => {
+      this.writeStatusFile();
+    });
+    this.portScanner.start(3e3);
     this.loadStatusFromFile();
     this.cleanupInterval = setInterval(() => this.cleanupStaleProcesses(), 3e4);
   }
@@ -30196,6 +30380,7 @@ var ProcessManager = class {
     });
     if (child.pid) {
       managed.pid = child.pid;
+      this.portScanner.registerManagedPid(child.pid);
     }
     this.processes.set(sessionId, managed);
     this.childProcesses.set(sessionId, child);
@@ -30218,6 +30403,9 @@ var ProcessManager = class {
       managed.stoppedAt = /* @__PURE__ */ new Date();
       this.childProcesses.delete(sessionId);
       this.portManager.releasePort(sessionId);
+      if (managed.pid) {
+        this.portScanner.unregisterManagedPid(managed.pid);
+      }
       this.writeStatusFile();
     });
     child.on("error", (error48) => {
@@ -30226,12 +30414,15 @@ var ProcessManager = class {
       this.logManager.append(sessionId, "stderr", `Process error: ${error48.message}`);
       this.childProcesses.delete(sessionId);
       this.portManager.releasePort(sessionId);
+      if (managed.pid) {
+        this.portScanner.unregisterManagedPid(managed.pid);
+      }
       this.writeStatusFile();
     });
     setTimeout(() => {
       if (!managed.detectedUrl && managed.status === "running" && managed.port) {
         managed.detectedUrl = `http://localhost:${managed.port}`;
-        exec(`open "${managed.detectedUrl}"`);
+        exec2(`open "${managed.detectedUrl}"`);
         this.writeStatusFile();
       }
     }, 3e3);
@@ -30337,7 +30528,7 @@ var ProcessManager = class {
       const match = pattern.exec(text);
       if (match) {
         managed.detectedUrl = match[1] || match[0];
-        exec(`open "${managed.detectedUrl}"`);
+        exec2(`open "${managed.detectedUrl}"`);
         this.writeStatusFile();
         return;
       }
@@ -30359,10 +30550,14 @@ var ProcessManager = class {
     const statuses = this.getAllStatuses();
     const statusFile = this.getStatusFilePath();
     const tempFile = join(tmpdir(), `maestro-status-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const systemProcesses = this.portScanner.filterRelevantPorts(
+      this.portScanner.getCachedProcesses()
+    );
     try {
       mkdirSync(dirname(statusFile), { recursive: true });
       writeFileSync(tempFile, JSON.stringify({
         servers: statuses,
+        systemProcesses,
         updatedAt: (/* @__PURE__ */ new Date()).toISOString()
       }, null, 2));
       renameSync(tempFile, statusFile);
@@ -30376,9 +30571,18 @@ var ProcessManager = class {
     }
   }
   /**
+   * Get all system processes listening on TCP ports.
+   * @param includeAllPorts If true, returns all ports. Otherwise filters to dev range + common services.
+   */
+  async getSystemProcesses(includeAllPorts = false) {
+    const processes = await this.portScanner.scan();
+    return this.portScanner.filterRelevantPorts(processes, includeAllPorts);
+  }
+  /**
    * Cleanup all processes (for shutdown).
    */
   async cleanup() {
+    this.portScanner.stop();
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
@@ -30491,6 +30695,9 @@ var ListPortsSchema = external_exports.object({
 });
 var DetectProjectSchema = external_exports.object({
   directory: external_exports.string().describe("Project directory to analyze")
+});
+var ListSystemProcessesSchema = external_exports.object({
+  include_all_ports: external_exports.boolean().optional().default(false).describe("Include all ports (not just dev range 3000-3099)")
 });
 function createServer2() {
   const portManager = new PortManager();
@@ -30717,6 +30924,52 @@ function createServer2() {
           }
         ]
       };
+    }
+  );
+  server.tool(
+    "list_system_processes",
+    "List all system processes listening on TCP ports. Shows both MCP-managed and external processes.",
+    ListSystemProcessesSchema.shape,
+    async (args) => {
+      try {
+        const processes = await processManager.getSystemProcesses(args.include_all_ports);
+        const managed = processes.filter((p) => p.managed);
+        const unmanaged = processes.filter((p) => !p.managed);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                total: processes.length,
+                managed_count: managed.length,
+                unmanaged_count: unmanaged.length,
+                processes: processes.map((p) => ({
+                  pid: p.pid,
+                  command: p.command,
+                  port: p.port,
+                  address: p.address,
+                  user: p.user,
+                  managed: p.managed
+                }))
+              }, null, 2)
+            }
+          ]
+        };
+      } catch (error48) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: error48 instanceof Error ? error48.message : String(error48)
+              }, null, 2)
+            }
+          ],
+          isError: true
+        };
+      }
     }
   );
   process.on("SIGTERM", async () => {

@@ -41,4 +41,25 @@ export interface ProjectInfo {
     configFiles: string[];
 }
 export type ProjectType = 'nodejs' | 'rust' | 'swift' | 'python' | 'go' | 'makefile' | 'unknown';
+/**
+ * Represents a system process listening on a TCP port.
+ * Used by PortScanner to detect all TCP listeners.
+ */
+export interface SystemProcess {
+    pid: number;
+    command: string;
+    port: number;
+    address: string;
+    user: string;
+    managed: boolean;
+}
+/**
+ * Status file format for IPC with Swift app.
+ * Written by ProcessManager, read by MCPStatusWatcher.swift
+ */
+export interface StatusFile {
+    servers: ServerStatus[];
+    systemProcesses: SystemProcess[];
+    updatedAt: string;
+}
 //# sourceMappingURL=types.d.ts.map

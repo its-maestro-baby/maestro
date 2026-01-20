@@ -1,4 +1,4 @@
-import type { ManagedProcess, StartServerOptions, ServerStatus } from '../types.js';
+import type { ManagedProcess, StartServerOptions, ServerStatus, SystemProcess } from '../types.js';
 import { PortManager } from './PortManager.js';
 import { LogManager } from './LogManager.js';
 /**
@@ -10,6 +10,7 @@ export declare class ProcessManager {
     private childProcesses;
     private portManager;
     private logManager;
+    private portScanner;
     private cleanupInterval;
     constructor(portManager: PortManager, logManager: LogManager);
     /**
@@ -58,6 +59,11 @@ export declare class ProcessManager {
      * the Swift file watcher from reading partially-written files.
      */
     private writeStatusFile;
+    /**
+     * Get all system processes listening on TCP ports.
+     * @param includeAllPorts If true, returns all ports. Otherwise filters to dev range + common services.
+     */
+    getSystemProcesses(includeAllPorts?: boolean): Promise<SystemProcess[]>;
     /**
      * Cleanup all processes (for shutdown).
      */

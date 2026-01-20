@@ -252,6 +252,9 @@ class SessionManager: ObservableObject {
     // MCP server status watcher for auto-open and UI sync
     private var mcpWatcher = MCPStatusWatcher()
 
+    // Published system processes from MCP watcher
+    @Published var systemProcesses: [MCPStatusWatcher.SystemProcess] = []
+
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -267,6 +270,14 @@ class SessionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] statuses in
                 self?.handleMCPStatusUpdate(statuses)
+            }
+            .store(in: &cancellables)
+
+        // Watch for system process changes
+        mcpWatcher.$systemProcesses
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] processes in
+                self?.systemProcesses = processes
             }
             .store(in: &cancellables)
 

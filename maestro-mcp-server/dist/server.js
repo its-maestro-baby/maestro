@@ -31,6 +31,9 @@ const ListPortsSchema = z.object({
 const DetectProjectSchema = z.object({
     directory: z.string().describe('Project directory to analyze'),
 });
+const ListSystemProcessesSchema = z.object({
+    include_all_ports: z.boolean().optional().default(false).describe('Include all ports (not just dev range 3000-3099)'),
+});
 /**
  * Create and configure the MCP server.
  */
@@ -236,6 +239,50 @@ export function createServer() {
                 },
             ],
         };
+    });
+    // Tool: list_system_processes
+    server.tool('list_system_processes', 'List all system processes listening on TCP ports. Shows both MCP-managed and external processes.', ListSystemProcessesSchema.shape, async (args) => {
+        try {
+            const processes = await processManager.getSystemProcesses(args.include_all_ports);
+            // Separate managed and unmanaged
+            const managed = processes.filter(p => p.managed);
+            const unmanaged = processes.filter(p => !p.managed);
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            success: true,
+                            total: processes.length,
+                            managed_count: managed.length,
+                            unmanaged_count: unmanaged.length,
+                            processes: processes.map(p => ({
+                                pid: p.pid,
+                                command: p.command,
+                                port: p.port,
+                                address: p.address,
+                                user: p.user,
+                                managed: p.managed,
+                            })),
+                        }, null, 2),
+                    },
+                ],
+            };
+        }
+        catch (error) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            success: false,
+                            error: error instanceof Error ? error.message : String(error),
+                        }, null, 2),
+                    },
+                ],
+                isError: true,
+            };
+        }
     });
     // Handle cleanup on server shutdown
     process.on('SIGTERM', async () => {

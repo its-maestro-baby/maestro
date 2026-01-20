@@ -2,6 +2,7 @@ import { spawn, exec } from 'child_process';
 import { writeFileSync, mkdirSync, renameSync, existsSync, readFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, tmpdir } from 'os';
+import { PortScanner } from './PortScanner.js';
 // Regex patterns to detect server URLs in output
 const URL_PATTERNS = [
     /https?:\/\/localhost:\d+/gi,
@@ -21,10 +22,17 @@ export class ProcessManager {
     childProcesses = new Map();
     portManager;
     logManager;
+    portScanner;
     cleanupInterval = null;
     constructor(portManager, logManager) {
         this.portManager = portManager;
         this.logManager = logManager;
+        // Initialize port scanner with callback to trigger status file updates
+        this.portScanner = new PortScanner(() => {
+            this.writeStatusFile();
+        });
+        // Start scanning for system processes (every 3 seconds)
+        this.portScanner.start(3000);
         // Load existing status from file to recover port assignments
         this.loadStatusFromFile();
         // Clean up stale entries every 30 seconds
@@ -107,6 +115,8 @@ export class ProcessManager {
         });
         if (child.pid) {
             managed.pid = child.pid;
+            // Register PID as managed by MCP for the port scanner
+            this.portScanner.registerManagedPid(child.pid);
         }
         // Store references
         this.processes.set(sessionId, managed);
@@ -136,6 +146,10 @@ export class ProcessManager {
             managed.stoppedAt = new Date();
             this.childProcesses.delete(sessionId);
             this.portManager.releasePort(sessionId);
+            // Unregister PID from port scanner
+            if (managed.pid) {
+                this.portScanner.unregisterManagedPid(managed.pid);
+            }
             this.writeStatusFile();
         });
         // Handle errors
@@ -145,6 +159,10 @@ export class ProcessManager {
             this.logManager.append(sessionId, 'stderr', `Process error: ${error.message}`);
             this.childProcesses.delete(sessionId);
             this.portManager.releasePort(sessionId);
+            // Unregister PID from port scanner
+            if (managed.pid) {
+                this.portScanner.unregisterManagedPid(managed.pid);
+            }
             this.writeStatusFile();
         });
         // After a short delay, generate fallback URL if not detected
@@ -291,12 +309,15 @@ export class ProcessManager {
         const statuses = this.getAllStatuses();
         const statusFile = this.getStatusFilePath();
         const tempFile = join(tmpdir(), `maestro-status-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+        // Get system processes from port scanner (filtered to relevant ports)
+        const systemProcesses = this.portScanner.filterRelevantPorts(this.portScanner.getCachedProcesses());
         try {
             // Ensure directory exists
             mkdirSync(dirname(statusFile), { recursive: true });
             // Write to temp file first
             writeFileSync(tempFile, JSON.stringify({
                 servers: statuses,
+                systemProcesses: systemProcesses,
                 updatedAt: new Date().toISOString()
             }, null, 2));
             // Atomic rename to target file
@@ -316,9 +337,20 @@ export class ProcessManager {
         }
     }
     /**
+     * Get all system processes listening on TCP ports.
+     * @param includeAllPorts If true, returns all ports. Otherwise filters to dev range + common services.
+     */
+    async getSystemProcesses(includeAllPorts = false) {
+        // Force a fresh scan
+        const processes = await this.portScanner.scan();
+        return this.portScanner.filterRelevantPorts(processes, includeAllPorts);
+    }
+    /**
      * Cleanup all processes (for shutdown).
      */
     async cleanup() {
+        // Stop the port scanner
+        this.portScanner.stop();
         // Clear the cleanup interval
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval);

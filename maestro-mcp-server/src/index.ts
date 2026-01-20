@@ -17,6 +17,7 @@ import { createServer } from './server.js';
  * - get_server_logs: Get recent logs from a dev server
  * - list_available_ports: List available ports in range
  * - detect_project_type: Detect project type and suggest run command
+ * - list_system_processes: List all TCP listeners (both MCP-managed and system)
  */
 
 async function main() {
