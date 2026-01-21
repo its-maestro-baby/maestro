@@ -71,7 +71,10 @@ class GitManager: ObservableObject {
     }
 
     func reset() {
-        isGitRepo = false
+        // NOTE: Do NOT reset isGitRepo here. It will be set correctly by refresh()
+        // based on actual detection. Resetting it here causes UI flicker because
+        // views conditionally render on isGitRepo, and the false->true toggle
+        // destroys and recreates those views.
         currentBranch = nil
         branches = []
         localBranches = []
