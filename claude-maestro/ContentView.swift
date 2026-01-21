@@ -116,7 +116,7 @@ enum SessionStatus: String, CaseIterable, Codable {
 
 // MARK: - Session Info
 
-struct SessionInfo: Identifiable {
+struct SessionInfo: Identifiable, Hashable {
     var id: Int
     var status: SessionStatus = .idle
     var mode: TerminalMode = .claudeCode
@@ -137,6 +137,15 @@ struct SessionInfo: Identifiable {
     init(id: Int, mode: TerminalMode = .claudeCode) {
         self.id = id
         self.mode = mode
+    }
+
+    // MARK: - Hashable conformance (identity based on session ID only)
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: SessionInfo, rhs: SessionInfo) -> Bool {
+        lhs.id == rhs.id
     }
 }
 
@@ -412,6 +421,8 @@ class SessionManager: ObservableObject {
     }
 
     func closeSession(_ sessionId: Int) {
+        print("Closing session \(sessionId)")
+
         // Release assigned port
         portManager.releasePort(for: sessionId)
 
@@ -439,6 +450,8 @@ class SessionManager: ObservableObject {
 
         // Update terminal count to match (this also triggers persistSessions via didSet)
         terminalCount = sessions.count
+
+        print("Session \(sessionId) closed, remaining: \(sessions.map { $0.id })")
     }
 
     func addNewSession() {
@@ -890,57 +903,46 @@ struct DynamicTerminalGridView: View {
 
     var body: some View {
         let visibleSessions = manager.visibleSessions
-        let config = GridConfiguration.optimal(for: visibleSessions.count)
+        let columnCount = GridConfiguration.optimal(for: visibleSessions.count).columns
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: columnCount)
 
         ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 8) {
-                ForEach(0..<config.rows, id: \.self) { row in
-                    HStack(spacing: 8) {
-                        ForEach(0..<config.columns, id: \.self) { col in
-                            let index = row * config.columns + col
-
-                            if index < visibleSessions.count {
-                                let session = visibleSessions[index]
-                                let sessionId = session.id  // Capture stable ID, not array index
-
-                                TerminalSessionView(
-                                    session: session,
-                                    workingDirectory: session.workingDirectory ?? manager.projectPath,
-                                    shouldLaunch: manager.session(byId: sessionId)?.shouldLaunchTerminal ?? false,
-                                    status: Binding(
-                                        get: { manager.session(byId: sessionId)?.status ?? .idle },
-                                        set: { newValue in manager.updateSession(id: sessionId) { $0.status = newValue } }
-                                    ),
-                                    mode: Binding(
-                                        get: { manager.session(byId: sessionId)?.mode ?? .claudeCode },
-                                        set: { newValue in manager.updateSession(id: sessionId) { $0.mode = newValue } }
-                                    ),
-                                    assignedBranch: Binding(
-                                        get: { manager.session(byId: sessionId)?.assignedBranch },
-                                        set: { manager.assignBranch($0, to: sessionId) }
-                                    ),
-                                    gitManager: manager.gitManager,
-                                    isTerminalLaunched: manager.session(byId: sessionId)?.isTerminalLaunched ?? false,
-                                    isClaudeRunning: manager.session(byId: sessionId)?.isClaudeRunning ?? false,
-                                    onLaunchClaude: { manager.launchClaudeInSession(sessionId) },
-                                    onClose: { manager.closeSession(sessionId) },
-                                    onTerminalLaunched: { manager.markTerminalLaunched(sessionId) },
-                                    onLaunchTerminal: { manager.triggerTerminalLaunch(sessionId) },
-                                    // Run App feature props
-                                    assignedPort: manager.session(byId: sessionId)?.assignedPort,
-                                    isAppRunning: manager.session(byId: sessionId)?.isAppRunning ?? false,
-                                    serverURL: manager.session(byId: sessionId)?.serverURL,
-                                    onRunApp: { manager.runApp(for: sessionId) },
-                                    onCommitAndPush: { manager.commitAndPush(for: sessionId) },
-                                    onServerReady: { url in manager.setServerURL(url, for: sessionId) },
-                                    onControllerReady: { controller in manager.terminalControllers[sessionId] = controller },
-                                    onCustomAction: { prompt in manager.executeCustomAction(prompt: prompt, for: sessionId) }
-                                )
-                            } else {
-                                Color.clear
-                            }
-                        }
-                    }
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(visibleSessions, id: \.id) { session in
+                    TerminalSessionView(
+                        session: session,
+                        workingDirectory: session.workingDirectory ?? manager.projectPath,
+                        shouldLaunch: manager.session(byId: session.id)?.shouldLaunchTerminal ?? false,
+                        status: Binding(
+                            get: { manager.session(byId: session.id)?.status ?? .idle },
+                            set: { newValue in manager.updateSession(id: session.id) { $0.status = newValue } }
+                        ),
+                        mode: Binding(
+                            get: { manager.session(byId: session.id)?.mode ?? .claudeCode },
+                            set: { newValue in manager.updateSession(id: session.id) { $0.mode = newValue } }
+                        ),
+                        assignedBranch: Binding(
+                            get: { manager.session(byId: session.id)?.assignedBranch },
+                            set: { manager.assignBranch($0, to: session.id) }
+                        ),
+                        gitManager: manager.gitManager,
+                        isTerminalLaunched: manager.session(byId: session.id)?.isTerminalLaunched ?? false,
+                        isClaudeRunning: manager.session(byId: session.id)?.isClaudeRunning ?? false,
+                        onLaunchClaude: { manager.launchClaudeInSession(session.id) },
+                        onClose: { manager.closeSession(session.id) },
+                        onTerminalLaunched: { manager.markTerminalLaunched(session.id) },
+                        onLaunchTerminal: { manager.triggerTerminalLaunch(session.id) },
+                        // Run App feature props
+                        assignedPort: manager.session(byId: session.id)?.assignedPort,
+                        isAppRunning: manager.session(byId: session.id)?.isAppRunning ?? false,
+                        serverURL: manager.session(byId: session.id)?.serverURL,
+                        onRunApp: { manager.runApp(for: session.id) },
+                        onCommitAndPush: { manager.commitAndPush(for: session.id) },
+                        onServerReady: { url in manager.setServerURL(url, for: session.id) },
+                        onControllerReady: { controller in manager.terminalControllers[session.id] = controller },
+                        onCustomAction: { prompt in manager.executeCustomAction(prompt: prompt, for: session.id) }
+                    )
+                    .id(session.id)  // Force view recreation when session ID changes
                 }
             }
             .padding(.horizontal, 8)
@@ -972,25 +974,16 @@ struct PreLaunchView: View {
     let statusMessage: String
 
     var body: some View {
-        let config = manager.gridConfig
+        let columnCount = manager.gridConfig.columns
+        let columns = Array(repeating: GridItem(.fixed(100), spacing: 12), count: columnCount)
 
         VStack(spacing: 16) {
             Spacer()
 
-            VStack(spacing: 12) {
-                ForEach(0..<config.rows, id: \.self) { row in
-                    HStack(spacing: 12) {
-                        ForEach(0..<config.columns, id: \.self) { col in
-                            let index = row * config.columns + col
-
-                            if index < manager.sessions.count {
-                                SessionStatusView(session: manager.sessions[index])
-                            } else {
-                                Color.clear
-                                    .frame(width: 100, height: 80)
-                            }
-                        }
-                    }
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(manager.sessions, id: \.id) { session in
+                    SessionStatusView(session: session)
+                        .id(session.id)  // Force view identity based on session ID
                 }
             }
             .padding()
