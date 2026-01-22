@@ -17,10 +17,24 @@ import Combine
 class MCPServerManager: ObservableObject {
     static let shared = MCPServerManager()
 
+    /// Server implementation type
+    enum ServerType: String, CaseIterable {
+        case native = "Swift (Native)"    // New Swift implementation
+        case nodejs = "Node.js (Legacy)"  // Original Node.js implementation
+    }
+
     // Maestro MCP status
     @Published var isServerAvailable: Bool = false
     @Published var serverPath: String?
     @Published var lastError: String?
+
+    // Server type preference (default to native Swift implementation)
+    @Published var serverType: ServerType = .native {
+        didSet {
+            UserDefaults.standard.set(serverType.rawValue, forKey: serverTypeKey)
+            checkServerAvailability()
+        }
+    }
 
     // Custom MCP servers
     @Published var customServers: [MCPServerConfig] = []
@@ -32,8 +46,15 @@ class MCPServerManager: ObservableObject {
 
     private let customServersKey = "claude-maestro-custom-mcp-servers"
     private let sessionMCPConfigsKey = "claude-maestro-session-mcp-configs"
+    private let serverTypeKey = "claude-maestro-mcp-server-type"
 
     private init() {
+        // Load server type preference
+        if let savedType = UserDefaults.standard.string(forKey: serverTypeKey),
+           let type = ServerType(rawValue: savedType) {
+            serverType = type
+        }
+
         loadCustomServers()
         loadSessionConfigs()
         checkServerAvailability()
@@ -144,20 +165,67 @@ class MCPServerManager: ObservableObject {
 
     /// Check if the MCP server is available (built and ready)
     func checkServerAvailability() {
-        if let path = ClaudeDocManager.getMCPServerPath() {
-            serverPath = path
-            isServerAvailable = FileManager.default.fileExists(atPath: path)
+        switch serverType {
+        case .native:
+            // Check for native Swift MCP server binary
+            if let path = getNativeMCPServerPath() {
+                serverPath = path
+                isServerAvailable = FileManager.default.isExecutableFile(atPath: path)
 
-            if !isServerAvailable {
-                lastError = "MCP server not built. Run 'npm run build' in maestro-mcp-server/"
+                if !isServerAvailable {
+                    lastError = "Native MCP server not built. Build the MaestroMCPServer target in Xcode."
+                } else {
+                    lastError = nil
+                }
             } else {
-                lastError = nil
+                // Fall back to checking if we can find it in the app bundle
+                serverPath = nil
+                isServerAvailable = false
+                lastError = "Native MCP server not found"
             }
-        } else {
-            serverPath = nil
-            isServerAvailable = false
-            lastError = "MCP server not found"
+
+        case .nodejs:
+            // Original Node.js MCP server
+            if let path = ClaudeDocManager.getMCPServerPath() {
+                serverPath = path
+                isServerAvailable = FileManager.default.fileExists(atPath: path)
+
+                if !isServerAvailable {
+                    lastError = "MCP server not built. Run 'npm run build' in maestro-mcp-server/"
+                } else {
+                    lastError = nil
+                }
+            } else {
+                serverPath = nil
+                isServerAvailable = false
+                lastError = "MCP server not found"
+            }
         }
+    }
+
+    /// Get path to native Swift MCP server binary
+    private func getNativeMCPServerPath() -> String? {
+        // First, check in the app bundle (for release builds)
+        if let bundlePath = Bundle.main.executableURL?.deletingLastPathComponent()
+            .appendingPathComponent("MaestroMCPServer").path,
+           FileManager.default.isExecutableFile(atPath: bundlePath) {
+            return bundlePath
+        }
+
+        // Check in Application Support (for development)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let devPath = appSupport?.appendingPathComponent("Claude Maestro/MaestroMCPServer").path,
+           FileManager.default.isExecutableFile(atPath: devPath) {
+            return devPath
+        }
+
+        // Check in /usr/local/bin (if installed system-wide)
+        let systemPath = "/usr/local/bin/MaestroMCPServer"
+        if FileManager.default.isExecutableFile(atPath: systemPath) {
+            return systemPath
+        }
+
+        return nil
     }
 
     /// Get the MCP server path for configuration
@@ -187,7 +255,20 @@ class MCPServerManager: ObservableObject {
     /// Get the full command for Claude Code to spawn the MCP server
     func getMCPCommand() -> (command: String, args: [String])? {
         guard let path = serverPath else { return nil }
-        return ("node", [path])
+
+        switch serverType {
+        case .native:
+            // Native Swift binary - run directly
+            return (path, [])
+        case .nodejs:
+            // Node.js - run with node
+            return ("node", [path])
+        }
+    }
+
+    /// Check if native Swift MCP server is preferred and available
+    var isUsingNativeMCP: Bool {
+        serverType == .native && isServerAvailable
     }
 
     /// Build the MCP server if needed

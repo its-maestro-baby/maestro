@@ -258,7 +258,12 @@ class SessionManager: ObservableObject {
     @Published var portManager = PortManager()
     var terminalControllers: [Int: TerminalController] = [:]
 
-    // MCP server status watcher for auto-open and UI sync
+    // Native process management (replaces Node.js MCP for process lifecycle)
+    let processCoordinator = ManagedProcessCoordinator()
+    let processRegistry = ProcessRegistry()
+    let nativePortManager = NativePortManager()
+
+    // MCP server status watcher for auto-open and UI sync (legacy - can be removed after migration)
     private var mcpWatcher = MCPStatusWatcher()
 
     // Published system processes from MCP watcher
@@ -423,7 +428,7 @@ class SessionManager: ObservableObject {
     func closeSession(_ sessionId: Int) {
         print("Closing session \(sessionId)")
 
-        // Release assigned port
+        // Release assigned port (both legacy and native)
         portManager.releasePort(for: sessionId)
 
         // Terminate the terminal process before removing
@@ -432,8 +437,18 @@ class SessionManager: ObservableObject {
         // Remove terminal controller
         terminalControllers.removeValue(forKey: sessionId)
 
-        // Clean up worktree if this session had one
+        // Clean up using native process management
         Task {
+            // Kill all processes in the session using native process groups
+            await processRegistry.cleanupSession(sessionId, killProcesses: true)
+
+            // Also cleanup via the coordinator (for dev servers)
+            await processCoordinator.cleanupSession(sessionId)
+
+            // Release native port allocation
+            await nativePortManager.releasePortsForSession(sessionId)
+
+            // Clean up worktree if this session had one
             do {
                 try await worktreeManager.removeWorktree(
                     for: sessionId,
@@ -522,6 +537,20 @@ class SessionManager: ObservableObject {
     func markTerminalLaunched(_ sessionId: Int) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].isTerminalLaunched = true
+        }
+    }
+
+    /// Register a terminal process PID for native process management
+    func registerTerminalProcess(sessionId: Int, pid: pid_t) {
+        Task {
+            await processRegistry.register(
+                pid: pid,
+                pgid: pid,  // Terminal shells typically are their own process group
+                sessionId: sessionId,
+                source: .terminal,
+                command: sessions.first { $0.id == sessionId }?.mode.command ?? "shell",
+                workingDirectory: projectPath
+            )
         }
     }
 
@@ -955,7 +984,8 @@ struct DynamicTerminalGridView: View {
                                 onCommitAndPush: { manager.commitAndPush(for: session.id) },
                                 onServerReady: { url in manager.setServerURL(url, for: session.id) },
                                 onControllerReady: { controller in manager.terminalControllers[session.id] = controller },
-                                onCustomAction: { prompt in manager.executeCustomAction(prompt: prompt, for: session.id) }
+                                onCustomAction: { prompt in manager.executeCustomAction(prompt: prompt, for: session.id) },
+                                onProcessStarted: { pid in manager.registerTerminalProcess(sessionId: session.id, pid: pid) }
                             )
                             .id(session.id)  // Explicit session ID for view identity
                         }

@@ -36,6 +36,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     var onCLILaunched: () -> Void
     var onServerReady: ((String) -> Void)?  // Called with detected server URL
     var onOutputReceived: ((String) -> Void)?  // Called with terminal output for output pane
+    var onProcessStarted: ((pid_t) -> Void)?  // Called with shell PID for process registration
     var controller: TerminalController?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
@@ -133,6 +134,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             environment: nil,  // Let shell inherit and source profiles for full environment
             execName: nil
         )
+
+        // Register the shell PID for native process management
+        // Note: shellPid is available after startProcess returns
+        if let pid = terminal.shellPid {
+            DispatchQueue.main.async {
+                self.onProcessStarted?(pid)
+            }
+        }
     }
 
     class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
@@ -381,6 +390,7 @@ struct TerminalSessionView: View {
     var onServerReady: ((String) -> Void)?
     var onControllerReady: ((TerminalController) -> Void)?  // Register controller with SessionManager
     var onCustomAction: ((String) -> Void)?  // Custom quick action callback
+    var onProcessStarted: ((pid_t) -> Void)?  // Register PID for native process management
 
     @State private var terminalController = TerminalController()
     @StateObject private var quickActionManager = QuickActionManager.shared
@@ -487,6 +497,7 @@ struct TerminalSessionView: View {
                     },
                     onServerReady: onServerReady,
                     onOutputReceived: nil,
+                    onProcessStarted: onProcessStarted,
                     controller: terminalController
                 )
             } else {
