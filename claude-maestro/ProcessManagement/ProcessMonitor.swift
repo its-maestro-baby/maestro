@@ -87,7 +87,7 @@ public actor ProcessMonitor {
             throw MonitorError.invalidPid
         }
 
-        guard isRunning else {
+        if !isRunning {
             try start()
         }
 

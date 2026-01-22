@@ -275,7 +275,7 @@ class MCPServerManager: ObservableObject {
     func buildServerIfNeeded() async throws {
         // Find the maestro-mcp-server directory
         guard let bundlePath = Bundle.main.resourcePath else {
-            throw MCPError.serverNotFound
+            throw MCPServerError.serverNotFound
         }
 
         let devPath = URL(fileURLWithPath: bundlePath)
@@ -285,7 +285,7 @@ class MCPServerManager: ObservableObject {
             .appendingPathComponent("maestro-mcp-server")
 
         guard FileManager.default.fileExists(atPath: devPath.path) else {
-            throw MCPError.serverNotFound
+            throw MCPServerError.serverNotFound
         }
 
         // Check if already built
@@ -310,7 +310,7 @@ class MCPServerManager: ObservableObject {
         if process.terminationStatus != 0 {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw MCPError.buildFailed(output)
+            throw MCPServerError.buildFailed(output)
         }
 
         // Refresh availability
@@ -319,7 +319,7 @@ class MCPServerManager: ObservableObject {
 }
 
 /// Errors related to MCP server management
-enum MCPError: LocalizedError {
+enum MCPServerError: LocalizedError {
     case serverNotFound
     case nodeNotAvailable
     case buildFailed(String)

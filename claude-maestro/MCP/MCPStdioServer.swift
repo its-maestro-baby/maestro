@@ -202,7 +202,7 @@ public actor MCPStdioServer {
 // MARK: - Main Entry Point for CLI
 
 /// Main entry point for the Maestro MCP Server CLI
-@main
+/// Note: This is used by the separate MaestroMCPServer CLI target, not the main app
 struct MaestroMCPServerMain {
     static func main() async {
         // Create coordinator (this would normally be injected)

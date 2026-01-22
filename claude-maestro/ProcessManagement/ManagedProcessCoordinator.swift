@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// Status of a managed process
 public enum ManagedProcessStatus: String, Sendable {
@@ -138,7 +139,7 @@ public class ManagedProcessCoordinator: ObservableObject {
         let port = await portManager.allocatePort(for: sessionId, preferredPort: preferredPort)
 
         // Build environment with PORT variable
-        var env = ProcessInfo.processInfo.environment
+        var env = Foundation.ProcessInfo.processInfo.environment
         if let port = port {
             env["PORT"] = String(port)
         }

@@ -89,7 +89,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     private func launchTerminal(in terminal: LocalProcessTerminalView) {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let shell = Foundation.ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
         // Source user's shell profile to get full environment (PATH, NVM, etc.)
         // This is necessary because macOS apps launched from Finder have a limited environment
@@ -135,13 +135,9 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             execName: nil
         )
 
-        // Register the shell PID for native process management
-        // Note: shellPid is available after startProcess returns
-        if let pid = terminal.shellPid {
-            DispatchQueue.main.async {
-                self.onProcessStarted?(pid)
-            }
-        }
+        // TODO: Register the shell PID for native process management
+        // Note: LocalProcessTerminalView doesn't expose shellPid directly
+        // This would need SwiftTerm extension or alternative approach
     }
 
     class Coordinator: NSObject, LocalProcessTerminalViewDelegate {

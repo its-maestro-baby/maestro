@@ -1,16 +1,5 @@
 {
   "mcpServers" : {
-    "maestro" : {
-      "args" : [
-        "\/Users\/jackwakem\/Library\/Application Support\/Claude Maestro\/mcp-server\/bundle.js"
-      ],
-      "command" : "node",
-      "env" : {
-        "MAESTRO_PORT_RANGE_END" : "3099",
-        "MAESTRO_PORT_RANGE_START" : "3000",
-        "MAESTRO_SESSION_ID" : "2"
-      },
-      "type" : "stdio"
-    }
+
   }
 }

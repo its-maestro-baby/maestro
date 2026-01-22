@@ -292,7 +292,7 @@ public actor ProcessLauncher {
         }
 
         // Search in PATH
-        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+        let paths = (Foundation.ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":")
             .map(String.init)
 
