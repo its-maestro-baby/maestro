@@ -4,25 +4,7 @@ This file provides context for Claude Code running in this worktree.
 
 ## Project Information
 - **Path:** /Users/jackwakem/Desktop/claude-maestro
-- **Session ID:** 2
-
-## MCP Server Integration
-
-This session is connected to Claude Maestro's process management server.
-
-### Available MCP Tools
-
-Use these tools to manage your development server:
-
-- `start_dev_server` - Start the dev server for this project
-  - Required: session_id=2, command (e.g., "npm run dev"), working_directory
-  - Optional: port (will be auto-assigned from 3000-3099 range)
-- `stop_dev_server` - Stop the running dev server (session_id=2)
-- `restart_dev_server` - Restart the dev server (session_id=2)
-- `get_server_status` - Check if your server is running
-- `get_server_logs` - View recent server output
-- `list_available_ports` - See available ports
-- `detect_project_type` - Auto-detect project type and run command
+- **Session ID:** 1
 
 ## Running the Application
 
@@ -32,8 +14,6 @@ The run command has not been configured yet. Common commands:
 - `cargo run` - Rust projects
 - `python main.py` - Python projects
 - `go run .` - Go projects
-
-Use the `detect_project_type` MCP tool to auto-detect the run command.
 
 ## Session Notes
 

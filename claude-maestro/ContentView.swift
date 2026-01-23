@@ -128,6 +128,9 @@ struct SessionInfo: Identifiable, Hashable {
     var isClaudeRunning: Bool = false       // claude command has been launched
     var isVisible: Bool = true              // terminal is open (not closed)
 
+    // Process tracking
+    var terminalPid: pid_t? = nil           // Shell PID for process activity monitoring
+
     // App running state
     var assignedPort: Int? = nil            // Auto-assigned port (hint for web projects)
     var customRunCommand: String? = nil     // Optional manual override command
@@ -262,6 +265,9 @@ class SessionManager: ObservableObject {
     let processCoordinator = ManagedProcessCoordinator()
     let processRegistry = ProcessRegistry()
     let nativePortManager = NativePortManager()
+
+    // Process activity monitoring for accurate agent state detection
+    let activityMonitor = ProcessActivityMonitor()
 
     // MCP server status watcher for auto-open and UI sync (legacy - can be removed after migration)
     private var mcpWatcher = MCPStatusWatcher()
@@ -428,6 +434,12 @@ class SessionManager: ObservableObject {
     func closeSession(_ sessionId: Int) {
         print("Closing session \(sessionId)")
 
+        // Stop activity monitoring for this session's process
+        if let session = sessions.first(where: { $0.id == sessionId }),
+           let pid = session.terminalPid {
+            activityMonitor.stopMonitoring(pid: pid)
+        }
+
         // Release assigned port (both legacy and native)
         portManager.releasePort(for: sessionId)
 
@@ -542,6 +554,12 @@ class SessionManager: ObservableObject {
 
     /// Register a terminal process PID for native process management
     func registerTerminalProcess(sessionId: Int, pid: pid_t) {
+        // Store PID in session for activity monitoring
+        if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
+            sessions[index].terminalPid = pid
+        }
+
+        // Register with process registry
         Task {
             await processRegistry.register(
                 pid: pid,
@@ -551,6 +569,11 @@ class SessionManager: ObservableObject {
                 command: sessions.first { $0.id == sessionId }?.mode.command ?? "shell",
                 workingDirectory: projectPath
             )
+        }
+
+        // Start activity monitoring for this process
+        Task { @MainActor in
+            activityMonitor.startMonitoring(pid: pid)
         }
     }
 

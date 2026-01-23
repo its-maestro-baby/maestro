@@ -32,6 +32,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     let shouldLaunch: Bool
     let assignedBranch: String?
     let mode: TerminalMode
+    var activityMonitor: ProcessActivityMonitor?  // For process-level activity detection
     var onLaunched: () -> Void
     var onCLILaunched: () -> Void
     var onServerReady: ((String) -> Void)?  // Called with detected server URL
@@ -85,7 +86,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sessionId: sessionId, mode: mode, status: $status, onServerReady: onServerReady, onOutputReceived: onOutputReceived)
+        Coordinator(
+            sessionId: sessionId,
+            mode: mode,
+            status: $status,
+            activityMonitor: activityMonitor,
+            onServerReady: onServerReady,
+            onOutputReceived: onOutputReceived
+        )
     }
 
     private func launchTerminal(in terminal: LocalProcessTerminalView) {
@@ -152,6 +160,10 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         private var lastOutputTime: Date?
         private var idleCheckTimer: Timer?
         private var initializingTimer: Timer?
+        private var shellPid: pid_t?
+
+        // Process activity monitor for accurate state detection
+        weak var activityMonitor: ProcessActivityMonitor?
 
         // Server detection callback
         var onServerReady: ((String) -> Void)?
@@ -164,10 +176,11 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         private let initializingTimeout: TimeInterval = 3.0  // Time after launch before assuming idle
         private let idleTimeout: TimeInterval = 2.0          // Time without output = idle
 
-        init(sessionId: Int, mode: TerminalMode, status: Binding<SessionStatus>, onServerReady: ((String) -> Void)?, onOutputReceived: ((String) -> Void)?) {
+        init(sessionId: Int, mode: TerminalMode, status: Binding<SessionStatus>, activityMonitor: ProcessActivityMonitor?, onServerReady: ((String) -> Void)?, onOutputReceived: ((String) -> Void)?) {
             self.sessionId = sessionId
             self.mode = mode
             self._status = status
+            self.activityMonitor = activityMonitor
             self.onServerReady = onServerReady
             self.onOutputReceived = onOutputReceived
             super.init()
@@ -327,17 +340,38 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             idleCheckTimer = Timer.scheduledTimer(withTimeInterval: idleTimeout, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
 
-                // If no new output since timer was set, transition to idle
+                // If no new output since timer was set, check process activity before going idle
                 if let lastOutput = self.lastOutputTime,
                    Date().timeIntervalSince(lastOutput) >= self.idleTimeout {
-                    DispatchQueue.main.async {
-                        // Only transition to idle from working state
-                        if self.status == .working {
+
+                    // Check process activity using the monitor
+                    Task { @MainActor in
+                        var shouldTransitionToIdle = true
+
+                        // If we have a shell PID and activity monitor, check actual process activity
+                        if let pid = self.shellPid, let monitor = self.activityMonitor {
+                            let activityLevel = monitor.getActivityLevel(for: pid)
+
+                            // If process is still active (CPU/IO), stay in working state
+                            if activityLevel == .active {
+                                shouldTransitionToIdle = false
+                                // Reschedule check since process is still active
+                                self.scheduleIdleCheck()
+                            }
+                        }
+
+                        // Only transition to idle from working state if no activity
+                        if shouldTransitionToIdle && self.status == .working {
                             self.status = .idle
                         }
                     }
                 }
             }
+        }
+
+        /// Store the shell PID for activity monitoring
+        func setShellPid(_ pid: pid_t) {
+            self.shellPid = pid
         }
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
@@ -387,6 +421,7 @@ struct TerminalSessionView: View {
     var onControllerReady: ((TerminalController) -> Void)?  // Register controller with SessionManager
     var onCustomAction: ((String) -> Void)?  // Custom quick action callback
     var onProcessStarted: ((pid_t) -> Void)?  // Register PID for native process management
+    var activityMonitor: ProcessActivityMonitor?  // For accurate state detection
 
     @State private var terminalController = TerminalController()
     @StateObject private var quickActionManager = QuickActionManager.shared
@@ -480,6 +515,7 @@ struct TerminalSessionView: View {
                     shouldLaunch: shouldLaunch,
                     assignedBranch: assignedBranch,
                     mode: mode,
+                    activityMonitor: activityMonitor,
                     onLaunched: {
                         onTerminalLaunched()
                         // Register controller with SessionManager for Run App feature

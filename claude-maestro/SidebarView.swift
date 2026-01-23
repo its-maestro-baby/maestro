@@ -30,37 +30,6 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Tab Picker
-            HStack(spacing: 0) {
-                ForEach(SidebarTab.allCases, id: \.self) { tab in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedTab = tab
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: tab.icon)
-                                .font(.caption)
-                            Text(tab.rawValue)
-                                .font(.caption)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            selectedTab == tab
-                                ? Color.accentColor.opacity(0.2)
-                                : Color.clear
-                        )
-                        .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-
-            Divider()
-
             // Tab Content
             switch selectedTab {
             case .configuration:
@@ -71,6 +40,43 @@ struct SidebarView: View {
         }
         .frame(width: 240)
         .background(Color(NSColor.controlBackgroundColor))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Tab Picker - positioned in safe area to align with toolbar
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(SidebarTab.allCases, id: \.self) { tab in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedTab = tab
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: tab.icon)
+                                    .font(.caption)
+                                Text(tab.rawValue)
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                selectedTab == tab
+                                    ? Color.accentColor.opacity(0.2)
+                                    : Color.clear
+                            )
+                            .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(Color(NSColor.controlBackgroundColor))
+
+                Divider()
+
+                Spacer()
+                    .frame(height: 8)
+            }
+        }
         .onAppear {
             manager.loadPresets()
         }
@@ -107,7 +113,6 @@ struct ConfigurationSidebarContent: View {
                 }
             }
             .padding(.horizontal)
-            .padding(.top, 12)
 
             Divider()
 
@@ -230,12 +235,6 @@ struct ConfigurationSidebarContent: View {
                         StatusOverviewView(manager: manager)
                     }
                     .padding(.horizontal)
-
-                    Divider()
-                        .padding(.horizontal)
-
-                    // Maestro MCP Section
-                    MaestroMCPSection()
 
                     Divider()
                         .padding(.horizontal)
@@ -618,152 +617,6 @@ struct SelectableSessionRow: View {
                 onSelect()
             }
         }
-    }
-}
-
-// MARK: - Maestro MCP Section
-
-struct MaestroMCPSection: View {
-    @StateObject private var mcpManager = MCPServerManager.shared
-    @State private var showDetails: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Maestro MCP")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                // Status indicator
-                Circle()
-                    .fill(mcpManager.isServerAvailable ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-
-                // Expand/collapse
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showDetails.toggle()
-                    }
-                } label: {
-                    Image(systemName: showDetails ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                // Status row
-                HStack(spacing: 6) {
-                    Image(systemName: mcpManager.isServerAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundColor(mcpManager.isServerAvailable ? .green : .orange)
-                        .font(.caption)
-
-                    Text(mcpManager.isServerAvailable ? "Ready" : "Not Built")
-                        .font(.caption)
-                        .fontWeight(.medium)
-
-                    Spacer()
-                }
-
-                // Details (expanded)
-                if showDetails {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Divider()
-
-                        // Server path
-                        if let path = mcpManager.serverPath {
-                            HStack(spacing: 4) {
-                                Image(systemName: "folder")
-                                    .foregroundColor(.blue)
-                                    .font(.caption2)
-                                Text("Path")
-                                    .font(.caption2)
-                                Spacer()
-                            }
-                            Text(shortenPath(path))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .help(path)
-                        }
-
-                        // Available tools
-                        Divider()
-
-                        Text("Available Tools")
-                            .font(.caption2)
-                            .fontWeight(.medium)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            ToolRow(name: "start_dev_server", description: "Start dev server")
-                            ToolRow(name: "stop_dev_server", description: "Stop dev server")
-                            ToolRow(name: "get_server_status", description: "Check status")
-                            ToolRow(name: "get_server_logs", description: "View logs")
-                            ToolRow(name: "detect_project_type", description: "Auto-detect project")
-                        }
-
-                        // Refresh button
-                        Divider()
-
-                        Button {
-                            mcpManager.checkServerAvailability()
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.clockwise")
-                                Text("Refresh Status")
-                            }
-                            .font(.caption2)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(.accentColor)
-                    }
-                }
-
-                // Last error from manager
-                if let error = mcpManager.lastError {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .padding(8)
-            .background(Color(NSColor.windowBackgroundColor))
-            .cornerRadius(8)
-        }
-        .padding(.horizontal)
-    }
-
-    private func shortenPath(_ path: String) -> String {
-        let components = path.split(separator: "/")
-        if components.count > 3 {
-            return ".../" + components.suffix(3).joined(separator: "/")
-        }
-        return path
-    }
-}
-
-// MARK: - Tool Row
-
-struct ToolRow: View {
-    let name: String
-    let description: String
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "wrench.and.screwdriver")
-                .foregroundColor(.purple)
-                .font(.system(size: 8))
-            Text(name)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.primary)
-            Spacer()
-        }
-        .help(description)
     }
 }
 
