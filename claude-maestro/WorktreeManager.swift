@@ -220,6 +220,39 @@ class WorktreeManager: ObservableObject {
         }
     }
 
+    /// Clear all in-memory worktree tracking (used when switching directories)
+    func clearAllWorktrees() {
+        activeWorktrees.removeAll()
+    }
+
+    /// Clean up all worktrees for a specific repository path
+    /// Used when changing project directories to clean up the old repo's worktrees
+    func cleanupAllWorktreesForRepo(
+        repoPath: String,
+        gitManager: GitManager
+    ) async throws {
+        let repoHash = stableHash(repoPath)
+
+        // List all worktrees and remove ones in our managed directory
+        let worktrees = try await listWorktrees(repoPath: repoPath, gitManager: gitManager)
+
+        for worktree in worktrees {
+            if worktree.path.contains(".claude-maestro/worktrees/\(repoHash)") {
+                do {
+                    try await gitManager.removeWorktree(path: worktree.path, force: true)
+                } catch {
+                    print("Failed to remove worktree \(worktree.path): \(error)")
+                }
+            }
+        }
+
+        // Prune any stale references
+        try? await gitManager.pruneWorktrees()
+
+        // Clean up empty directories
+        cleanupEmptyDirectories(for: repoPath)
+    }
+
     /// Check if worktree has uncommitted changes
     func hasUncommittedChanges(at path: String) async -> Bool {
         let process = Process()

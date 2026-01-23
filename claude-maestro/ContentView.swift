@@ -364,12 +364,19 @@ class SessionManager: ObservableObject {
     }
 
     func setProjectPath(_ path: String) async {
+        let oldPath = projectPath
+
+        // Reset all sessions if changing to a different directory
+        if !oldPath.isEmpty && oldPath != path {
+            await resetAllSessionsForDirectoryChange(oldPath: oldPath)
+        }
+
         await MainActor.run {
             projectPath = path
         }
         await gitManager.setRepository(path: path)
 
-        // Cleanup worktrees from previous sessions
+        // Cleanup worktrees for the new repo
         if gitManager.isGitRepo {
             do {
                 // First, prune stale worktree references (directories that no longer exist)
@@ -395,6 +402,97 @@ class SessionManager: ObservableObject {
             } catch {
                 print("Failed to cleanup worktrees: \(error)")
             }
+        }
+    }
+
+    /// Reset all sessions when changing to a different project directory
+    /// This provides a clean slate and properly cleans up the old directory's resources
+    func resetAllSessionsForDirectoryChange(oldPath: String?) async {
+        // 1. Stop activity monitoring for all sessions
+        for session in sessions {
+            if let pid = session.terminalPid {
+                activityMonitor.stopMonitoring(pid: pid)
+            }
+        }
+
+        // 2. Remove all agent state files
+        for session in sessions {
+            stateMonitor.removeAgentForSession(session.id)
+        }
+
+        // 3. Terminate all terminal controllers
+        for (_, controller) in terminalControllers {
+            controller.terminate()
+        }
+        terminalControllers.removeAll()
+
+        // 4. Clean up all process registrations and kill terminals
+        for session in sessions {
+            // Kill terminal process group if we have a PID
+            if let pid = session.terminalPid {
+                let pgid = getpgid(pid)
+                if pgid > 0 {
+                    // Send SIGTERM to entire process group
+                    killpg(pgid, SIGTERM)
+                }
+            }
+
+            await processRegistry.cleanupSession(session.id, killProcesses: true)
+            await processCoordinator.cleanupSession(session.id)
+            await nativePortManager.releasePortsForSession(session.id)
+        }
+
+        // 5. Release all ports from legacy port manager
+        for session in sessions {
+            portManager.releasePort(for: session.id)
+        }
+
+        // 6. Clean up old repo worktrees if we had a previous path
+        if let oldPath = oldPath, !oldPath.isEmpty {
+            await cleanupOldRepoWorktrees(oldRepoPath: oldPath)
+        }
+
+        // 7. Clear worktree manager state
+        await worktreeManager.clearAllWorktrees()
+
+        // 8. Reset session state (preserve count and modes)
+        for i in sessions.indices {
+            sessions[i].workingDirectory = nil
+            sessions[i].assignedBranch = nil
+            sessions[i].terminalPid = nil
+            sessions[i].status = .idle
+            sessions[i].assignedPort = nil
+            sessions[i].isTerminalLaunched = false
+            sessions[i].isClaudeRunning = false
+            sessions[i].isVisible = true
+            sessions[i].shouldLaunchTerminal = false
+            sessions[i].isAppRunning = false
+            sessions[i].serverURL = nil
+        }
+
+        // 9. Reset running state
+        isRunning = false
+
+        persistSessions()
+    }
+
+    /// Clean up worktrees from the old repository path
+    private func cleanupOldRepoWorktrees(oldRepoPath: String) async {
+        // Create a temporary GitManager for the old repo
+        let oldGitManager = GitManager()
+        await oldGitManager.setRepository(path: oldRepoPath)
+
+        guard oldGitManager.isGitRepo else { return }
+
+        do {
+            // Remove all maestro-managed worktrees for the old repo
+            try await worktreeManager.cleanupAllWorktreesForRepo(
+                repoPath: oldRepoPath,
+                gitManager: oldGitManager
+            )
+        } catch {
+            print("Failed to cleanup old repo worktrees: \(error)")
+            // Non-fatal - continue with directory change
         }
     }
 
