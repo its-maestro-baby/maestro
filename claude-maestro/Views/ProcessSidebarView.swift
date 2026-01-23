@@ -27,7 +27,6 @@ struct SessionColors {
 struct ProcessSidebarView: View {
     @ObservedObject var manager: SessionManager
     @StateObject private var coordinator = ManagedProcessCoordinator()
-    @StateObject private var activityMonitor = ProcessActivityMonitor()
     @State private var isAgentSessionsExpanded = true
     @State private var isProcessTreeExpanded = true
     @State private var selectedSessionIds: Set<Int> = []
@@ -61,9 +60,10 @@ struct ProcessSidebarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // Agent Sessions Section (AI agents: Claude/Gemini/Codex)
-                    AgentProcessesSection(
+                    // Now uses MCP-reported status via MaestroStateMonitor
+                    AgentStatusSection(
                         manager: manager,
-                        activityMonitor: activityMonitor,
+                        stateMonitor: manager.stateMonitor,
                         isExpanded: $isAgentSessionsExpanded
                     )
 
@@ -100,8 +100,10 @@ struct ProcessSidebarView: View {
     }
 
     private func refreshAll() async {
-        // Trigger a refresh of the process coordinator
-        // The coordinator auto-refreshes, but we can trigger manually
+        // Refresh state monitor for latest agent statuses
+        await MainActor.run {
+            manager.stateMonitor.refresh()
+        }
     }
 }
 

@@ -279,6 +279,9 @@ class SessionManager: ObservableObject {
     // Process activity monitoring for accurate agent state detection
     let activityMonitor = ProcessActivityMonitor()
 
+    // Agent state monitoring via MCP-reported status files
+    @Published var stateMonitor = MaestroStateMonitor()
+
     // MCP server status watcher for auto-open and UI sync (legacy - can be removed after migration)
     private var mcpWatcher = MCPStatusWatcher()
 
@@ -313,6 +316,11 @@ class SessionManager: ObservableObject {
 
         loadPresets()
         loadSessions()
+
+        // Start agent state monitoring
+        Task { @MainActor in
+            stateMonitor.start()
+        }
     }
 
     var gridConfig: GridConfiguration {
@@ -451,6 +459,9 @@ class SessionManager: ObservableObject {
             activityMonitor.stopMonitoring(pid: pid)
             terminalPidToKill = pid
         }
+
+        // Clean up agent state file from MaestroStateMonitor
+        stateMonitor.removeAgentForSession(sessionId)
 
         // Release assigned port (both legacy and native)
         portManager.releasePort(for: sessionId)
