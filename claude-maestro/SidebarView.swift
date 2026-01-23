@@ -30,18 +30,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Tab Content
-            switch selectedTab {
-            case .configuration:
-                ConfigurationSidebarContent(manager: manager)
-            case .processes:
-                ProcessSidebarView(manager: manager)
-            }
-        }
-        .frame(width: 240)
-        .background(Color(NSColor.controlBackgroundColor))
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // Tab Picker - positioned in safe area to align with toolbar
+            // Tab Picker - moved from safeAreaInset to main VStack
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     ForEach(SidebarTab.allCases, id: \.self) { tab in
@@ -72,11 +61,18 @@ struct SidebarView: View {
                 .background(Color(NSColor.controlBackgroundColor))
 
                 Divider()
+            }
+            .padding(.bottom, 12)
 
-                Spacer()
-                    .frame(height: 8)
+            // Tab Content
+            switch selectedTab {
+            case .configuration:
+                ConfigurationSidebarContent(manager: manager)
+            case .processes:
+                ProcessSidebarView(manager: manager)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             manager.loadPresets()
         }
@@ -112,7 +108,7 @@ struct ConfigurationSidebarContent: View {
                     .help(manager.selectionManager.isMultiSelectMode ? "Exit multi-select" : "Multi-select mode")
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 8)
 
             Divider()
 
@@ -124,7 +120,7 @@ struct ConfigurationSidebarContent: View {
                         PresetSelector(manager: manager)
 
                         Divider()
-                            .padding(.horizontal)
+                            .padding(.horizontal, 8)
 
                         // Terminal Count Section
                         VStack(alignment: .leading, spacing: 8) {
@@ -164,24 +160,24 @@ struct ConfigurationSidebarContent: View {
                             }
                             .font(.caption)
                         }
-                        .padding(.horizontal)
+                        .padding(.horizontal, 8)
 
                         Divider()
-                            .padding(.horizontal)
+                            .padding(.horizontal, 8)
                     }
 
                     // Git Repository Info Section (always visible)
                     GitInfoSection(gitManager: manager.gitManager)
 
                     Divider()
-                        .padding(.horizontal)
+                        .padding(.horizontal, 8)
 
                     // Batch Action Bar (when selection active, only when not running)
                     if !manager.isRunning && manager.selectionManager.hasSelection {
                         BatchActionBar(manager: manager)
 
                         Divider()
-                            .padding(.horizontal)
+                            .padding(.horizontal, 8)
                     }
 
                     // Session List Section
@@ -224,7 +220,7 @@ struct ConfigurationSidebarContent: View {
                             }
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 8)
 
                     // Status Overview Section
                     VStack(alignment: .leading, spacing: 8) {
@@ -234,16 +230,16 @@ struct ConfigurationSidebarContent: View {
 
                         StatusOverviewView(manager: manager)
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 8)
 
                     Divider()
-                        .padding(.horizontal)
+                        .padding(.horizontal, 8)
 
                     // Custom MCP Servers Section
                     CustomMCPServersSection()
 
                     Divider()
-                        .padding(.horizontal)
+                        .padding(.horizontal, 8)
 
                     // Quick Actions Section
                     QuickActionsSection()
@@ -384,7 +380,7 @@ struct BatchActionBar: View {
         .padding(8)
         .background(Color.accentColor.opacity(0.1))
         .cornerRadius(8)
-        .padding(.horizontal)
+        .padding(.horizontal, 8)
     }
 }
 
@@ -535,7 +531,7 @@ struct GitInfoSection: View {
                 .cornerRadius(8)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 8)
     }
 
     private func formatRemoteURL(_ url: String) -> String {
@@ -684,7 +680,7 @@ struct CustomMCPServersSection: View {
             .background(Color(NSColor.windowBackgroundColor))
             .cornerRadius(8)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 8)
         .sheet(isPresented: $showAddSheet) {
             MCPServerEditorSheet(
                 server: nil,
@@ -847,7 +843,7 @@ struct QuickActionsSection: View {
             .background(Color(NSColor.windowBackgroundColor))
             .cornerRadius(8)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 8)
         .sheet(isPresented: $showManagerSheet) {
             QuickActionsManagerSheet(
                 quickActionManager: quickActionManager,

@@ -54,11 +54,12 @@ struct ProcessSidebarView: View {
                 .help("Refresh")
             }
             .padding(.horizontal)
+            .padding(.vertical, 8)
 
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     // Agent Sessions Section (AI agents: Claude/Gemini/Codex)
                     AgentProcessesSection(
                         manager: manager,
@@ -84,8 +85,16 @@ struct ProcessSidebarView: View {
                         coordinator: coordinator,
                         selectedSessionIds: $selectedSessionIds
                     )
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // Orphaned Processes Section (for cleanup)
+                    OrphanedProcessesSection(
+                        processRegistry: manager.processRegistry
+                    )
                 }
-                .padding(.bottom, 8)
+                .padding(.vertical, 12)
             }
         }
     }
@@ -103,7 +112,7 @@ struct ProcessTreeSection: View {
     @Binding var isExpanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             // Header
             HStack {
                 Button {
@@ -154,12 +163,12 @@ struct ProcessTreeSection: View {
                         .padding(10)
                     } else {
                         // Compact process list
-                        VStack(spacing: 4) {
+                        VStack(spacing: 6) {
                             ForEach(Array(coordinator.processes.values).sorted(by: { $0.sessionId < $1.sessionId })) { process in
                                 CompactProcessRow(process: process, coordinator: coordinator)
                             }
                         }
-                        .padding(8)
+                        .padding(10)
                     }
                 }
                 .background(Color(NSColor.windowBackgroundColor))
@@ -255,8 +264,8 @@ struct CompactProcessRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(isHovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear)
@@ -289,7 +298,7 @@ struct AgentProcessesSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             // Header
             HStack {
                 Button {
@@ -340,7 +349,7 @@ struct AgentProcessesSection: View {
                         .padding(10)
                     } else {
                         // Agent session list
-                        VStack(spacing: 4) {
+                        VStack(spacing: 6) {
                             ForEach(launchedSessions) { session in
                                 AgentProcessRow(
                                     session: session,
@@ -348,7 +357,7 @@ struct AgentProcessesSection: View {
                                 )
                             }
                         }
-                        .padding(8)
+                        .padding(10)
                     }
                 }
                 .background(Color(NSColor.windowBackgroundColor))
@@ -439,8 +448,8 @@ struct AgentProcessRow: View {
                     .help("Active CPU/IO")
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(isHovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear)
@@ -456,5 +465,229 @@ struct AgentProcessRow: View {
         case .openAiCodex: return "Codex"
         case .plainTerminal: return "Shell"
         }
+    }
+}
+
+// MARK: - Orphaned Processes Section
+
+struct OrphanedProcessesSection: View {
+    let processRegistry: ProcessRegistry
+    @State private var orphanedProcesses: [ProcessInfo] = []
+    @State private var isExpanded = true
+    @State private var isLoading = false
+    @State private var isTerminating = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 12)
+
+                        Text("Orphaned Processes")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                // Orphan count badge (warning color if > 0)
+                if !orphanedProcesses.isEmpty {
+                    Text("\(orphanedProcesses.count)")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                }
+
+                // Refresh button
+                Button {
+                    Task { await refreshOrphans() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
+            }
+
+            if isExpanded {
+                VStack(spacing: 0) {
+                    if isLoading {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("Scanning...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                    } else if orphanedProcesses.isEmpty {
+                        // Empty state - all good!
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("No orphaned processes")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                    } else {
+                        // Orphan list
+                        VStack(spacing: 6) {
+                            // Terminate All button
+                            Button {
+                                Task { await terminateAll() }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "xmark.circle.fill")
+                                    Text("Terminate All (\(orphanedProcesses.count))")
+                                }
+                                .font(.caption)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                            .controlSize(.small)
+                            .disabled(isTerminating)
+
+                            Divider()
+                                .padding(.vertical, 4)
+
+                            // Individual orphan rows
+                            ForEach(orphanedProcesses) { process in
+                                OrphanedProcessRow(
+                                    process: process,
+                                    onTerminate: { await terminateProcess(process.pid) }
+                                )
+                            }
+                        }
+                        .padding(10)
+                    }
+                }
+                .background(Color(NSColor.windowBackgroundColor))
+                .cornerRadius(8)
+            }
+        }
+        .padding(.horizontal)
+        .onAppear {
+            Task { await refreshOrphans() }
+        }
+    }
+
+    private func refreshOrphans() async {
+        isLoading = true
+        orphanedProcesses = await processRegistry.findOrphanedAgentProcesses()
+        isLoading = false
+    }
+
+    private func terminateAll() async {
+        isTerminating = true
+        _ = await processRegistry.terminateOrphanedAgentProcesses()
+        // Wait a moment then refresh
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await refreshOrphans()
+        isTerminating = false
+    }
+
+    private func terminateProcess(_ pid: pid_t) async {
+        _ = processRegistry.terminateOrphanedProcess(pid: pid)
+        // Wait a moment then refresh
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await refreshOrphans()
+    }
+}
+
+// MARK: - Orphaned Process Row
+
+struct OrphanedProcessRow: View {
+    let process: ProcessInfo
+    let onTerminate: () async -> Void
+    @State private var isHovered = false
+    @State private var isTerminating = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Warning indicator
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+                .font(.caption2)
+
+            // Process name
+            Text(process.name)
+                .font(.caption)
+                .fontWeight(.medium)
+
+            // PID
+            Text("PID:\(process.pid)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 3)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(3)
+
+            Spacer()
+
+            // Start time (if available)
+            if let startTime = process.startTime {
+                Text(formatStartTime(startTime))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            // Terminate button (on hover or always visible)
+            if isHovered || isTerminating {
+                Button {
+                    Task {
+                        isTerminating = true
+                        await onTerminate()
+                        isTerminating = false
+                    }
+                } label: {
+                    if isTerminating {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "xmark.circle")
+                            .font(.caption2)
+                            .foregroundColor(.red.opacity(0.7))
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Terminate this process")
+                .disabled(isTerminating)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isHovered ? Color.orange.opacity(0.1) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+
+    private func formatStartTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }

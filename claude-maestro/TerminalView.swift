@@ -143,9 +143,33 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             execName: nil
         )
 
-        // TODO: Register the shell PID for native process management
-        // Note: LocalProcessTerminalView doesn't expose shellPid directly
-        // This would need SwiftTerm extension or alternative approach
+        // Capture the shell PID for native process management
+        // We need to wait a moment for the shell to spawn, then find it
+        let capturedSessionId = sessionId
+        let capturedOnProcessStarted = onProcessStarted
+        let capturedMode = mode
+
+        Task {
+            // Small delay to let the shell process spawn
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+            // Find the shell process by looking for children of our app
+            // that match the shell or the AI CLI process
+            let processTree = ProcessTree()
+            let appPid = getpid()
+            let children = await processTree.getDescendants(of: appPid)
+
+            // Look for the CLI process (claude, gemini, codex) or shell
+            let targetName = capturedMode.processName ?? "zsh"
+            if let shellProcess = children.first(where: { proc in
+                proc.name.lowercased().contains(targetName.lowercased()) ||
+                proc.name == "zsh" || proc.name == "bash"
+            }) {
+                await MainActor.run {
+                    capturedOnProcessStarted?(shellProcess.pid)
+                }
+            }
+        }
     }
 
     class Coordinator: NSObject, LocalProcessTerminalViewDelegate {

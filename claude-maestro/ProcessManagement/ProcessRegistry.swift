@@ -232,7 +232,7 @@ public actor ProcessRegistry {
         }
     }
 
-    // MARK: - Orphan Detection
+    // MARK: - Orphan Detection (Registry-level)
 
     /// Find orphaned processes (processes we registered that no longer exist)
     public func findOrphans() -> [RegisteredProcess] {
@@ -251,6 +251,113 @@ public actor ProcessRegistry {
             _ = unregister(pid: orphan.pid)
         }
         return orphans
+    }
+
+    // MARK: - System-Wide Orphan Detection
+
+    /// Find orphaned AI agent processes in the system (PPID=1, not managed by us)
+    /// These are Claude/Gemini/Codex processes that have been reparented to launchd
+    /// - Returns: Array of ProcessInfo for orphaned AI processes
+    public func findOrphanedAgentProcesses() async -> [ProcessInfo] {
+        let processTree = ProcessTree()
+        let allProcesses = await processTree.getAllProcesses(includeSystem: false)
+
+        // AI agent process names to look for
+        let agentNames: Set<String> = ["claude", "gemini", "codex"]
+
+        return allProcesses.filter { proc in
+            // Check if orphaned (reparented to launchd/PID 1)
+            proc.ppid == 1 &&
+            // Is an AI agent process
+            agentNames.contains(proc.name.lowercased()) &&
+            // Not managed by us
+            !isRegistered(pid: proc.pid)
+        }
+    }
+
+    /// Get count of orphaned AI agent processes
+    public func orphanedAgentCount() async -> Int {
+        await findOrphanedAgentProcesses().count
+    }
+
+    /// Terminate orphaned AI agent processes gracefully
+    /// - Returns: Number of processes terminated
+    @discardableResult
+    public func terminateOrphanedAgentProcesses() async -> Int {
+        let orphans = await findOrphanedAgentProcesses()
+        guard !orphans.isEmpty else { return 0 }
+
+        var terminatedCount = 0
+
+        // Send SIGTERM to each process group
+        for orphan in orphans {
+            let pgid = getpgid(orphan.pid)
+            if pgid > 0 {
+                // Kill the entire process group
+                if killpg(pgid, SIGTERM) == 0 {
+                    terminatedCount += 1
+                }
+            } else {
+                // Fallback: kill just the process
+                if kill(orphan.pid, SIGTERM) == 0 {
+                    terminatedCount += 1
+                }
+            }
+        }
+
+        // Schedule SIGKILL after grace period for any stubborn processes
+        if terminatedCount > 0 {
+            Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+
+                for orphan in orphans {
+                    let pgid = getpgid(orphan.pid)
+                    if pgid > 0 {
+                        // Check if process group still exists
+                        if killpg(pgid, 0) == 0 {
+                            killpg(pgid, SIGKILL)
+                        }
+                    } else {
+                        // Check if process still exists
+                        if kill(orphan.pid, 0) == 0 {
+                            kill(orphan.pid, SIGKILL)
+                        }
+                    }
+                }
+            }
+        }
+
+        return terminatedCount
+    }
+
+    /// Terminate a specific orphaned process by PID
+    /// - Parameter pid: Process ID to terminate
+    /// - Returns: True if termination signal was sent
+    public func terminateOrphanedProcess(pid: pid_t) -> Bool {
+        let pgid = getpgid(pid)
+        if pgid > 0 {
+            if killpg(pgid, SIGTERM) == 0 {
+                // Schedule SIGKILL after grace period
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if killpg(pgid, 0) == 0 {
+                        killpg(pgid, SIGKILL)
+                    }
+                }
+                return true
+            }
+        } else {
+            if kill(pid, SIGTERM) == 0 {
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if kill(pid, 0) == 0 {
+                        kill(pid, SIGKILL)
+                    }
+                }
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Statistics

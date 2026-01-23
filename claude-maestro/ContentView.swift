@@ -44,6 +44,16 @@ enum TerminalMode: String, CaseIterable, Codable {
         }
     }
 
+    /// The process name to look for when detecting the running CLI process
+    var processName: String? {
+        switch self {
+        case .claudeCode: return "claude"
+        case .geminiCli: return "gemini"
+        case .openAiCodex: return "codex"
+        case .plainTerminal: return nil
+        }
+    }
+
     var isAIMode: Bool {
         return self != .plainTerminal
     }
@@ -435,9 +445,11 @@ class SessionManager: ObservableObject {
         print("Closing session \(sessionId)")
 
         // Stop activity monitoring for this session's process
+        var terminalPidToKill: pid_t? = nil
         if let session = sessions.first(where: { $0.id == sessionId }),
            let pid = session.terminalPid {
             activityMonitor.stopMonitoring(pid: pid)
+            terminalPidToKill = pid
         }
 
         // Release assigned port (both legacy and native)
@@ -451,6 +463,24 @@ class SessionManager: ObservableObject {
 
         // Clean up using native process management
         Task {
+            // If we have a terminal PID, kill its process group directly
+            // This ensures cleanup even if the process wasn't registered
+            if let pid = terminalPidToKill {
+                let pgid = getpgid(pid)
+                if pgid > 0 {
+                    // Send SIGTERM to entire process group
+                    killpg(pgid, SIGTERM)
+
+                    // Schedule SIGKILL after grace period
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+                        if killpg(pgid, 0) == 0 { // Check if still alive
+                            killpg(pgid, SIGKILL)
+                        }
+                    }
+                }
+            }
+
             // Kill all processes in the session using native process groups
             await processRegistry.cleanupSession(sessionId, killProcesses: true)
 
