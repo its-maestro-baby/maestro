@@ -32,8 +32,15 @@ func writeAgentState(agentId: String, state: String, message: String, prompt: St
 struct MaestroMCPServer {
     static func main() async throws {
         // Get agent ID from environment or generate from process ID
-        let agentId = ProcessInfo.processInfo.environment["MAESTRO_AGENT_ID"]
-            ?? "agent-\(ProcessInfo.processInfo.processIdentifier)"
+        // Supports both MAESTRO_AGENT_ID (full ID like "agent-1") and MAESTRO_SESSION_ID (just the number)
+        let agentId: String
+        if let id = ProcessInfo.processInfo.environment["MAESTRO_AGENT_ID"] {
+            agentId = id
+        } else if let sessionId = ProcessInfo.processInfo.environment["MAESTRO_SESSION_ID"] {
+            agentId = "agent-\(sessionId)"
+        } else {
+            agentId = "agent-\(ProcessInfo.processInfo.processIdentifier)"
+        }
 
         // Write initial idle state
         writeAgentState(agentId: agentId, state: "idle", message: "Agent ready")
