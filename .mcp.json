@@ -1,12 +1,26 @@
 {
-  "mcpServers": {
-    "maestro-status": {
-      "command": "/Users/jackwakem/Library/Application Support/Claude Maestro/MaestroMCPServer",
-      "args": [],
-      "env": {
-        "MAESTRO_AGENT_ID": "agent-1"
+  "mcpServers" : {
+    "maestro" : {
+      "args" : [
+
+      ],
+      "command" : "\/Users\/jackwakem\/Library\/Application Support\/Claude Maestro\/MaestroMCPServer",
+      "env" : {
+        "MAESTRO_PORT_RANGE_END" : "3099",
+        "MAESTRO_PORT_RANGE_START" : "3000",
+        "MAESTRO_AGENT_ID" : "agent-1"
       },
-      "type": "stdio"
+      "type" : "stdio"
+    },
+    "maestro-status" : {
+      "args" : [
+        "\/Users\/jackwakem\/Desktop\/claude-maestro\/maestro-mcp-server\/dist\/index.js"
+      ],
+      "command" : "node",
+      "env" : {
+        "MAESTRO_AGENT_ID" : "agent-1"
+      },
+      "type" : "stdio"
     }
   }
 }
