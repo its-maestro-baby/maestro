@@ -44,11 +44,13 @@ class MarketplaceManager: ObservableObject {
 
     private func setupDefaultSources() {
         // Add official marketplace if not present
+        // Note: Disabled by default until official repo exists
         if !sources.contains(where: { $0.name == "claude-plugins-official" }) {
             let officialSource = MarketplaceSource(
                 name: "claude-plugins-official",
                 repositoryURL: "anthropics/claude-plugins-official",
-                isOfficial: true
+                isOfficial: true,
+                isEnabled: false
             )
             sources.append(officialSource)
             persistSources()
@@ -134,16 +136,22 @@ class MarketplaceManager: ObservableObject {
         let decoder = JSONDecoder()
 
         // Try parsing as MarketplaceManifest first
-        if let manifest = try? decoder.decode(MarketplaceManifest.self, from: data) {
+        do {
+            let manifest = try decoder.decode(MarketplaceManifest.self, from: data)
             return manifest.plugins.map { $0.toMarketplacePlugin(marketplace: source.name, baseURL: baseURL) }
+        } catch let manifestError {
+            // Try parsing as array of plugins directly
+            do {
+                let plugins = try decoder.decode([MarketplacePluginManifest].self, from: data)
+                return plugins.map { $0.toMarketplacePlugin(marketplace: source.name, baseURL: baseURL) }
+            } catch let arrayError {
+                // Include diagnostic info from both attempts
+                let dataPreview = String(data: data.prefix(200), encoding: .utf8) ?? "Unable to decode data"
+                throw MarketplaceError.parseError(
+                    "Failed to parse manifest. As MarketplaceManifest: \(manifestError.localizedDescription). As plugin array: \(arrayError.localizedDescription). Data preview: \(dataPreview)"
+                )
+            }
         }
-
-        // Try parsing as array of plugins directly
-        if let plugins = try? decoder.decode([MarketplacePluginManifest].self, from: data) {
-            return plugins.map { $0.toMarketplacePlugin(marketplace: source.name, baseURL: baseURL) }
-        }
-
-        throw MarketplaceError.parseError("Failed to parse marketplace manifest")
     }
 
     // MARK: - Plugin Installation
