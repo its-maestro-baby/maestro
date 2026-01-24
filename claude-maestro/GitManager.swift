@@ -173,8 +173,9 @@ class GitManager: ObservableObject {
 
     func fetchCommitHistory(limit: Int = 50, skip: Int = 0) async throws -> [Commit] {
         // Format: fullHash|shortHash|subject|authorName|authorEmail|isoDate|parentHashes|refs
-        let format = "%H|%h|%s|%an|%ae|%aI|%P|%D"
-        var args = ["log", "--all", "--topo-order", "--format=\(format)", "-n", "\(limit)"]
+        // Use %x00 (null byte) as record separator to handle --shortstat output
+        let format = "%H|%h|%s|%an|%ae|%aI|%P|%D%x00"
+        var args = ["log", "--all", "--topo-order", "--format=\(format)", "--shortstat", "-n", "\(limit)"]
         if skip > 0 {
             args.append("--skip=\(skip)")
         }
@@ -187,9 +188,22 @@ class GitManager: ObservableObject {
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime]
 
-        return output.split(separator: "\n").compactMap { line -> Commit? in
-            // Split by | but preserve empty fields
-            let parts = String(line).components(separatedBy: "|")
+        // Split by null byte to separate commit records
+        let commitBlocks = output.components(separatedBy: "\u{0000}")
+
+        return commitBlocks.compactMap { block -> Commit? in
+            let trimmedBlock = block.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedBlock.isEmpty else { return nil }
+
+            // Split block into lines - first line is format data, second (if present) is stats
+            let lines = trimmedBlock.components(separatedBy: "\n")
+            guard !lines.isEmpty else { return nil }
+
+            let formatLine = lines[0]
+            let statsLine = lines.count > 1 ? lines[1] : ""
+
+            // Parse the format line
+            let parts = formatLine.components(separatedBy: "|")
             guard parts.count >= 6 else { return nil }
 
             let hash = parts[0]
@@ -205,6 +219,9 @@ class GitManager: ObservableObject {
             let refs = parseRefs(refStr, currentHead: currentHead)
             let date = dateFormatter.date(from: dateStr) ?? Date()
 
+            // Parse shortstat line: "3 files changed, 10 insertions(+), 5 deletions(-)"
+            let (insertions, deletions) = parseShortStats(statsLine)
+
             return Commit(
                 id: hash,
                 shortHash: shortHash,
@@ -214,8 +231,66 @@ class GitManager: ObservableObject {
                 date: date,
                 parentHashes: parents,
                 isHead: hash == currentHead,
-                refs: refs
+                refs: refs,
+                insertions: insertions,
+                deletions: deletions
             )
+        }
+    }
+
+    private func parseShortStats(_ statsLine: String) -> (insertions: Int?, deletions: Int?) {
+        guard !statsLine.isEmpty else { return (nil, nil) }
+
+        var insertions: Int?
+        var deletions: Int?
+
+        // Match "X insertions(+)" or "X insertion(+)"
+        if let range = statsLine.range(of: #"(\d+) insertion"#, options: .regularExpression) {
+            let match = statsLine[range]
+            let numberStr = match.replacingOccurrences(of: " insertion", with: "")
+            insertions = Int(numberStr)
+        }
+
+        // Match "X deletions(-)" or "X deletion(-)"
+        if let range = statsLine.range(of: #"(\d+) deletion"#, options: .regularExpression) {
+            let match = statsLine[range]
+            let numberStr = match.replacingOccurrences(of: " deletion", with: "")
+            deletions = Int(numberStr)
+        }
+
+        // If we parsed any stats but one is missing, it means 0 for that stat
+        if insertions != nil || deletions != nil {
+            return (insertions ?? 0, deletions ?? 0)
+        }
+
+        return (nil, nil)
+    }
+
+    func fetchCommitFiles(hash: String) async throws -> [CommitFile] {
+        // Use git diff-tree to get the list of files changed in a commit
+        // --no-commit-id: don't print the commit hash
+        // --name-status: show file status (A/M/D/R/C) and path
+        // -r: recurse into subdirectories
+        let output = try await runGitCommand(["diff-tree", "--no-commit-id", "--name-status", "-r", hash])
+
+        return output.split(separator: "\n").compactMap { line -> CommitFile? in
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count >= 2 else { return nil }
+
+            let statusChar = String(parts[0]).prefix(1)  // Handle R100, C100 cases
+            let path = String(parts[1])
+
+            let status: CommitFile.FileChangeStatus
+            switch statusChar {
+            case "A": status = .added
+            case "M": status = .modified
+            case "D": status = .deleted
+            case "R": status = .renamed
+            case "C": status = .copied
+            default: status = .unknown
+            }
+
+            return CommitFile(path: path, status: status)
         }
     }
 

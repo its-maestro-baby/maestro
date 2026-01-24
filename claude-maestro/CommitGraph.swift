@@ -20,6 +20,8 @@ struct Commit: Identifiable, Hashable {
     let parentHashes: [String]  // Parent commit SHAs
     let isHead: Bool            // Is this HEAD?
     let refs: [GitRef]          // Branch/tag refs pointing to this commit
+    let insertions: Int?        // Lines added (nil if not available)
+    let deletions: Int?         // Lines removed (nil if not available)
 
     var isMergeCommit: Bool {
         parentHashes.count > 1
@@ -27,6 +29,45 @@ struct Commit: Identifiable, Hashable {
 
     var isRootCommit: Bool {
         parentHashes.isEmpty
+    }
+}
+
+// MARK: - Commit File Model
+
+struct CommitFile: Identifiable {
+    var id: String { path }
+    let path: String
+    let status: FileChangeStatus
+
+    enum FileChangeStatus: String {
+        case added = "A"
+        case modified = "M"
+        case deleted = "D"
+        case renamed = "R"
+        case copied = "C"
+        case unknown = "?"
+
+        var icon: String {
+            switch self {
+            case .added: return "plus.circle.fill"
+            case .modified: return "pencil.circle.fill"
+            case .deleted: return "minus.circle.fill"
+            case .renamed: return "arrow.right.circle.fill"
+            case .copied: return "doc.on.doc.fill"
+            case .unknown: return "questionmark.circle.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .added: return .green
+            case .modified: return .orange
+            case .deleted: return .red
+            case .renamed: return .blue
+            case .copied: return .purple
+            case .unknown: return .gray
+            }
+        }
     }
 }
 

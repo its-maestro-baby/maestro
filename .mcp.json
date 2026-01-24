@@ -8,7 +8,7 @@
       "env" : {
         "MAESTRO_PORT_RANGE_END" : "3099",
         "MAESTRO_PORT_RANGE_START" : "3000",
-        "MAESTRO_AGENT_ID" : "agent-1"
+        "MAESTRO_SESSION_ID" : "2"
       },
       "type" : "stdio"
     },
@@ -18,7 +18,7 @@
       ],
       "command" : "node",
       "env" : {
-        "MAESTRO_AGENT_ID" : "agent-1"
+        "MAESTRO_AGENT_ID" : "agent-2"
       },
       "type" : "stdio"
     }

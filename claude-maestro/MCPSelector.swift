@@ -84,17 +84,11 @@ struct MCPSelector: View {
         Menu {
             // Maestro MCP section
             Section("Maestro") {
-                Button {
-                    mcpManager.setMaestroEnabled(!sessionConfig.maestroEnabled, for: sessionId)
-                } label: {
-                    HStack {
-                        Image(systemName: "cpu")
-                        Text("Maestro MCP")
-                        Spacer()
-                        if sessionConfig.maestroEnabled {
-                            Image(systemName: "checkmark")
-                        }
-                    }
+                Toggle(isOn: Binding(
+                    get: { sessionConfig.maestroEnabled },
+                    set: { mcpManager.setMaestroEnabled($0, for: sessionId) }
+                )) {
+                    Label("Maestro MCP", systemImage: "cpu")
                 }
             }
 
@@ -105,18 +99,11 @@ struct MCPSelector: View {
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(availableCustomServers) { server in
-                        Button {
-                            let isEnabled = sessionConfig.isServerEnabled(server.id)
-                            mcpManager.setServerEnabled(server.id, enabled: !isEnabled, for: sessionId)
-                        } label: {
-                            HStack {
-                                Image(systemName: "externaldrive.connected.to.line.below")
-                                Text(server.name)
-                                Spacer()
-                                if sessionConfig.isServerEnabled(server.id) {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
+                        Toggle(isOn: Binding(
+                            get: { sessionConfig.isServerEnabled(server.id) },
+                            set: { mcpManager.setServerEnabled(server.id, enabled: $0, for: sessionId) }
+                        )) {
+                            Label(server.name, systemImage: "externaldrive.connected.to.line.below")
                         }
                     }
                 }

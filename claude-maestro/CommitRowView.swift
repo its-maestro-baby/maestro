@@ -88,6 +88,17 @@ struct CommitRowView: View {
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundColor(.secondary)
 
+                // Diff stats
+                if let ins = node.commit.insertions, let del = node.commit.deletions {
+                    HStack(spacing: 2) {
+                        Text("+\(ins)")
+                            .foregroundColor(.green)
+                        Text("-\(del)")
+                            .foregroundColor(.red)
+                    }
+                    .font(.system(.caption2, design: .monospaced))
+                }
+
                 // Relative date
                 Text(node.commit.date.relativeDescription)
                     .font(.caption2)
@@ -231,7 +242,9 @@ struct RefLabel: View {
                     refs: [
                         GitRef(id: "main", name: "main", type: .localBranch, isHead: true),
                         GitRef(id: "origin/main", name: "origin/main", type: .remoteBranch, isHead: false)
-                    ]
+                    ],
+                    insertions: 42,
+                    deletions: 15
                 ),
                 column: 0,
                 row: 0,
@@ -258,7 +271,9 @@ struct RefLabel: View {
                     date: Date().addingTimeInterval(-3600),
                     parentHashes: ["abc1234", "xyz9999"],
                     isHead: false,
-                    refs: []
+                    refs: [],
+                    insertions: 128,
+                    deletions: 32
                 ),
                 column: 0,
                 row: 1,

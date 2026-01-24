@@ -18,6 +18,9 @@ struct CommitDetailPanel: View {
     @State private var isCheckingOut: Bool = false
     @State private var checkoutError: String?
     @State private var copiedHash: Bool = false
+    @State private var files: [CommitFile] = []
+    @State private var isLoadingFiles: Bool = false
+    @State private var filesError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -33,6 +36,11 @@ struct CommitDetailPanel: View {
 
                     Divider()
 
+                    // Files changed section
+                    filesSection
+
+                    Divider()
+
                     // References section (show if has refs or remotes configured)
                     if !commit.refs.isEmpty || !gitManager.remoteURLs.isEmpty {
                         refsSection
@@ -43,6 +51,9 @@ struct CommitDetailPanel: View {
                     actionsSection
                 }
                 .padding()
+            }
+            .task(id: commit.id) {
+                await loadFiles()
             }
         }
         .background(Color(NSColor.windowBackgroundColor))
@@ -186,6 +197,74 @@ struct CommitDetailPanel: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    // MARK: - Files Section
+
+    private var filesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Files Changed")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if isLoadingFiles {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 12, height: 12)
+                }
+
+                Spacer()
+
+                if !files.isEmpty {
+                    Text("\(files.count) file\(files.count == 1 ? "" : "s")")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let error = filesError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundColor(.red)
+            } else if files.isEmpty && !isLoadingFiles {
+                Text("No files changed")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(files) { file in
+                        HStack(spacing: 6) {
+                            Image(systemName: file.status.icon)
+                                .foregroundColor(file.status.color)
+                                .font(.caption)
+                                .frame(width: 14)
+
+                            Text(file.path)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadFiles() async {
+        isLoadingFiles = true
+        filesError = nil
+
+        do {
+            files = try await gitManager.fetchCommitFiles(hash: commit.id)
+        } catch {
+            filesError = "Failed to load files"
+            files = []
+        }
+
+        isLoadingFiles = false
     }
 
     // MARK: - Refs Section
@@ -578,7 +657,9 @@ struct FlowLayout: Layout {
                 GitRef(id: "main", name: "main", type: .localBranch, isHead: false),
                 GitRef(id: "origin/main", name: "origin/main", type: .remoteBranch, isHead: false),
                 GitRef(id: "v1.0.0", name: "v1.0.0", type: .tag, isHead: false)
-            ]
+            ],
+            insertions: 156,
+            deletions: 42
         ),
         gitManager: GitManager(),
         onClose: {},

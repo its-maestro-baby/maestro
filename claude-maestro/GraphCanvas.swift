@@ -131,7 +131,8 @@ struct GraphCanvas: View {
             commit: Commit(
                 id: "1", shortHash: "abc1234", message: "Commit 1",
                 author: "Test", authorEmail: "test@test.com",
-                date: Date(), parentHashes: ["2"], isHead: true, refs: []
+                date: Date(), parentHashes: ["2"], isHead: true, refs: [],
+                insertions: 10, deletions: 5
             ),
             column: 0, row: 0,
             parentConnections: [
@@ -143,7 +144,8 @@ struct GraphCanvas: View {
             commit: Commit(
                 id: "2", shortHash: "def5678", message: "Commit 2",
                 author: "Test", authorEmail: "test@test.com",
-                date: Date(), parentHashes: ["3", "4"], isHead: false, refs: []
+                date: Date(), parentHashes: ["3", "4"], isHead: false, refs: [],
+                insertions: 25, deletions: 12
             ),
             column: 0, row: 1,
             parentConnections: [
@@ -156,7 +158,8 @@ struct GraphCanvas: View {
             commit: Commit(
                 id: "3", shortHash: "ghi9012", message: "Commit 3",
                 author: "Test", authorEmail: "test@test.com",
-                date: Date(), parentHashes: ["5"], isHead: false, refs: []
+                date: Date(), parentHashes: ["5"], isHead: false, refs: [],
+                insertions: 8, deletions: 3
             ),
             column: 0, row: 2,
             parentConnections: [
@@ -168,7 +171,8 @@ struct GraphCanvas: View {
             commit: Commit(
                 id: "4", shortHash: "jkl3456", message: "Commit 4 (feature)",
                 author: "Test", authorEmail: "test@test.com",
-                date: Date(), parentHashes: ["5"], isHead: false, refs: []
+                date: Date(), parentHashes: ["5"], isHead: false, refs: [],
+                insertions: 42, deletions: 0
             ),
             column: 1, row: 3,
             parentConnections: [
@@ -180,7 +184,8 @@ struct GraphCanvas: View {
             commit: Commit(
                 id: "5", shortHash: "mno7890", message: "Commit 5 (root)",
                 author: "Test", authorEmail: "test@test.com",
-                date: Date(), parentHashes: [], isHead: false, refs: []
+                date: Date(), parentHashes: [], isHead: false, refs: [],
+                insertions: nil, deletions: nil
             ),
             column: 0, row: 4,
             parentConnections: []
