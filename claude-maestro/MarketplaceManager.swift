@@ -47,9 +47,9 @@ class MarketplaceManager: ObservableObject {
     private func verifyPluginSymlinks() {
         let fm = FileManager.default
 
-        // Ensure skills and commands directories exist
+        // Ensure skills and plugins directories exist
         try? ensureSkillsDirectory()
-        try? ensureCommandsDirectory()
+        try? ensurePluginsDirectory()
 
         var needsPersist = false
 
@@ -65,13 +65,28 @@ class MarketplaceManager: ObservableObject {
                 }
             }
 
-            // Check if command symlinks exist
-            var missingCommandSymlinks = false
-            for symlinkPath in plugin.commandSymlinks {
-                if !fm.fileExists(atPath: symlinkPath) {
-                    missingCommandSymlinks = true
-                    break
+            // Check if command symlinks need migration to new plugin directory format
+            // Old format: individual .md symlinks in ~/.claude/commands/
+            // New format: single plugin directory symlink in ~/.claude/plugins/
+            var needsCommandMigration = false
+            let expectedPluginSymlink = "\(pluginsPath)/\(plugin.name)"
+
+            if plugin.commandSymlinks.isEmpty {
+                // No symlinks recorded, check if plugin has commands
+                let commandsDir = "\(plugin.path)/commands"
+                if fm.fileExists(atPath: commandsDir) {
+                    needsCommandMigration = true
                 }
+            } else if plugin.commandSymlinks.contains(where: { $0.contains("/.claude/commands/") }) {
+                // Old-style individual .md symlinks - migrate to new format
+                needsCommandMigration = true
+                // Remove old individual symlinks
+                for symlinkPath in plugin.commandSymlinks {
+                    try? fm.removeItem(atPath: symlinkPath)
+                }
+            } else if !fm.fileExists(atPath: expectedPluginSymlink) {
+                // New-style symlink missing
+                needsCommandMigration = true
             }
 
             // If some skill symlinks are missing, try to recreate them
@@ -87,14 +102,13 @@ class MarketplaceManager: ObservableObject {
                 }
             }
 
-            // If some command symlinks are missing, try to recreate them
-            if missingCommandSymlinks && fm.fileExists(atPath: plugin.path) {
+            // If command symlinks need migration/recreation
+            if needsCommandMigration && fm.fileExists(atPath: plugin.path) {
                 do {
                     let newSymlinks = try symlinkPluginCommands(from: plugin.path, pluginName: plugin.name)
                     plugin.commandSymlinks = newSymlinks
-                    plugin.commands = newSymlinks.map {
-                        URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
-                    }
+                    // Extract command names from the plugin's commands directory
+                    plugin.commands = discoverCommandNames(in: plugin.path)
                     installedPlugins[index] = plugin
                     needsPersist = true
                 } catch {
@@ -441,43 +455,71 @@ class MarketplaceManager: ObservableObject {
         return createdSymlinks
     }
 
-    /// Create symlinks for plugin commands in ~/.claude/commands/
+    /// Plugins directory path for symlinks
+    private var pluginsPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/plugins").path
+    }
+
+    /// Ensure the plugins directory exists
+    private func ensurePluginsDirectory() throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: pluginsPath) {
+            try fm.createDirectory(atPath: pluginsPath, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Create a plugin directory symlink in ~/.claude/plugins/
+    /// This allows CommandManager to discover commands with proper plugin attribution
     private func symlinkPluginCommands(from pluginPath: String, pluginName: String) throws -> [String] {
         let fm = FileManager.default
         var createdSymlinks: [String] = []
 
-        // Ensure commands directory exists
-        try ensureCommandsDirectory()
+        // Ensure plugins directory exists
+        try ensurePluginsDirectory()
 
-        // Look for commands directory in plugin
+        // Check if plugin has a commands directory
         let commandsDir = "\(pluginPath)/commands"
         guard fm.fileExists(atPath: commandsDir) else {
             return createdSymlinks
         }
 
-        // Scan commands directory for .md files
-        guard let contents = try? fm.contentsOfDirectory(atPath: commandsDir) else {
-            return createdSymlinks
-        }
+        // Create symlink for the entire plugin directory in ~/.claude/plugins/
+        // This allows CommandManager.scanPluginsForCommands() to discover it with proper source attribution
+        let symlinkPath = "\(pluginsPath)/\(pluginName)"
 
-        for item in contents {
-            // Only process .md files
-            guard item.hasSuffix(".md") else { continue }
-
-            let commandPath = "\(commandsDir)/\(item)"
-            var isDir: ObjCBool = false
-
-            // Skip directories
-            if fm.fileExists(atPath: commandPath, isDirectory: &isDir), !isDir.boolValue {
-                // Create symlink in ~/.claude/commands/
-                let symlinkPath = "\(personalCommandsPath)/\(item)"
-                try? fm.removeItem(atPath: symlinkPath) // Remove existing symlink if any
-                try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: commandPath)
+        // Check if symlink already exists and points to correct location
+        if let existingTarget = try? fm.destinationOfSymbolicLink(atPath: symlinkPath) {
+            let resolvedExisting = URL(fileURLWithPath: existingTarget, relativeTo: URL(fileURLWithPath: symlinkPath).deletingLastPathComponent()).standardized.path
+            let resolvedSource = URL(fileURLWithPath: pluginPath).standardized.path
+            if resolvedExisting == resolvedSource {
+                // Symlink already exists and points to correct location
                 createdSymlinks.append(symlinkPath)
+                return createdSymlinks
             }
         }
 
+        // Remove existing symlink or directory if it exists
+        try? fm.removeItem(atPath: symlinkPath)
+
+        // Create new symlink to the plugin directory
+        try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: pluginPath)
+        createdSymlinks.append(symlinkPath)
+
         return createdSymlinks
+    }
+
+    /// Discover command names from a plugin's commands directory
+    private func discoverCommandNames(in pluginPath: String) -> [String] {
+        let fm = FileManager.default
+        let commandsDir = "\(pluginPath)/commands"
+        guard let contents = try? fm.contentsOfDirectory(atPath: commandsDir) else {
+            return []
+        }
+
+        return contents
+            .filter { $0.hasSuffix(".md") }
+            .map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
     }
 
     /// Remove skill symlinks created for a plugin
@@ -580,15 +622,13 @@ class MarketplaceManager: ObservableObject {
             print("Warning: Failed to create skill symlinks: \(error)")
         }
 
-        // Create symlinks for plugin commands from the source path
+        // Create plugin directory symlink for commands
         var commandSymlinks: [String] = []
         var discoveredCommands: [String] = []
         do {
             commandSymlinks = try symlinkPluginCommands(from: sourcePath, pluginName: plugin.name)
-            // Extract command names from symlink paths (without .md extension)
-            discoveredCommands = commandSymlinks.map {
-                URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
-            }
+            // Extract command names from the plugin's commands directory
+            discoveredCommands = discoverCommandNames(in: sourcePath)
         } catch {
             print("Warning: Failed to create command symlinks: \(error)")
         }
