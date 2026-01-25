@@ -39,6 +39,7 @@ class MarketplaceManager: ObservableObject {
         loadSessionConfigs()
         setupDefaultSources()
         verifyPluginSymlinks()
+        syncMarketplaceSkills()
     }
 
     /// Verify and recreate any missing symlinks for installed plugins
@@ -81,6 +82,147 @@ class MarketplaceManager: ObservableObject {
 
         if needsPersist {
             persistInstalledPlugins()
+        }
+    }
+
+    // MARK: - Marketplace Skills Sync
+
+    /// Marketplaces directory path
+    private var marketplacesPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/plugins/marketplaces").path
+    }
+
+    /// Sync skills from marketplace plugins to ~/.claude/skills/
+    /// Creates symlinks for all skills found in marketplace plugins
+    func syncMarketplaceSkills() {
+        let fm = FileManager.default
+
+        // Ensure skills directory exists
+        try? ensureSkillsDirectory()
+
+        // Clean up orphaned symlinks first
+        cleanupOrphanedSkillSymlinks()
+
+        // Scan marketplaces directory
+        guard fm.fileExists(atPath: marketplacesPath) else { return }
+
+        guard let marketplaceDirs = try? fm.contentsOfDirectory(atPath: marketplacesPath) else {
+            return
+        }
+
+        for marketplaceName in marketplaceDirs {
+            let marketplacePath = "\(marketplacesPath)/\(marketplaceName)"
+            var isDir: ObjCBool = false
+
+            guard fm.fileExists(atPath: marketplacePath, isDirectory: &isDir), isDir.boolValue else {
+                continue
+            }
+
+            // Scan both "plugins" and "external_plugins" subdirectories
+            let subdirectories = ["plugins", "external_plugins"]
+            for subdir in subdirectories {
+                let pluginsDir = "\(marketplacePath)/\(subdir)"
+                if let pluginDirs = try? fm.contentsOfDirectory(atPath: pluginsDir) {
+                    for pluginName in pluginDirs {
+                        let pluginPath = "\(pluginsDir)/\(pluginName)"
+                        createSkillSymlinksForPlugin(at: pluginPath, pluginName: pluginName)
+                    }
+                }
+            }
+        }
+
+        // Trigger skill manager rescan to pick up the new symlinks
+        SkillManager.shared.scanForSkills()
+    }
+
+    /// Create symlinks for all skills in a plugin directory
+    private func createSkillSymlinksForPlugin(at pluginPath: String, pluginName: String) {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+
+        guard fm.fileExists(atPath: pluginPath, isDirectory: &isDir), isDir.boolValue else {
+            return
+        }
+
+        // Check if plugin root contains SKILL.md
+        let rootSkillPath = "\(pluginPath)/SKILL.md"
+        if fm.fileExists(atPath: rootSkillPath) {
+            createSymlinkIfNeeded(from: pluginPath, skillName: pluginName)
+        }
+
+        // Check for skills subdirectory
+        let skillsDir = "\(pluginPath)/skills"
+        if let skillDirContents = try? fm.contentsOfDirectory(atPath: skillsDir) {
+            for skillName in skillDirContents {
+                let skillPath = "\(skillsDir)/\(skillName)"
+                let skillMDPath = "\(skillPath)/SKILL.md"
+
+                var skillIsDir: ObjCBool = false
+                if fm.fileExists(atPath: skillPath, isDirectory: &skillIsDir),
+                   skillIsDir.boolValue,
+                   fm.fileExists(atPath: skillMDPath) {
+                    createSymlinkIfNeeded(from: skillPath, skillName: skillName)
+                }
+            }
+        }
+    }
+
+    /// Create a symlink in ~/.claude/skills/ if it doesn't exist or is broken
+    private func createSymlinkIfNeeded(from sourcePath: String, skillName: String) {
+        let fm = FileManager.default
+        let symlinkPath = "\(personalSkillsPath)/\(skillName)"
+
+        // Check if symlink already exists and points to correct location
+        if let existingTarget = try? fm.destinationOfSymbolicLink(atPath: symlinkPath) {
+            // Resolve to absolute path for comparison
+            let resolvedExisting = URL(fileURLWithPath: existingTarget, relativeTo: URL(fileURLWithPath: symlinkPath).deletingLastPathComponent()).standardized.path
+            let resolvedSource = URL(fileURLWithPath: sourcePath).standardized.path
+
+            if resolvedExisting == resolvedSource {
+                return // Symlink already exists and points to correct location
+            }
+        }
+
+        // Remove existing symlink or file if it exists
+        try? fm.removeItem(atPath: symlinkPath)
+
+        // Create new symlink
+        do {
+            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: sourcePath)
+        } catch {
+            print("Warning: Failed to create symlink for skill '\(skillName)': \(error)")
+        }
+    }
+
+    /// Remove symlinks from ~/.claude/skills/ that point to non-existent locations
+    private func cleanupOrphanedSkillSymlinks() {
+        let fm = FileManager.default
+
+        guard let contents = try? fm.contentsOfDirectory(atPath: personalSkillsPath) else {
+            return
+        }
+
+        for item in contents {
+            let itemPath = "\(personalSkillsPath)/\(item)"
+
+            // Check if it's a symlink
+            guard let attrs = try? fm.attributesOfItem(atPath: itemPath),
+                  let fileType = attrs[.type] as? FileAttributeType,
+                  fileType == .typeSymbolicLink else {
+                continue
+            }
+
+            // Check if symlink target exists
+            if let targetPath = try? fm.destinationOfSymbolicLink(atPath: itemPath) {
+                // Resolve relative path if needed
+                let resolvedTarget = URL(fileURLWithPath: targetPath, relativeTo: URL(fileURLWithPath: itemPath).deletingLastPathComponent()).path
+
+                // If target doesn't exist, remove the orphaned symlink
+                if !fm.fileExists(atPath: resolvedTarget) {
+                    try? fm.removeItem(atPath: itemPath)
+                }
+            }
         }
     }
 
@@ -133,6 +275,7 @@ class MarketplaceManager: ObservableObject {
 
         availablePlugins = allPlugins
         persistSources()
+        syncMarketplaceSkills()
         isLoading = false
     }
 

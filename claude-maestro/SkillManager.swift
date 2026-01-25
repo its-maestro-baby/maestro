@@ -49,6 +49,12 @@ class SkillManager: ObservableObject {
             .appendingPathComponent(".claude/plugins").path
     }
 
+    /// Marketplaces directory path (nested within plugins)
+    private var marketplacesPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/plugins/marketplaces").path
+    }
+
     /// Ensure the skills directory exists
     func ensureSkillsDirectory() {
         let fm = FileManager.default
@@ -78,7 +84,12 @@ class SkillManager: ObservableObject {
             discoveredSkills.append(contentsOf: pluginSkills)
         }
 
-        // 3. Project skills (if project path is set)
+        // 3. Scan marketplaces directory for skills: ~/.claude/plugins/marketplaces/*/plugins/*/skills/*/SKILL.md
+        if let marketplaceSkills = scanMarketplacesDirectory() {
+            discoveredSkills.append(contentsOf: marketplaceSkills)
+        }
+
+        // 4. Project skills (if project path is set)
         if let projectPath = currentProjectPath {
             let projectSkillsPath = "\(projectPath)/.claude/skills"
             if let projectSkills = scanDirectory(projectSkillsPath, source: .project(projectPath: projectPath)) {
@@ -138,6 +149,100 @@ class SkillManager: ObservableObject {
                             if !skills.contains(where: { $0.name == skill.name }) {
                                 skills.append(skill)
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        return skills.isEmpty ? nil : skills
+    }
+
+    /// Scan the marketplaces directory for skills
+    /// Structure: ~/.claude/plugins/marketplaces/<marketplace>/plugins/<plugin>/skills/<skill>/SKILL.md
+    /// Also checks: ~/.claude/plugins/marketplaces/<marketplace>/external_plugins/<plugin>/skills/<skill>/SKILL.md
+    private func scanMarketplacesDirectory() -> [SkillConfig]? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: marketplacesPath) else { return nil }
+
+        guard let marketplaceDirs = try? fm.contentsOfDirectory(atPath: marketplacesPath) else {
+            return nil
+        }
+
+        var skills: [SkillConfig] = []
+
+        for marketplaceName in marketplaceDirs {
+            let marketplacePath = "\(marketplacesPath)/\(marketplaceName)"
+            var isDir: ObjCBool = false
+
+            guard fm.fileExists(atPath: marketplacePath, isDirectory: &isDir), isDir.boolValue else {
+                continue
+            }
+
+            // Scan both "plugins" and "external_plugins" subdirectories
+            let subdirectories = ["plugins", "external_plugins"]
+            for subdir in subdirectories {
+                let pluginsDir = "\(marketplacePath)/\(subdir)"
+                if let pluginDirs = try? fm.contentsOfDirectory(atPath: pluginsDir) {
+                    for pluginName in pluginDirs {
+                        let pluginPath = "\(pluginsDir)/\(pluginName)"
+                        if let pluginSkills = scanPluginDirectory(
+                            at: pluginPath,
+                            pluginName: pluginName,
+                            marketplace: marketplaceName
+                        ) {
+                            // Avoid duplicates by name
+                            for skill in pluginSkills {
+                                if !skills.contains(where: { $0.name == skill.name }) {
+                                    skills.append(skill)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return skills.isEmpty ? nil : skills
+    }
+
+    /// Scan a plugin directory for skills
+    /// Handles both root-level SKILL.md and skills subdirectory
+    private func scanPluginDirectory(at pluginPath: String, pluginName: String, marketplace: String?) -> [SkillConfig]? {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+
+        guard fm.fileExists(atPath: pluginPath, isDirectory: &isDir), isDir.boolValue else {
+            return nil
+        }
+
+        var skills: [SkillConfig] = []
+        let source: SkillSource = marketplace != nil
+            ? .marketplace(name: marketplace!, pluginName: pluginName)
+            : .plugin(pluginName: pluginName)
+
+        // Check if plugin root contains SKILL.md
+        let rootSkillPath = "\(pluginPath)/SKILL.md"
+        if fm.fileExists(atPath: rootSkillPath) {
+            if let skill = parseSkill(at: pluginPath, source: source) {
+                skills.append(skill)
+            }
+        }
+
+        // Check for skills subdirectory
+        let skillsDir = "\(pluginPath)/skills"
+        if let skillDirContents = try? fm.contentsOfDirectory(atPath: skillsDir) {
+            for skillName in skillDirContents {
+                let skillPath = "\(skillsDir)/\(skillName)"
+                let skillMDPath = "\(skillPath)/SKILL.md"
+
+                var skillIsDir: ObjCBool = false
+                if fm.fileExists(atPath: skillPath, isDirectory: &skillIsDir),
+                   skillIsDir.boolValue,
+                   fm.fileExists(atPath: skillMDPath) {
+                    if let skill = parseSkill(at: skillPath, source: source) {
+                        if !skills.contains(where: { $0.name == skill.name }) {
+                            skills.append(skill)
                         }
                     }
                 }

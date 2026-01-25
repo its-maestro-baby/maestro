@@ -68,10 +68,11 @@ struct SkillConfig: Codable, Identifiable, Hashable {
 
 /// Source of a skill installation
 enum SkillSource: Codable, Hashable {
-    case personal                       // ~/.claude/skills/<name>/
-    case project(projectPath: String)   // .claude/skills/<name>/
-    case plugin(pluginName: String)     // From installed plugin
-    case local(path: String)            // Manually added local path
+    case personal                                        // ~/.claude/skills/<name>/
+    case project(projectPath: String)                    // .claude/skills/<name>/
+    case plugin(pluginName: String)                      // From installed plugin
+    case marketplace(name: String, pluginName: String)   // From marketplace plugin
+    case local(path: String)                             // Manually added local path
 
     var displayName: String {
         switch self {
@@ -81,6 +82,8 @@ enum SkillSource: Codable, Hashable {
             return "Project"
         case .plugin(let name):
             return name
+        case .marketplace(let marketplace, let plugin):
+            return "\(marketplace)/\(plugin)"
         case .local:
             return "Local"
         }
@@ -94,6 +97,8 @@ enum SkillSource: Codable, Hashable {
             return "folder"
         case .plugin:
             return "puzzlepiece.extension"
+        case .marketplace:
+            return "storefront"
         case .local:
             return "doc"
         }
