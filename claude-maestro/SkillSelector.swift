@@ -19,20 +19,20 @@ struct SkillSelector: View {
     /// Count of enabled skills for this session
     private var enabledCount: Int {
         skillManager.installedSkills.filter { skill in
-            skill.isEnabled && sessionConfig.isSkillEnabled(skill.id)
+            sessionConfig.isSkillEnabled(skill.id)
         }.count
     }
 
     /// List of enabled skill names for tooltip
     private var enabledSkillNames: [String] {
         skillManager.installedSkills
-            .filter { $0.isEnabled && sessionConfig.isSkillEnabled($0.id) }
+            .filter { sessionConfig.isSkillEnabled($0.id) }
             .map { "/\($0.commandName)" }
     }
 
-    /// Globally enabled skills (available for selection)
+    /// All discovered skills (available for selection)
     private var availableSkills: [SkillConfig] {
-        skillManager.installedSkills.filter { $0.isEnabled }
+        skillManager.installedSkills
     }
 
     var body: some View {
