@@ -610,16 +610,11 @@ class MarketplaceManager: ObservableObject {
             sourcePath = marketplaceSourcePath
             useMarketplaceSource = true
         } else {
-            // Create installation directory for downloaded content
-            try FileManager.default.createDirectory(atPath: installPath, withIntermediateDirectories: true)
-
-            // Download plugin contents
-            if let downloadURL = plugin.downloadURL, let url = URL(string: downloadURL) {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                // Write downloaded content (simplified - real implementation would unzip or clone)
-                let targetPath = "\(installPath)/plugin.json"
-                try data.write(to: URL(fileURLWithPath: targetPath))
-            }
+            // Plugin source not found in local marketplace - cannot install
+            throw MarketplaceError.installationError(
+                "Plugin '\(plugin.name)' not found in local marketplace. " +
+                "Try refreshing the marketplace or check if the plugin exists in the repository."
+            )
         }
 
         // Create symlinks for plugin skills from the source path

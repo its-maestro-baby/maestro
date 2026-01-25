@@ -537,12 +537,11 @@ class SkillManager: ObservableObject {
         }
     }
 
-    /// Initialize session config with all globally-enabled skills
+    /// Initialize session config with no skills enabled (user must opt-in)
     func initializeSessionConfig(for sessionId: Int) {
         if sessionSkillConfigs[sessionId] == nil {
-            // Enable all globally-enabled skills by default
-            let enabledIds = Set(installedSkills.filter { $0.isEnabled }.map { $0.id })
-            sessionSkillConfigs[sessionId] = SessionSkillConfig(enabledSkillIds: enabledIds)
+            // Start with empty set - user must enable skills explicitly per session
+            sessionSkillConfigs[sessionId] = SessionSkillConfig(enabledSkillIds: [])
             persistSessionConfigs()
         }
     }

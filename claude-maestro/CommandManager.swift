@@ -391,12 +391,11 @@ class CommandManager: ObservableObject {
         }
     }
 
-    /// Initialize session config with all globally-enabled commands
+    /// Initialize session config with no commands enabled (user must opt-in)
     func initializeSessionConfig(for sessionId: Int) {
         if sessionCommandConfigs[sessionId] == nil {
-            // Enable all globally-enabled commands by default
-            let enabledIds = Set(installedCommands.filter { $0.isEnabled }.map { $0.id })
-            sessionCommandConfigs[sessionId] = SessionCommandConfig(enabledCommandIds: enabledIds)
+            // Start with empty set - user must enable commands explicitly per session
+            sessionCommandConfigs[sessionId] = SessionCommandConfig(enabledCommandIds: [])
             persistSessionConfigs()
         }
     }
