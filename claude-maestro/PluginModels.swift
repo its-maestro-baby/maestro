@@ -246,9 +246,11 @@ struct InstalledPlugin: Codable, Identifiable, Hashable {
     var installedAt: Date
     var path: String                    // Installation path
     var skills: [String]                // Skill names from this plugin
+    var commands: [String]              // Command names from this plugin
     var mcpServers: [String]            // MCP server names from this plugin
     var isEnabled: Bool
     var skillSymlinks: [String]         // Symlink paths created in ~/.claude/skills/
+    var commandSymlinks: [String]       // Symlink paths created in ~/.claude/commands/
 
     init(
         id: UUID = UUID(),
@@ -260,9 +262,11 @@ struct InstalledPlugin: Codable, Identifiable, Hashable {
         installedAt: Date = Date(),
         path: String,
         skills: [String] = [],
+        commands: [String] = [],
         mcpServers: [String] = [],
         isEnabled: Bool = true,
-        skillSymlinks: [String] = []
+        skillSymlinks: [String] = [],
+        commandSymlinks: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -273,9 +277,36 @@ struct InstalledPlugin: Codable, Identifiable, Hashable {
         self.installedAt = installedAt
         self.path = path
         self.skills = skills
+        self.commands = commands
         self.mcpServers = mcpServers
         self.isEnabled = isEnabled
         self.skillSymlinks = skillSymlinks
+        self.commandSymlinks = commandSymlinks
+    }
+
+    // Custom decoder for backward compatibility with existing data
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        version = try container.decode(String.self, forKey: .version)
+        source = try container.decode(PluginSource.self, forKey: .source)
+        installScope = try container.decode(InstallScope.self, forKey: .installScope)
+        installedAt = try container.decode(Date.self, forKey: .installedAt)
+        path = try container.decode(String.self, forKey: .path)
+        skills = try container.decodeIfPresent([String].self, forKey: .skills) ?? []
+        commands = try container.decodeIfPresent([String].self, forKey: .commands) ?? []
+        mcpServers = try container.decodeIfPresent([String].self, forKey: .mcpServers) ?? []
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        skillSymlinks = try container.decodeIfPresent([String].self, forKey: .skillSymlinks) ?? []
+        commandSymlinks = try container.decodeIfPresent([String].self, forKey: .commandSymlinks) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, version, source, installScope, installedAt, path
+        case skills, commands, mcpServers, isEnabled, skillSymlinks, commandSymlinks
     }
 }
 

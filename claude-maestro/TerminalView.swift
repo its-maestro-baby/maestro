@@ -478,10 +478,11 @@ struct TerminalSessionView: View {
                     isDisabled: shouldLaunch
                 )
 
-                // Skills selector
-                SkillSelector(
+                // Skills & Commands selector
+                CapabilitySelector(
                     sessionId: session.id,
                     skillManager: SkillManager.shared,
+                    commandManager: CommandManager.shared,
                     isDisabled: shouldLaunch
                 )
 

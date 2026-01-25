@@ -47,28 +47,35 @@ class MarketplaceManager: ObservableObject {
     private func verifyPluginSymlinks() {
         let fm = FileManager.default
 
-        // Ensure skills directory exists
+        // Ensure skills and commands directories exist
         try? ensureSkillsDirectory()
+        try? ensureCommandsDirectory()
 
         var needsPersist = false
 
         for index in installedPlugins.indices {
             var plugin = installedPlugins[index]
 
-            // Check if symlinks exist
-            var validSymlinks: [String] = []
-            var missingSymlinks = false
-
+            // Check if skill symlinks exist
+            var missingSkillSymlinks = false
             for symlinkPath in plugin.skillSymlinks {
-                if fm.fileExists(atPath: symlinkPath) {
-                    validSymlinks.append(symlinkPath)
-                } else {
-                    missingSymlinks = true
+                if !fm.fileExists(atPath: symlinkPath) {
+                    missingSkillSymlinks = true
+                    break
                 }
             }
 
-            // If some symlinks are missing, try to recreate them
-            if missingSymlinks && fm.fileExists(atPath: plugin.path) {
+            // Check if command symlinks exist
+            var missingCommandSymlinks = false
+            for symlinkPath in plugin.commandSymlinks {
+                if !fm.fileExists(atPath: symlinkPath) {
+                    missingCommandSymlinks = true
+                    break
+                }
+            }
+
+            // If some skill symlinks are missing, try to recreate them
+            if missingSkillSymlinks && fm.fileExists(atPath: plugin.path) {
                 do {
                     let newSymlinks = try symlinkPluginSkills(from: plugin.path, pluginName: plugin.name)
                     plugin.skillSymlinks = newSymlinks
@@ -76,7 +83,22 @@ class MarketplaceManager: ObservableObject {
                     installedPlugins[index] = plugin
                     needsPersist = true
                 } catch {
-                    print("Warning: Failed to recreate symlinks for \(plugin.name): \(error)")
+                    print("Warning: Failed to recreate skill symlinks for \(plugin.name): \(error)")
+                }
+            }
+
+            // If some command symlinks are missing, try to recreate them
+            if missingCommandSymlinks && fm.fileExists(atPath: plugin.path) {
+                do {
+                    let newSymlinks = try symlinkPluginCommands(from: plugin.path, pluginName: plugin.name)
+                    plugin.commandSymlinks = newSymlinks
+                    plugin.commands = newSymlinks.map {
+                        URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+                    }
+                    installedPlugins[index] = plugin
+                    needsPersist = true
+                } catch {
+                    print("Warning: Failed to recreate command symlinks for \(plugin.name): \(error)")
                 }
             }
         }
@@ -350,11 +372,25 @@ class MarketplaceManager: ObservableObject {
             .appendingPathComponent(".claude/skills").path
     }
 
+    /// Personal commands directory path
+    private var personalCommandsPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/commands").path
+    }
+
     /// Ensure the skills directory exists
     private func ensureSkillsDirectory() throws {
         let fm = FileManager.default
         if !fm.fileExists(atPath: personalSkillsPath) {
             try fm.createDirectory(atPath: personalSkillsPath, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Ensure the commands directory exists
+    private func ensureCommandsDirectory() throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: personalCommandsPath) {
+            try fm.createDirectory(atPath: personalCommandsPath, withIntermediateDirectories: true)
         }
     }
 
@@ -398,6 +434,45 @@ class MarketplaceManager: ObservableObject {
                 let symlinkPath = "\(personalSkillsPath)/\(skillName)"
                 try? fm.removeItem(atPath: symlinkPath) // Remove existing symlink if any
                 try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: skillPath)
+                createdSymlinks.append(symlinkPath)
+            }
+        }
+
+        return createdSymlinks
+    }
+
+    /// Create symlinks for plugin commands in ~/.claude/commands/
+    private func symlinkPluginCommands(from pluginPath: String, pluginName: String) throws -> [String] {
+        let fm = FileManager.default
+        var createdSymlinks: [String] = []
+
+        // Ensure commands directory exists
+        try ensureCommandsDirectory()
+
+        // Look for commands directory in plugin
+        let commandsDir = "\(pluginPath)/commands"
+        guard fm.fileExists(atPath: commandsDir) else {
+            return createdSymlinks
+        }
+
+        // Scan commands directory for .md files
+        guard let contents = try? fm.contentsOfDirectory(atPath: commandsDir) else {
+            return createdSymlinks
+        }
+
+        for item in contents {
+            // Only process .md files
+            guard item.hasSuffix(".md") else { continue }
+
+            let commandPath = "\(commandsDir)/\(item)"
+            var isDir: ObjCBool = false
+
+            // Skip directories
+            if fm.fileExists(atPath: commandPath, isDirectory: &isDir), !isDir.boolValue {
+                // Create symlink in ~/.claude/commands/
+                let symlinkPath = "\(personalCommandsPath)/\(item)"
+                try? fm.removeItem(atPath: symlinkPath) // Remove existing symlink if any
+                try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: commandPath)
                 createdSymlinks.append(symlinkPath)
             }
         }
@@ -452,6 +527,19 @@ class MarketplaceManager: ObservableObject {
             }
         }
 
+        // Create symlinks for plugin commands
+        var commandSymlinks: [String] = []
+        var discoveredCommands: [String] = []
+        do {
+            commandSymlinks = try symlinkPluginCommands(from: installPath, pluginName: plugin.name)
+            // Extract command names from symlink paths (without .md extension)
+            discoveredCommands = commandSymlinks.map {
+                URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+            }
+        } catch {
+            print("Warning: Failed to create command symlinks: \(error)")
+        }
+
         // Create installed plugin record
         let installed = InstalledPlugin(
             name: plugin.name,
@@ -461,15 +549,18 @@ class MarketplaceManager: ObservableObject {
             installScope: scope,
             path: installPath,
             skills: discoveredSkills.isEmpty ? (plugin.types.contains(.skill) ? [plugin.name] : []) : discoveredSkills,
+            commands: discoveredCommands,
             mcpServers: plugin.types.contains(.mcp) ? [plugin.name] : [],
-            skillSymlinks: skillSymlinks
+            skillSymlinks: skillSymlinks,
+            commandSymlinks: commandSymlinks
         )
 
         installedPlugins.append(installed)
         persistInstalledPlugins()
 
-        // Trigger skill rescan to pick up the new symlinks
+        // Trigger skill and command rescan to pick up the new symlinks
         SkillManager.shared.scanForSkills()
+        CommandManager.shared.scanForCommands()
 
         return installed
     }
@@ -480,8 +571,9 @@ class MarketplaceManager: ObservableObject {
             throw MarketplaceError.pluginNotFound
         }
 
-        // Remove skill symlinks first
+        // Remove skill and command symlinks first
         removePluginSymlinks(plugin.skillSymlinks)
+        removePluginSymlinks(plugin.commandSymlinks)
 
         // Remove plugin directory
         try? FileManager.default.removeItem(atPath: plugin.path)
@@ -497,8 +589,9 @@ class MarketplaceManager: ObservableObject {
         persistInstalledPlugins()
         persistSessionConfigs()
 
-        // Rescan skills
+        // Rescan skills and commands
         SkillManager.shared.scanForSkills()
+        CommandManager.shared.scanForCommands()
     }
 
     /// Check if a marketplace plugin is already installed

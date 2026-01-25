@@ -15,6 +15,17 @@ struct MarketplaceSection: View {
     @State private var showDeleteConfirmation: Bool = false
     @State private var pluginToDelete: InstalledPlugin? = nil
 
+    /// Filter out skills that belong to installed plugins (to avoid duplication)
+    private var standaloneSkills: [SkillConfig] {
+        let installedPluginPaths = Set(marketplaceManager.installedPlugins.map { $0.path })
+        return skillManager.installedSkills.filter { skill in
+            // Keep only skills that are NOT from a path inside an installed plugin
+            !installedPluginPaths.contains(where: { pluginPath in
+                skill.path.hasPrefix(pluginPath)
+            })
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
@@ -61,7 +72,7 @@ struct MarketplaceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                } else if skillManager.installedSkills.isEmpty && marketplaceManager.installedPlugins.isEmpty {
+                } else if standaloneSkills.isEmpty && marketplaceManager.installedPlugins.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Image(systemName: "sparkles")
@@ -92,7 +103,7 @@ struct MarketplaceSection: View {
                         }
 
                         // Discovered skills (not from plugins)
-                        ForEach(skillManager.installedSkills) { skill in
+                        ForEach(standaloneSkills) { skill in
                             SkillRow(skill: skill)
                         }
                     }
