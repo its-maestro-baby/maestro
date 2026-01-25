@@ -141,14 +141,28 @@ class CommandManager: ObservableObject {
             }
 
             let pluginPath = "\(pluginsPath)/\(pluginName)"
-            var isDir: ObjCBool = false
 
-            guard fm.fileExists(atPath: pluginPath, isDirectory: &isDir), isDir.boolValue else {
+            // Resolve symlink to get actual target path
+            var resolvedPath = pluginPath
+            if let linkTarget = try? fm.destinationOfSymbolicLink(atPath: pluginPath) {
+                // Handle both absolute and relative symlink targets
+                if linkTarget.hasPrefix("/") {
+                    resolvedPath = linkTarget
+                } else {
+                    resolvedPath = URL(fileURLWithPath: linkTarget,
+                                      relativeTo: URL(fileURLWithPath: pluginsPath))
+                                 .standardized.path
+                }
+            }
+
+            // Check if the resolved path actually exists
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: resolvedPath, isDirectory: &isDir), isDir.boolValue else {
                 continue
             }
 
-            // Check for commands subdirectory
-            let commandsDir = "\(pluginPath)/commands"
+            // Check for commands subdirectory in the resolved path
+            let commandsDir = "\(resolvedPath)/commands"
             if let pluginCommands = scanCommandsDirectory(commandsDir, source: .plugin(pluginName: pluginName)) {
                 // Check for duplicates by name
                 for command in pluginCommands {

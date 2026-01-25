@@ -69,6 +69,7 @@ class MarketplaceManager: ObservableObject {
             // Old format: individual .md symlinks in ~/.claude/commands/
             // New format: single plugin directory symlink in ~/.claude/plugins/
             var needsCommandMigration = false
+            var oldStyleSymlinksToRemove: [String] = []
             let expectedPluginSymlink = "\(pluginsPath)/\(plugin.name)"
 
             if plugin.commandSymlinks.isEmpty {
@@ -80,10 +81,8 @@ class MarketplaceManager: ObservableObject {
             } else if plugin.commandSymlinks.contains(where: { $0.contains("/.claude/commands/") }) {
                 // Old-style individual .md symlinks - migrate to new format
                 needsCommandMigration = true
-                // Remove old individual symlinks
-                for symlinkPath in plugin.commandSymlinks {
-                    try? fm.removeItem(atPath: symlinkPath)
-                }
+                // Mark old symlinks for removal AFTER successful migration
+                oldStyleSymlinksToRemove = plugin.commandSymlinks.filter { $0.contains("/.claude/commands/") }
             } else if !fm.fileExists(atPath: expectedPluginSymlink) {
                 // New-style symlink missing
                 needsCommandMigration = true
@@ -106,6 +105,14 @@ class MarketplaceManager: ObservableObject {
             if needsCommandMigration && fm.fileExists(atPath: plugin.path) {
                 do {
                     let newSymlinks = try symlinkPluginCommands(from: plugin.path, pluginName: plugin.name)
+
+                    // Only delete old symlinks AFTER successfully creating new ones
+                    if !newSymlinks.isEmpty && !oldStyleSymlinksToRemove.isEmpty {
+                        for oldPath in oldStyleSymlinksToRemove {
+                            try? fm.removeItem(atPath: oldPath)
+                        }
+                    }
+
                     plugin.commandSymlinks = newSymlinks
                     // Extract command names from the plugin's commands directory
                     plugin.commands = discoverCommandNames(in: plugin.path)
@@ -478,9 +485,14 @@ class MarketplaceManager: ObservableObject {
         // Ensure plugins directory exists
         try ensurePluginsDirectory()
 
-        // Check if plugin has a commands directory
-        let commandsDir = "\(pluginPath)/commands"
-        guard fm.fileExists(atPath: commandsDir) else {
+        // Standardize the plugin path to an absolute path
+        let absolutePluginPath = URL(fileURLWithPath: pluginPath).standardized.path
+
+        // Check if plugin has a commands directory - verify it actually exists
+        let commandsDir = "\(absolutePluginPath)/commands"
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: commandsDir, isDirectory: &isDir), isDir.boolValue else {
+            print("Warning: Commands directory not found at \(commandsDir)")
             return createdSymlinks
         }
 
@@ -491,8 +503,7 @@ class MarketplaceManager: ObservableObject {
         // Check if symlink already exists and points to correct location
         if let existingTarget = try? fm.destinationOfSymbolicLink(atPath: symlinkPath) {
             let resolvedExisting = URL(fileURLWithPath: existingTarget, relativeTo: URL(fileURLWithPath: symlinkPath).deletingLastPathComponent()).standardized.path
-            let resolvedSource = URL(fileURLWithPath: pluginPath).standardized.path
-            if resolvedExisting == resolvedSource {
+            if resolvedExisting == absolutePluginPath {
                 // Symlink already exists and points to correct location
                 createdSymlinks.append(symlinkPath)
                 return createdSymlinks
@@ -502,8 +513,8 @@ class MarketplaceManager: ObservableObject {
         // Remove existing symlink or directory if it exists
         try? fm.removeItem(atPath: symlinkPath)
 
-        // Create new symlink to the plugin directory
-        try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: pluginPath)
+        // Create new symlink to the plugin directory using the absolute path
+        try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: absolutePluginPath)
         createdSymlinks.append(symlinkPath)
 
         return createdSymlinks
