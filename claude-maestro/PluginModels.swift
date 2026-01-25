@@ -44,6 +44,7 @@ enum PluginCategory: String, Codable, CaseIterable, Identifiable {
 
 enum PluginType: String, Codable, CaseIterable, Identifiable {
     case skill
+    case command
     case mcp
     case agent
     case hook
@@ -53,6 +54,7 @@ enum PluginType: String, Codable, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .skill: return "Skill"
+        case .command: return "Command"
         case .mcp: return "MCP Server"
         case .agent: return "Agent"
         case .hook: return "Hook"
@@ -62,6 +64,7 @@ enum PluginType: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .skill: return "sparkles"
+        case .command: return "terminal"
         case .mcp: return "server.rack"
         case .agent: return "person.circle"
         case .hook: return "arrow.uturn.right"
@@ -71,8 +74,9 @@ enum PluginType: String, Codable, CaseIterable, Identifiable {
     var color: Color {
         switch self {
         case .skill: return .orange
+        case .command: return .blue
         case .mcp: return .purple
-        case .agent: return .blue
+        case .agent: return .cyan
         case .hook: return .green
         }
     }
@@ -227,9 +231,9 @@ struct MarketplacePlugin: Codable, Identifiable, Hashable {
         self.marketplace = marketplace
     }
 
-    /// Primary type for display
+    /// Primary type for display (defaults to first type, or skill if none specified)
     var primaryType: PluginType {
-        types.first ?? .skill
+        types.first ?? .skill  // Safe default for display - actual detection happens at install time
     }
 }
 
@@ -542,7 +546,7 @@ struct MarketplacePluginManifest: Codable {
             version: version,
             author: author?.displayName ?? "Unknown",
             category: pluginCategory,
-            types: pluginTypes.isEmpty ? [.skill] : pluginTypes,
+            types: pluginTypes,  // Don't default to [.skill] - let installation detect actual content
             downloadURL: downloadURL,
             homepage: homepage,
             tags: tags ?? [],

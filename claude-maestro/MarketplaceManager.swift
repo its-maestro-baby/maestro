@@ -488,6 +488,49 @@ class MarketplaceManager: ObservableObject {
         }
     }
 
+    /// Derive the local marketplace source path from a plugin's download URL and marketplace name
+    /// For example:
+    /// - downloadURL: "https://raw.githubusercontent.com/owner/repo/main/./plugins/ralph-loop"
+    /// - marketplace: "claude-plugins-official"
+    /// - Returns: "~/.claude/plugins/marketplaces/claude-plugins-official/plugins/ralph-loop"
+    private func deriveMarketplaceSourcePath(from plugin: MarketplacePlugin) -> String? {
+        guard let downloadURL = plugin.downloadURL else { return nil }
+
+        // Extract the path portion after the branch (usually "main/")
+        // Format: https://raw.githubusercontent.com/owner/repo/main/./plugins/plugin-name
+        // or: https://raw.githubusercontent.com/owner/repo/main/plugins/plugin-name
+        let patterns = [
+            "/main/./",  // With ./ prefix
+            "/main/",    // Without ./ prefix
+            "/master/./",
+            "/master/"
+        ]
+
+        var relativePath: String?
+        for pattern in patterns {
+            if let range = downloadURL.range(of: pattern) {
+                relativePath = String(downloadURL[range.upperBound...])
+                break
+            }
+        }
+
+        guard let path = relativePath else { return nil }
+
+        // Clean up the path (remove leading ./ if present)
+        let cleanPath = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+
+        // Construct the local marketplace path
+        let sourcePath = "\(marketplacesPath)/\(plugin.marketplace)/\(cleanPath)"
+        return sourcePath
+    }
+
+    /// Check if a plugin exists at the given marketplace source path
+    private func pluginExistsAtMarketplaceSource(_ path: String) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+    }
+
     /// Install a plugin from marketplace
     func installPlugin(_ plugin: MarketplacePlugin, scope: InstallScope) async throws -> InstalledPlugin {
         // Determine installation path based on scope
@@ -503,35 +546,45 @@ class MarketplaceManager: ObservableObject {
             throw MarketplaceError.installationError("Local scope requires a project path")
         }
 
-        // Create installation directory
-        try FileManager.default.createDirectory(atPath: installPath, withIntermediateDirectories: true)
+        // Determine the source path for symlinking
+        // Priority: 1. Local marketplace source (already cloned), 2. Download
+        var sourcePath: String = installPath
+        var useMarketplaceSource = false
 
-        // Download plugin contents
-        if let downloadURL = plugin.downloadURL, let url = URL(string: downloadURL) {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            // Write downloaded content (simplified - real implementation would unzip or clone)
-            let targetPath = "\(installPath)/plugin.json"
-            try data.write(to: URL(fileURLWithPath: targetPath))
-        }
+        if let marketplaceSourcePath = deriveMarketplaceSourcePath(from: plugin),
+           pluginExistsAtMarketplaceSource(marketplaceSourcePath) {
+            // Use the existing marketplace source path
+            sourcePath = marketplaceSourcePath
+            useMarketplaceSource = true
+        } else {
+            // Create installation directory for downloaded content
+            try FileManager.default.createDirectory(atPath: installPath, withIntermediateDirectories: true)
 
-        // Create symlinks for plugin skills
-        var skillSymlinks: [String] = []
-        var discoveredSkills: [String] = []
-        if plugin.types.contains(.skill) {
-            do {
-                skillSymlinks = try symlinkPluginSkills(from: installPath, pluginName: plugin.name)
-                // Extract skill names from symlink paths
-                discoveredSkills = skillSymlinks.map { URL(fileURLWithPath: $0).lastPathComponent }
-            } catch {
-                print("Warning: Failed to create skill symlinks: \(error)")
+            // Download plugin contents
+            if let downloadURL = plugin.downloadURL, let url = URL(string: downloadURL) {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                // Write downloaded content (simplified - real implementation would unzip or clone)
+                let targetPath = "\(installPath)/plugin.json"
+                try data.write(to: URL(fileURLWithPath: targetPath))
             }
         }
 
-        // Create symlinks for plugin commands
+        // Create symlinks for plugin skills from the source path
+        var skillSymlinks: [String] = []
+        var discoveredSkills: [String] = []
+        do {
+            skillSymlinks = try symlinkPluginSkills(from: sourcePath, pluginName: plugin.name)
+            // Extract skill names from symlink paths
+            discoveredSkills = skillSymlinks.map { URL(fileURLWithPath: $0).lastPathComponent }
+        } catch {
+            print("Warning: Failed to create skill symlinks: \(error)")
+        }
+
+        // Create symlinks for plugin commands from the source path
         var commandSymlinks: [String] = []
         var discoveredCommands: [String] = []
         do {
-            commandSymlinks = try symlinkPluginCommands(from: installPath, pluginName: plugin.name)
+            commandSymlinks = try symlinkPluginCommands(from: sourcePath, pluginName: plugin.name)
             // Extract command names from symlink paths (without .md extension)
             discoveredCommands = commandSymlinks.map {
                 URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
@@ -540,15 +593,25 @@ class MarketplaceManager: ObservableObject {
             print("Warning: Failed to create command symlinks: \(error)")
         }
 
+        // Determine detected types based on what was actually found
+        var detectedTypes: [PluginType] = plugin.types
+        if !discoveredSkills.isEmpty && !detectedTypes.contains(.skill) {
+            detectedTypes.append(.skill)
+        }
+        if !discoveredCommands.isEmpty && !detectedTypes.contains(.command) {
+            detectedTypes.append(.command)
+        }
+
         // Create installed plugin record
+        // Store the source path so symlink verification works correctly
         let installed = InstalledPlugin(
             name: plugin.name,
             description: plugin.description,
             version: plugin.version,
             source: plugin.marketplace == "claude-plugins-official" ? .official : .marketplace(name: plugin.marketplace),
             installScope: scope,
-            path: installPath,
-            skills: discoveredSkills.isEmpty ? (plugin.types.contains(.skill) ? [plugin.name] : []) : discoveredSkills,
+            path: useMarketplaceSource ? sourcePath : installPath,  // Use actual source path
+            skills: discoveredSkills,
             commands: discoveredCommands,
             mcpServers: plugin.types.contains(.mcp) ? [plugin.name] : [],
             skillSymlinks: skillSymlinks,
