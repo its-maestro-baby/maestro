@@ -300,18 +300,179 @@ struct MarketplaceManifest: Codable {
     var plugins: [MarketplacePluginManifest]?
 }
 
+/// Author can be a simple string or an object with name/email
+/// Handles both formats: "John Doe" or {"name": "John", "email": "john@example.com"}
+enum PluginAuthor: Codable {
+    case string(String)
+    case object(name: String, email: String?)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        // Try decoding as string first
+        if let stringValue = try? container.decode(String.self) {
+            self = .string(stringValue)
+            return
+        }
+
+        // Try decoding as object
+        struct AuthorObject: Codable {
+            let name: String
+            let email: String?
+        }
+
+        if let objectValue = try? container.decode(AuthorObject.self) {
+            self = .object(name: objectValue.name, email: objectValue.email)
+            return
+        }
+
+        throw DecodingError.typeMismatch(
+            PluginAuthor.self,
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Author must be a string or object with 'name' field"
+            )
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .object(let name, let email):
+            struct AuthorObject: Codable {
+                let name: String
+                let email: String?
+            }
+            try container.encode(AuthorObject(name: name, email: email))
+        }
+    }
+
+    /// Get the display name regardless of format
+    var displayName: String {
+        switch self {
+        case .string(let value):
+            return value
+        case .object(let name, _):
+            return name
+        }
+    }
+}
+
+/// Source can be a string path or an object with url
+private struct SourceObject: Codable {
+    let source: String?
+    let url: String
+}
+
 /// Plugin entry in marketplace.json
 struct MarketplacePluginManifest: Codable {
-    var id: String
+    var id: String                      // Derived from name if not present in JSON
     var name: String
     var description: String
     var version: String
-    var author: String?
+    var author: PluginAuthor?           // Flexible: string or object
     var category: String?
     var types: [String]?
-    var path: String?                   // Relative path in repo
+    var path: String?                   // Relative path in repo (supports both "path" and "source")
     var homepage: String?
     var tags: [String]?
+
+    // CodingKeys to handle field mapping
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case version
+        case author
+        case category
+        case types
+        case path
+        case source      // Alternative name for path
+        case homepage
+        case tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Required fields
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+
+        // version: Optional with default
+        version = try container.decodeIfPresent(String.self, forKey: .version) ?? "1.0.0"
+
+        // id: Use explicit id if present, otherwise derive from name
+        if let explicitId = try container.decodeIfPresent(String.self, forKey: .id) {
+            id = explicitId
+        } else {
+            // Generate id from name: lowercase, replace spaces/slashes with hyphens
+            id = name.lowercased()
+                .replacingOccurrences(of: " ", with: "-")
+                .replacingOccurrences(of: "/", with: "-")
+        }
+
+        // author: Flexible decoding (string or object)
+        author = try container.decodeIfPresent(PluginAuthor.self, forKey: .author)
+
+        // path: Try "path" first, then "source" as fallback (source can be string or object)
+        if let pathValue = try container.decodeIfPresent(String.self, forKey: .path) {
+            path = pathValue
+        } else if let sourceString = try? container.decodeIfPresent(String.self, forKey: .source) {
+            path = sourceString
+        } else if let sourceObject = try? container.decodeIfPresent(SourceObject.self, forKey: .source) {
+            path = sourceObject.url
+        } else {
+            path = nil
+        }
+
+        // Optional fields
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        types = try container.decodeIfPresent([String].self, forKey: .types)
+        homepage = try container.decodeIfPresent(String.self, forKey: .homepage)
+        tags = try container.decodeIfPresent([String].self, forKey: .tags)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(description, forKey: .description)
+        try container.encode(version, forKey: .version)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(category, forKey: .category)
+        try container.encodeIfPresent(types, forKey: .types)
+        try container.encodeIfPresent(path, forKey: .path)
+        try container.encodeIfPresent(homepage, forKey: .homepage)
+        try container.encodeIfPresent(tags, forKey: .tags)
+    }
+
+    // Standard memberwise init for programmatic creation
+    init(
+        id: String,
+        name: String,
+        description: String,
+        version: String,
+        author: PluginAuthor? = nil,
+        category: String? = nil,
+        types: [String]? = nil,
+        path: String? = nil,
+        homepage: String? = nil,
+        tags: [String]? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.version = version
+        self.author = author
+        self.category = category
+        self.types = types
+        self.path = path
+        self.homepage = homepage
+        self.tags = tags
+    }
 
     /// Convert to MarketplacePlugin
     func toMarketplacePlugin(marketplace: String, baseURL: String?) -> MarketplacePlugin {
@@ -322,7 +483,7 @@ struct MarketplacePluginManifest: Codable {
         let pluginCategory: PluginCategory = {
             guard let cat = category else { return .other }
             switch cat.lowercased() {
-            case "code intelligence", "codeintelligence":
+            case "code intelligence", "codeintelligence", "development":
                 return .codeIntelligence
             case "external integrations", "externalintegrations":
                 return .externalIntegrations
@@ -345,7 +506,7 @@ struct MarketplacePluginManifest: Codable {
             name: name,
             description: description,
             version: version,
-            author: author ?? "Unknown",
+            author: author?.displayName ?? "Unknown",
             category: pluginCategory,
             types: pluginTypes.isEmpty ? [.skill] : pluginTypes,
             downloadURL: downloadURL,
