@@ -910,6 +910,10 @@ class ClaudeDocManager {
         CommandManager.shared.scanProjectCommands(projectPath: projectPath)
         CommandManager.shared.syncWorktreeCommands(worktreePath: directory, for: sessionId)
 
+        // Sync hooks from enabled plugins to worktree's .claude/settings.local.json
+        HookManager.shared.scanForHooks()
+        HookManager.shared.syncWorktreeHooks(worktreePath: directory, for: sessionId)
+
         let content = generateContent(
             projectPath: projectPath,
             runCommand: effectiveRunCommand,
