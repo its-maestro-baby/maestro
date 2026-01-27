@@ -699,8 +699,11 @@ class MarketplaceManager: ObservableObject {
         removePluginSymlinks(plugin.skillSymlinks)
         removePluginSymlinks(plugin.commandSymlinks)
 
-        // Remove plugin directory
-        try? FileManager.default.removeItem(atPath: plugin.path)
+        // Only remove plugin directory if it's NOT a marketplace source
+        // Marketplace sources are shared and should not be deleted on uninstall
+        if !plugin.path.contains("/marketplaces/") {
+            try? FileManager.default.removeItem(atPath: plugin.path)
+        }
 
         // Remove from installed list
         installedPlugins.removeAll { $0.id == id }
