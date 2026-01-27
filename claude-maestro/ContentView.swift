@@ -991,6 +991,8 @@ struct MainContentView: View {
     @Binding var showBranchSidebar: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var showGitSettings: Bool = false
+    @State private var showAppsSidebar: Bool = false
+    @StateObject private var appManager = AppManager.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1052,6 +1054,18 @@ struct MainContentView: View {
                             .help(showBranchSidebar ? "Hide git tree" : "Show git tree")
                         }
                     }
+
+                    // Apps sidebar toggle
+                    Button {
+                        withAnimation {
+                            showAppsSidebar.toggle()
+                        }
+                    } label: {
+                        Image(systemName: showAppsSidebar ? "square.grid.3x3.fill" : "square.grid.3x3")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(showAppsSidebar ? .accentColor : nil)
+                    .help(showAppsSidebar ? "Hide apps" : "Show apps")
                 }
                 .padding(.horizontal)
 
@@ -1084,11 +1098,64 @@ struct MainContentView: View {
                 )
                 .frame(minWidth: 350, idealWidth: 450)
             }
+
+            // Apps sidebar
+            if showAppsSidebar {
+                Divider()
+                AppsSidebarView(
+                    appManager: appManager,
+                    sessionManager: manager,
+                    onLaunchApp: { app, sessionId in
+                        launchAppInSession(app: app, sessionId: sessionId)
+                    }
+                )
+                .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
+            }
         }
         .sheet(isPresented: $showGitSettings) {
             GitSettingsView(gitManager: manager.gitManager)
         }
         .toolbar(.hidden)
+    }
+
+    // MARK: - App Launch
+
+    func launchAppInSession(app: AppConfig, sessionId: Int) {
+        let targetSessionId: Int
+
+        if sessionId == -1 {
+            // Create new session
+            manager.addNewSession()
+            targetSessionId = manager.sessions.last?.id ?? 1
+        } else {
+            targetSessionId = sessionId
+        }
+
+        // Apply app configs to session
+        MCPServerManager.shared.applyAppConfig(app, to: targetSessionId)
+        SkillManager.shared.applyAppConfig(app, to: targetSessionId)
+        CommandManager.shared.applyAppConfig(app, to: targetSessionId)
+        MarketplaceManager.shared.applyAppConfig(app, to: targetSessionId)
+
+        // Update session mode
+        if let index = manager.sessions.firstIndex(where: { $0.id == targetSessionId }) {
+            manager.sessions[index].mode = app.defaultMode
+        }
+
+        // Set project path if specified
+        if let projectPath = app.defaultProjectPath, !projectPath.isEmpty {
+            Task {
+                await manager.setProjectPath(projectPath)
+            }
+        }
+
+        // Track association
+        appManager.associateApp(app.id, with: targetSessionId)
+
+        // Launch if not running
+        if !manager.isRunning && !manager.projectPath.isEmpty {
+            launchGrid()
+        }
     }
 
     func selectDirectory() {
