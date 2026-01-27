@@ -553,6 +553,21 @@ class MarketplaceManager: ObservableObject {
         return skillNames
     }
 
+    /// Discover MCP server names from a plugin's .mcp.json file
+    private func discoverMCPServerNames(in pluginPath: String) -> [String] {
+        let fm = FileManager.default
+        let mcpJsonPath = "\(pluginPath)/.mcp.json"
+
+        guard fm.fileExists(atPath: mcpJsonPath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: mcpJsonPath)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = json["mcpServers"] as? [String: Any] else {
+            return []
+        }
+
+        return Array(servers.keys)
+    }
+
     /// Remove skill symlinks created for a plugin
     private func removePluginSymlinks(_ symlinks: [String]) {
         let fm = FileManager.default
@@ -733,6 +748,9 @@ class MarketplaceManager: ObservableObject {
             print("Warning: Failed to create command symlinks: \(error)")
         }
 
+        // Discover MCP servers from .mcp.json
+        let discoveredMCPServers = discoverMCPServerNames(in: sourcePath)
+
         // Determine detected types based on what was actually found
         var detectedTypes: [PluginType] = plugin.types
         if !discoveredSkills.isEmpty && !detectedTypes.contains(.skill) {
@@ -740,6 +758,9 @@ class MarketplaceManager: ObservableObject {
         }
         if !discoveredCommands.isEmpty && !detectedTypes.contains(.command) {
             detectedTypes.append(.command)
+        }
+        if !discoveredMCPServers.isEmpty && !detectedTypes.contains(.mcp) {
+            detectedTypes.append(.mcp)
         }
 
         // Create installed plugin record
@@ -754,7 +775,7 @@ class MarketplaceManager: ObservableObject {
             path: useMarketplaceSource ? sourcePath : installPath,  // Use actual source path
             skills: discoveredSkills,
             commands: discoveredCommands,
-            mcpServers: plugin.types.contains(.mcp) ? [plugin.name] : [],
+            mcpServers: discoveredMCPServers,
             skillSymlinks: [],  // No longer creating global symlinks
             commandSymlinks: commandSymlinks
         )
