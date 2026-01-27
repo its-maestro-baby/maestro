@@ -400,6 +400,103 @@ class CommandManager: ObservableObject {
         }
     }
 
+    // MARK: - Per-Session Worktree Commands
+
+    /// Storage for worktree paths per session (for re-syncing when commands are toggled)
+    private var sessionWorktreePaths: [Int: String] = [:]
+
+    /// Sync commands to a worktree's .claude/commands/ directory based on session config
+    /// This creates symlinks to only the commands enabled for this session
+    func syncWorktreeCommands(worktreePath: String, for sessionId: Int) {
+        // Store the worktree path for future syncs (when commands are toggled)
+        sessionWorktreePaths[sessionId] = worktreePath
+
+        let fm = FileManager.default
+        let worktreeCommandsPath = "\(worktreePath)/.claude/commands"
+
+        // Get enabled commands for this session
+        let enabledCommandsList = enabledCommands(for: sessionId)
+
+        // Ensure .claude directory exists
+        let claudeDir = "\(worktreePath)/.claude"
+        if !fm.fileExists(atPath: claudeDir) {
+            try? fm.createDirectory(atPath: claudeDir, withIntermediateDirectories: true)
+        }
+
+        // Get current symlinks in worktree commands directory
+        var existingSymlinks: [String: String] = [:] // name -> target
+        if fm.fileExists(atPath: worktreeCommandsPath) {
+            if let contents = try? fm.contentsOfDirectory(atPath: worktreeCommandsPath) {
+                for item in contents {
+                    let itemPath = "\(worktreeCommandsPath)/\(item)"
+                    if let target = try? fm.destinationOfSymbolicLink(atPath: itemPath) {
+                        // Resolve relative symlinks to absolute paths
+                        let resolvedTarget = URL(fileURLWithPath: target, relativeTo: URL(fileURLWithPath: itemPath).deletingLastPathComponent()).standardized.path
+                        existingSymlinks[item] = resolvedTarget
+                    }
+                }
+            }
+        } else {
+            // Create commands directory
+            try? fm.createDirectory(atPath: worktreeCommandsPath, withIntermediateDirectories: true)
+        }
+
+        // Determine what symlinks need to be added/removed
+        // Commands are .md files, so we symlink the file directly
+        let desiredSymlinks: [String: String] = enabledCommandsList.reduce(into: [:]) { result, command in
+            let commandFileName = URL(fileURLWithPath: command.path).lastPathComponent
+            result[commandFileName] = command.path
+        }
+
+        // Remove symlinks that shouldn't exist anymore
+        for (name, _) in existingSymlinks {
+            if desiredSymlinks[name] == nil {
+                let symlinkPath = "\(worktreeCommandsPath)/\(name)"
+                try? fm.removeItem(atPath: symlinkPath)
+            }
+        }
+
+        // Add symlinks that don't exist yet or point to wrong target
+        for (name, targetPath) in desiredSymlinks {
+            let symlinkPath = "\(worktreeCommandsPath)/\(name)"
+
+            if let existingTarget = existingSymlinks[name] {
+                if existingTarget == targetPath {
+                    continue // Symlink already correct
+                }
+                // Wrong target, remove and recreate
+                try? fm.removeItem(atPath: symlinkPath)
+            }
+
+            // Create symlink
+            do {
+                try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: targetPath)
+            } catch {
+                print("Warning: Failed to create command symlink '\(name)' in worktree: \(error)")
+            }
+        }
+    }
+
+    /// Clean up worktree commands directory (remove all symlinks)
+    func cleanupWorktreeCommands(worktreePath: String) {
+        let fm = FileManager.default
+        let worktreeCommandsPath = "\(worktreePath)/.claude/commands"
+
+        guard fm.fileExists(atPath: worktreeCommandsPath) else { return }
+
+        if let contents = try? fm.contentsOfDirectory(atPath: worktreeCommandsPath) {
+            for item in contents {
+                let itemPath = "\(worktreeCommandsPath)/\(item)"
+                // Only remove symlinks, not actual files
+                if let attrs = try? fm.attributesOfItem(atPath: itemPath),
+                   let fileType = attrs[.type] as? FileAttributeType,
+                   fileType == .typeSymbolicLink {
+                    try? fm.removeItem(atPath: itemPath)
+                }
+            }
+        }
+    }
+
     // MARK: - Persistence
 
     private func persistInstalledCommands() {
