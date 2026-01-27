@@ -19,6 +19,8 @@ struct MarketplaceBrowserView: View {
     @State private var showAddSource: Bool = false
     @State private var newSourceURL: String = ""
     @State private var showErrorDetail: Bool = false
+    @State private var installError: String?
+    @State private var showErrorAlert: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -318,13 +320,19 @@ struct MarketplaceBrowserView: View {
                                 _ = try await marketplaceManager.installPlugin(plugin, scope: scope)
                                 showInstallSheet = false
                             } catch {
-                                // Handle error
+                                installError = error.localizedDescription
+                                showErrorAlert = true
                             }
                         }
                     },
                     onCancel: { showInstallSheet = false }
                 )
             }
+        }
+        .alert("Installation Failed", isPresented: $showErrorAlert) {
+            Button("OK") { installError = nil }
+        } message: {
+            Text(installError ?? "Unknown error")
         }
         .sheet(isPresented: $showAddSource) {
             AddSourceSheet(

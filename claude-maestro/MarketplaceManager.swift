@@ -286,6 +286,7 @@ class MarketplaceManager: ObservableObject {
 
         for source in sources where source.isEnabled {
             do {
+                try await updateMarketplaceRepository(source: source)
                 let plugins = try await fetchPlugins(from: source)
                 allPlugins.append(contentsOf: plugins)
 
@@ -752,10 +753,58 @@ class MarketplaceManager: ObservableObject {
         // Validate by fetching
         _ = try await fetchPlugins(from: source)
 
+        // Clone the repository so plugins can be installed
+        try await cloneMarketplaceRepository(source: source)
+
         sources.append(source)
         persistSources()
 
         return source
+    }
+
+    /// Clone a marketplace repository using shallow clone
+    private func cloneMarketplaceRepository(source: MarketplaceSource) async throws {
+        guard let (owner, repo) = source.githubOwnerRepo else {
+            throw MarketplaceError.invalidSourceURL
+        }
+
+        let clonePath = "\(marketplacesPath)/\(source.name)"
+        let fm = FileManager.default
+
+        // Skip if already cloned
+        if fm.fileExists(atPath: clonePath) {
+            return
+        }
+
+        // Create parent directory
+        try fm.createDirectory(atPath: marketplacesPath, withIntermediateDirectories: true)
+
+        // Shallow clone
+        let repoURL = "https://github.com/\(owner)/\(repo).git"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["clone", "--depth", "1", repoURL, clonePath]
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            throw MarketplaceError.installationError("Failed to clone marketplace repository")
+        }
+    }
+
+    /// Update a marketplace repository with git pull
+    private func updateMarketplaceRepository(source: MarketplaceSource) async throws {
+        let repoPath = "\(marketplacesPath)/\(source.name)"
+        guard FileManager.default.fileExists(atPath: repoPath) else { return }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["pull", "--ff-only"]
+        process.currentDirectoryURL = URL(fileURLWithPath: repoPath)
+
+        try process.run()
+        process.waitUntilExit()
     }
 
     /// Remove a marketplace source
