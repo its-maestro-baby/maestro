@@ -1320,6 +1320,7 @@ struct PreLaunchView: View {
                     )
                     .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 4)
             }
+            .fixedSize(horizontal: true, vertical: false)
 
             // Path display
             if !manager.projectPath.isEmpty {
