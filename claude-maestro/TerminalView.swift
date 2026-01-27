@@ -126,6 +126,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
 
         // Generate session configs (CLAUDE.md + CLI-specific MCP config)
+        // Get associated app config for custom instructions
+        let appConfig = AppManager.shared.getAssociatedApp(for: sessionId)
         ClaudeDocManager.writeSessionConfigs(
             to: workingDirectory,
             projectPath: workingDirectory,
@@ -133,7 +135,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             branch: assignedBranch,
             sessionId: sessionId,
             port: nil,
-            mode: mode
+            mode: mode,
+            appConfig: appConfig
         )
 
         terminal.startProcess(
@@ -578,35 +581,42 @@ struct TerminalSessionView: View {
                     controller: terminalController
                 )
             } else {
-                // Pending state placeholder
-                VStack(spacing: 12) {
-                    Spacer()
+                // Pending state placeholder - centered with fitted backdrop
+                ZStack {
+                    // Terminal-like background
+                    Color(NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0))
 
-                    Image(systemName: mode.icon)
-                        .font(.system(size: 32))
-                        .foregroundColor(mode.color.opacity(0.5))
+                    // Content with fitted backdrop
+                    VStack(spacing: 12) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 32))
+                            .foregroundColor(mode.color.opacity(0.5))
 
-                    Text("Select branch and click Launch")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if let branch = assignedBranch {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.branch")
-                            Text(branch)
-                        }
-                        .font(.caption2)
-                        .foregroundColor(.blue)
-                    } else {
-                        Text("Using current branch")
-                            .font(.caption2)
+                        Text("Select branch and click Launch")
+                            .font(.caption)
                             .foregroundColor(.secondary)
-                    }
 
-                    Spacer()
+                        if let branch = assignedBranch {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.branch")
+                                Text(branch)
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                        } else {
+                            Text("Using current branch")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(NSColor.textBackgroundColor).opacity(0.85))
+                    )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(NSColor.textBackgroundColor).opacity(0.5))
             }
 
             // Footer bar with quick actions (only when terminal is launched)
