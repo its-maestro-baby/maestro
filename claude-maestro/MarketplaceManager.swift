@@ -1009,6 +1009,16 @@ class MarketplaceManager: ObservableObject {
             sessionPluginConfigs = decoded
         }
     }
+
+    // MARK: - App Configuration
+
+    /// Apply an app configuration to a session
+    /// This sets the session's plugin config to match the app's enabled plugins
+    func applyAppConfig(_ app: AppConfig, to sessionId: Int) {
+        let config = SessionPluginConfig(enabledPluginIds: app.enabledPluginIds)
+        sessionPluginConfigs[sessionId] = config
+        persistSessionConfigs()
+    }
 }
 
 // MARK: - Errors
