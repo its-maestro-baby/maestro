@@ -52,7 +52,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         // Install a rich ANSI color palette (16 colors)
         let colors: [SwiftTerm.Color] = [
             // Standard colors (0-7)
-            SwiftTerm.Color(red: 38, green: 38, blue: 43),      // Black
+            SwiftTerm.Color(red: 88, green: 88, blue: 92),      // Black (visible on dark bg)
             SwiftTerm.Color(red: 242, green: 89, blue: 89),     // Red
             SwiftTerm.Color(red: 89, green: 217, blue: 115),    // Green
             SwiftTerm.Color(red: 242, green: 204, blue: 89),    // Yellow
