@@ -121,32 +121,6 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     private func launchTerminal(in terminal: LocalProcessTerminalView) {
         let shell = Foundation.ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
-        // Source user's shell profile to get full environment (PATH, NVM, etc.)
-        // This is necessary because macOS apps launched from Finder have a limited environment
-        var command = """
-            if [ -f ~/.zprofile ]; then source ~/.zprofile 2>/dev/null; fi; \
-            if [ -f ~/.zshrc ]; then source ~/.zshrc 2>/dev/null; fi; \
-            if [ -f ~/.bash_profile ]; then source ~/.bash_profile 2>/dev/null; fi; \
-            if [ -f ~/.bashrc ]; then source ~/.bashrc 2>/dev/null; fi; \
-            cd '\(workingDirectory)'
-            """
-
-        // Note: Branch checkout is handled by worktree isolation
-        // Each session with an assigned branch gets its own worktree directory
-
-        // Auto-launch CLI tool if in AI mode, otherwise just open shell
-        if let cliCommand = mode.command {
-            // Launch the CLI tool directly (it will take over the terminal)
-            command += " && \(cliCommand)"
-            // Mark CLI as launched
-            DispatchQueue.main.async {
-                self.onCLILaunched()
-            }
-        } else {
-            // Plain terminal - just exec shell
-            command += " && exec $SHELL"
-        }
-
         // Generate session configs (CLAUDE.md + CLI-specific MCP config)
         // Get associated app config for custom instructions
         let appConfig = AppManager.shared.getAssociatedApp(for: sessionId)
@@ -161,12 +135,47 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             appConfig: appConfig
         )
 
-        terminal.startProcess(
-            executable: shell,
-            args: ["-l", "-i", "-c", command],
-            environment: nil,  // Let shell inherit and source profiles for full environment
-            execName: nil
-        )
+        // Note: Branch checkout is handled by worktree isolation
+        // Each session with an assigned branch gets its own worktree directory
+
+        if mode == .plainTerminal {
+            // Plain terminal - launch interactive login shell directly
+            // Using -l (login) and -i (interactive) ensures the shell stays open
+            // and sources profile files automatically
+            terminal.startProcess(
+                executable: shell,
+                args: ["-l", "-i"],
+                environment: nil,
+                execName: nil
+            )
+            // Send cd command after shell starts to change to working directory
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                terminal.send(txt: "cd '\(self.workingDirectory)'\r")
+            }
+        } else {
+            // AI CLI mode - use -c to run setup commands and launch CLI
+            // Source user's shell profile to get full environment (PATH, NVM, etc.)
+            // This is necessary because macOS apps launched from Finder have a limited environment
+            let command = """
+                if [ -f ~/.zprofile ]; then source ~/.zprofile 2>/dev/null; fi; \
+                if [ -f ~/.zshrc ]; then source ~/.zshrc 2>/dev/null; fi; \
+                if [ -f ~/.bash_profile ]; then source ~/.bash_profile 2>/dev/null; fi; \
+                if [ -f ~/.bashrc ]; then source ~/.bashrc 2>/dev/null; fi; \
+                cd '\(workingDirectory)' && \(mode.command ?? "echo 'No CLI configured'")
+                """
+
+            // Mark CLI as launched
+            DispatchQueue.main.async {
+                self.onCLILaunched()
+            }
+
+            terminal.startProcess(
+                executable: shell,
+                args: ["-l", "-i", "-c", command],
+                environment: nil,  // Let shell inherit and source profiles for full environment
+                execName: nil
+            )
+        }
 
         // Capture the shell PID for native process management
         // We need to wait a moment for the shell to spawn, then find it
