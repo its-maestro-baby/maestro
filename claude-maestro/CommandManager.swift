@@ -81,9 +81,10 @@ class CommandManager: ObservableObject {
         }
 
         // 3. Project commands (if project path is set): .claude/commands/*.md
+        // Note: followSymlinks: false prevents worktree symlinks from being re-discovered as project commands
         if let projectPath = currentProjectPath {
             let projectCommandsPath = "\(projectPath)/.claude/commands"
-            if let projectCommands = scanCommandsDirectory(projectCommandsPath, source: .project(projectPath: projectPath)) {
+            if let projectCommands = scanCommandsDirectory(projectCommandsPath, source: .project(projectPath: projectPath), followSymlinks: false) {
                 discoveredCommands.append(contentsOf: projectCommands)
             }
         }
@@ -95,7 +96,11 @@ class CommandManager: ObservableObject {
     }
 
     /// Scan a directory for .md command files
-    private func scanCommandsDirectory(_ path: String, source: CommandSource) -> [CommandConfig]? {
+    /// - Parameters:
+    ///   - path: Directory path to scan
+    ///   - source: Source attribution for discovered commands
+    ///   - followSymlinks: If false, skips symlinked files (default: true)
+    private func scanCommandsDirectory(_ path: String, source: CommandSource, followSymlinks: Bool = true) -> [CommandConfig]? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else { return nil }
 
@@ -110,6 +115,16 @@ class CommandManager: ObservableObject {
             guard item.hasSuffix(".md") else { continue }
 
             let commandPath = "\(path)/\(item)"
+
+            // Skip symlinks if followSymlinks is false
+            if !followSymlinks {
+                if let attrs = try? fm.attributesOfItem(atPath: commandPath),
+                   let fileType = attrs[.type] as? FileAttributeType,
+                   fileType == .typeSymbolicLink {
+                    continue
+                }
+            }
+
             var isDir: ObjCBool = false
 
             // Skip directories
