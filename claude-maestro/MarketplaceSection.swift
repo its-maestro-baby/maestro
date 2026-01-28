@@ -10,6 +10,7 @@ import SwiftUI
 struct MarketplaceSection: View {
     @StateObject private var marketplaceManager = MarketplaceManager.shared
     @StateObject private var skillManager = SkillManager.shared
+    @StateObject private var commandManager = CommandManager.shared
     @State private var showBrowser: Bool = false
     @State private var showPluginDetail: InstalledPlugin? = nil
     @State private var showDeleteConfirmation: Bool = false
@@ -22,6 +23,17 @@ struct MarketplaceSection: View {
             // Keep only skills that are NOT from a path inside an installed plugin
             !installedPluginPaths.contains(where: { pluginPath in
                 skill.path.hasPrefix(pluginPath)
+            })
+        }
+    }
+
+    /// Filter out commands that belong to installed plugins (to avoid duplication)
+    private var standaloneCommands: [CommandConfig] {
+        let installedPluginPaths = Set(marketplaceManager.installedPlugins.map { $0.path })
+        return commandManager.installedCommands.filter { command in
+            // Keep only commands that are NOT from a path inside an installed plugin
+            !installedPluginPaths.contains(where: { pluginPath in
+                command.path.hasPrefix(pluginPath)
             })
         }
     }
@@ -72,7 +84,7 @@ struct MarketplaceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                } else if standaloneSkills.isEmpty && marketplaceManager.installedPlugins.isEmpty {
+                } else if standaloneSkills.isEmpty && standaloneCommands.isEmpty && marketplaceManager.installedPlugins.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Image(systemName: "sparkles")
@@ -106,6 +118,11 @@ struct MarketplaceSection: View {
                         ForEach(standaloneSkills) { skill in
                             SkillRow(skill: skill)
                         }
+
+                        // Discovered commands (not from plugins)
+                        ForEach(standaloneCommands) { command in
+                            CommandRow(command: command)
+                        }
                     }
                     .padding(8)
                 }
@@ -115,7 +132,7 @@ struct MarketplaceSection: View {
         }
         .padding(.horizontal, 8)
         .sheet(isPresented: $showBrowser) {
-            MarketplaceBrowserView()
+            MarketplaceBrowserViewV2()
         }
         .sheet(item: $showPluginDetail) { plugin in
             PluginDetailSheet(plugin: plugin)
@@ -253,6 +270,56 @@ struct SkillRow: View {
     }
 }
 
+// MARK: - Command Row
+
+struct CommandRow: View {
+    let command: CommandConfig
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Command type icon
+            Image(systemName: command.source.icon)
+                .foregroundColor(.blue)
+                .font(.caption)
+                .frame(width: 16)
+
+            // Command info
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text("/\(command.commandName)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    // Source badge
+                    Text(command.source.displayName)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(3)
+                }
+
+                if !command.description.isEmpty {
+                    Text(command.description)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.blue.opacity(0.05))
+        )
+    }
+}
+
 // MARK: - Plugin Detail Sheet
 
 struct PluginDetailSheet: View {
@@ -296,20 +363,82 @@ struct PluginDetailSheet: View {
                 DetailRow(label: "Scope", value: plugin.installScope.rawValue)
                 DetailRow(label: "Installed", value: plugin.installedAt.formatted())
                 DetailRow(label: "Location", value: plugin.path)
+            }
 
-                if !plugin.skills.isEmpty {
-                    DetailRow(label: "Skills", value: plugin.skills.joined(separator: ", "))
-                }
+            // Capabilities section
+            if !plugin.skills.isEmpty || !plugin.commands.isEmpty || !plugin.mcpServers.isEmpty {
+                Divider()
 
-                if !plugin.mcpServers.isEmpty {
-                    DetailRow(label: "MCP Servers", value: plugin.mcpServers.joined(separator: ", "))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Capabilities")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+
+                    // Skills
+                    if !plugin.skills.isEmpty {
+                        CapabilityRow(
+                            icon: "sparkles",
+                            iconColor: .orange,
+                            label: "Skills",
+                            items: plugin.skills
+                        )
+                    }
+
+                    // Commands
+                    if !plugin.commands.isEmpty {
+                        CapabilityRow(
+                            icon: "terminal",
+                            iconColor: .blue,
+                            label: "Commands",
+                            items: plugin.commands
+                        )
+                    }
+
+                    // MCP Servers
+                    if !plugin.mcpServers.isEmpty {
+                        CapabilityRow(
+                            icon: "server.rack",
+                            iconColor: .green,
+                            label: "MCP Servers",
+                            items: plugin.mcpServers
+                        )
+                    }
                 }
             }
 
             Spacer()
         }
         .padding()
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 400)
+    }
+}
+
+// MARK: - Capability Row
+
+struct CapabilityRow: View {
+    let icon: String
+    let iconColor: Color
+    let label: String
+    let items: [String]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(iconColor)
+                .font(.caption)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Text(items.joined(separator: ", "))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
     }
 }
 
