@@ -61,9 +61,11 @@ enum TerminalMode: String, CaseIterable, Codable {
     /// Check if the CLI tool is available in PATH
     func isToolAvailable() -> Bool {
         guard let cmd = command else { return true }
+        let shell = Foundation.ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [cmd]
+        process.executableURL = URL(fileURLWithPath: shell)
+        // Run shell as login (-l) to source profiles, then check with which
+        process.arguments = ["-l", "-c", "which \(cmd)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
