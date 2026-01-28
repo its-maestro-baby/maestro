@@ -18,24 +18,12 @@ struct MarketplaceSection: View {
 
     /// Filter out skills that belong to installed plugins (to avoid duplication)
     private var standaloneSkills: [SkillConfig] {
-        let installedPluginPaths = Set(marketplaceManager.installedPlugins.map { $0.path })
-        return skillManager.installedSkills.filter { skill in
-            // Keep only skills that are NOT from a path inside an installed plugin
-            !installedPluginPaths.contains(where: { pluginPath in
-                skill.path.hasPrefix(pluginPath)
-            })
-        }
+        skillManager.installedSkills.filter { $0.source.pluginName == nil }
     }
 
     /// Filter out commands that belong to installed plugins (to avoid duplication)
     private var standaloneCommands: [CommandConfig] {
-        let installedPluginPaths = Set(marketplaceManager.installedPlugins.map { $0.path })
-        return commandManager.installedCommands.filter { command in
-            // Keep only commands that are NOT from a path inside an installed plugin
-            !installedPluginPaths.contains(where: { pluginPath in
-                command.path.hasPrefix(pluginPath)
-            })
-        }
+        commandManager.installedCommands.filter { $0.source.pluginName == nil }
     }
 
     var body: some View {
