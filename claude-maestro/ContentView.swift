@@ -64,14 +64,36 @@ enum TerminalMode: String, CaseIterable, Codable {
         let shell = Foundation.ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        // Run shell as login (-l) to source profiles, then check with which
-        process.arguments = ["-l", "-c", "which \(cmd)"]
+        // Run shell as login (-l) and interactive (-i) to source all profile files
+        // The -i flag ensures .zshrc is read, where NVM/Homebrew PATH additions typically live
+        process.arguments = ["-l", "-i", "-c", "which \(cmd)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+
+        // Use timeout to prevent hanging if shell initialization is slow
+        let semaphore = DispatchSemaphore(value: 0)
+        var exitStatus: Int32 = 1
+
         do {
             try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
+
+            // Run waitUntilExit on background queue with timeout
+            DispatchQueue.global().async {
+                process.waitUntilExit()
+                exitStatus = process.terminationStatus
+                semaphore.signal()
+            }
+
+            // Wait up to 5 seconds for the process to complete
+            let result = semaphore.wait(timeout: .now() + 5.0)
+
+            if result == .timedOut {
+                process.terminate()
+                // On timeout, assume tool might be available (better UX than false negative)
+                return true
+            }
+
+            return exitStatus == 0
         } catch {
             return false
         }

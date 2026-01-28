@@ -853,22 +853,36 @@ class ClaudeDocManager {
         var result: [String] = []
         var skipUntilNextSection = false
 
-        // Prefix that matches both main section and any subsections (e.g., .env)
-        let sectionPrefix = "[mcp_servers.\(sessionKey)"
+        // Exact prefix for main section and subsection prefix
+        let sectionExact = "[mcp_servers.\(sessionKey)]"
+        let subsectionPrefix = "[mcp_servers.\(sessionKey)."
+
+        // Extract session number for EXACT comment matching
+        // Handle keys like "maestro_session_3", "maestro_session_3_status", "maestro_session_3_custom_0"
+        let sessionNumber = sessionKey
+            .replacingOccurrences(of: "maestro_session_", with: "")
+            .components(separatedBy: "_")
+            .first ?? ""
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            // Check if this is ANY section for our session (main or .env subsection)
-            if trimmed.hasPrefix(sectionPrefix) {
+            // Check if this is the exact main section or any subsection for our session
+            if trimmed == sectionExact || trimmed.hasPrefix(subsectionPrefix) {
                 skipUntilNextSection = true
                 continue
             }
 
-            // Skip comment lines for this session
-            if trimmed.hasPrefix("#") && trimmed.contains("Maestro Session") &&
-               trimmed.contains(sessionKey.replacingOccurrences(of: "maestro_session_", with: "")) {
-                continue
+            // Skip comment lines for this EXACT session using regex for word boundary
+            if trimmed.hasPrefix("#") && trimmed.contains("Maestro Session") {
+                // Extract the session number from comment and compare exactly
+                if let match = trimmed.range(of: "Session (\\d+)", options: .regularExpression) {
+                    let matchedText = String(trimmed[match])
+                    let commentSessionNum = matchedText.replacingOccurrences(of: "Session ", with: "")
+                    if commentSessionNum == sessionNumber {
+                        continue
+                    }
+                }
             }
 
             // Check if we've reached a different section (one that doesn't belong to our session)
@@ -888,6 +902,74 @@ class ClaudeDocManager {
         }
 
         return result.joined(separator: "\n")
+    }
+
+    /// Clean up orphaned or malformed MCP sections from Codex config
+    /// Call this at app startup to fix historical corruption
+    static func cleanupOrphanedCodexSections() {
+        let fm = FileManager.default
+        let homeDir = fm.homeDirectoryForCurrentUser
+        let configPath = homeDir.appendingPathComponent(".codex/config.toml")
+
+        guard fm.fileExists(atPath: configPath.path),
+              var content = try? String(contentsOf: configPath, encoding: .utf8) else {
+            return
+        }
+
+        let lines = content.components(separatedBy: "\n")
+        var mainSections = Set<String>()  // Sections with [mcp_servers.X] (have command/args)
+        var envSections = Set<String>()   // Sections with [mcp_servers.X.env]
+
+        // First pass: identify all main sections and env subsections
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Match main section: [mcp_servers.maestro_session_N]
+            if let match = trimmed.range(of: "^\\[mcp_servers\\.(maestro_session_[^.\\]]+)\\]$", options: .regularExpression) {
+                let sectionName = String(trimmed[match])
+                    .replacingOccurrences(of: "[mcp_servers.", with: "")
+                    .replacingOccurrences(of: "]", with: "")
+                mainSections.insert(sectionName)
+            }
+
+            // Match env subsection: [mcp_servers.maestro_session_N.env]
+            if let match = trimmed.range(of: "^\\[mcp_servers\\.(maestro_session_[^.]+)\\.env\\]$", options: .regularExpression) {
+                let fullMatch = String(trimmed[match])
+                let parentName = fullMatch
+                    .replacingOccurrences(of: "[mcp_servers.", with: "")
+                    .replacingOccurrences(of: ".env]", with: "")
+                envSections.insert(parentName)
+            }
+        }
+
+        // Find orphans: env sections without corresponding main sections
+        let orphans = envSections.subtracting(mainSections)
+
+        if orphans.isEmpty {
+            return
+        }
+
+        // Remove orphan sections
+        for orphan in orphans {
+            content = removeCodexMCPSection(from: content, sessionKey: orphan)
+        }
+
+        // Clean up multiple consecutive blank lines
+        var cleanedLines: [String] = []
+        var lastWasBlank = false
+        for line in content.components(separatedBy: "\n") {
+            let isBlank = line.trimmingCharacters(in: .whitespaces).isEmpty
+            if isBlank && lastWasBlank {
+                continue
+            }
+            cleanedLines.append(line)
+            lastWasBlank = isBlank
+        }
+        content = cleanedLines.joined(separator: "\n")
+
+        // Write back
+        try? content.write(to: configPath, atomically: true, encoding: .utf8)
+        print("ClaudeDocManager: Cleaned up \(orphans.count) orphaned Codex MCP sections")
     }
 
     /// Write all session configs based on terminal mode

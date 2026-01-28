@@ -84,9 +84,25 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             onLaunched()
 
             // Make terminal first responder to receive keyboard input
-            // This fixes the issue where typing doesn't work immediately after launch
-            DispatchQueue.main.async {
-                terminal.window?.makeFirstResponder(terminal)
+            // Use retry mechanism since window may not be attached immediately
+            makeFirstResponderWithRetry(terminal: terminal, attempts: 5)
+        }
+    }
+
+    /// Attempts to make the terminal first responder, retrying if window is not available
+    private func makeFirstResponderWithRetry(terminal: LocalProcessTerminalView, attempts: Int, delay: TimeInterval = 0.1) {
+        guard attempts > 0 else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            if let window = terminal.window {
+                window.makeFirstResponder(terminal)
+            } else {
+                // Window not yet available, retry with exponential backoff
+                self.makeFirstResponderWithRetry(
+                    terminal: terminal,
+                    attempts: attempts - 1,
+                    delay: delay * 1.5
+                )
             }
         }
     }
