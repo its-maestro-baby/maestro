@@ -71,7 +71,7 @@ struct CapabilitySelector: View {
 
     /// Commands grouped by plugin for bundling
     /// Returns array of (pluginName, commands) tuples
-    /// Plugins with 2+ commands are bundled; single-command plugins shown individually
+    /// All plugin commands are bundled; non-plugin commands shown individually
     private var commandsByPlugin: [(pluginName: String?, commands: [CommandConfig])] {
         // Group commands by plugin name
         var grouped: [String?: [CommandConfig]] = [:]
@@ -80,21 +80,54 @@ struct CapabilitySelector: View {
             grouped[pluginName, default: []].append(command)
         }
 
-        // Build result: bundle plugins with 2+ commands, show single commands individually
+        // Build result: bundle all plugins, show non-plugin commands individually
         var result: [(pluginName: String?, commands: [CommandConfig])] = []
 
-        // First add bundles (plugins with 2+ commands)
+        // First add bundles (all plugins, regardless of count)
         for (pluginName, commands) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName != nil && commands.count >= 2 {
+            if pluginName != nil {
                 result.append((pluginName: pluginName, commands: commands))
             }
         }
 
-        // Then add individual commands (single-command plugins or non-plugin commands)
+        // Then add individual commands (non-plugin commands only)
         for (pluginName, commands) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName == nil || commands.count < 2 {
+            if pluginName == nil {
                 for command in commands {
                     result.append((pluginName: nil, commands: [command]))
+                }
+            }
+        }
+
+        return result
+    }
+
+    /// Skills grouped by plugin for bundling
+    /// Returns array of (pluginName, skills) tuples
+    /// All plugin skills are bundled; non-plugin skills shown individually
+    private var skillsByPlugin: [(pluginName: String?, skills: [SkillConfig])] {
+        // Group skills by plugin name
+        var grouped: [String?: [SkillConfig]] = [:]
+        for skill in filteredSkills {
+            let pluginName = skill.source.pluginName
+            grouped[pluginName, default: []].append(skill)
+        }
+
+        // Build result: bundle all plugins, show non-plugin skills individually
+        var result: [(pluginName: String?, skills: [SkillConfig])] = []
+
+        // First add bundles (all plugins, regardless of count)
+        for (pluginName, skills) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
+            if pluginName != nil {
+                result.append((pluginName: pluginName, skills: skills))
+            }
+        }
+
+        // Then add individual skills (non-plugin skills only)
+        for (pluginName, skills) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
+            if pluginName == nil {
+                for skill in skills {
+                    result.append((pluginName: nil, skills: [skill]))
                 }
             }
         }
@@ -211,14 +244,32 @@ struct CapabilitySelector: View {
                     // Skills section
                     if !filteredSkills.isEmpty {
                         SectionHeader(title: "Skills", count: enabledSkillCount, total: filteredSkills.count)
-                        ForEach(filteredSkills) { skill in
-                            SkillToggleRow(
-                                skill: skill,
-                                isEnabled: sessionSkillConfig.isSkillEnabled(skill.id),
-                                onToggle: { enabled in
-                                    skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
-                                }
-                            )
+                        ForEach(Array(skillsByPlugin.enumerated()), id: \.offset) { _, item in
+                            if let pluginName = item.pluginName {
+                                // Render as bundle
+                                PluginSkillBundleRow(
+                                    pluginName: pluginName,
+                                    skills: item.skills,
+                                    enabledIds: sessionSkillConfig.enabledSkillIds,
+                                    onToggleAll: { enabled in
+                                        for skill in item.skills {
+                                            skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
+                                        }
+                                    },
+                                    onToggleSkill: { skill, enabled in
+                                        skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
+                                    }
+                                )
+                            } else if let skill = item.skills.first {
+                                // Render as individual skill
+                                SkillToggleRow(
+                                    skill: skill,
+                                    isEnabled: sessionSkillConfig.isSkillEnabled(skill.id),
+                                    onToggle: { enabled in
+                                        skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
+                                    }
+                                )
+                            }
                         }
                     }
 
@@ -230,7 +281,7 @@ struct CapabilitySelector: View {
                         }
                         SectionHeader(title: "Commands", count: enabledCommandCount, total: filteredCommands.count)
                         ForEach(Array(commandsByPlugin.enumerated()), id: \.offset) { _, item in
-                            if let pluginName = item.pluginName, item.commands.count >= 2 {
+                            if let pluginName = item.pluginName {
                                 // Render as bundle
                                 PluginCommandBundleRow(
                                     pluginName: pluginName,
@@ -330,6 +381,7 @@ private struct SkillToggleRow: View {
     let skill: SkillConfig
     let isEnabled: Bool
     let onToggle: (Bool) -> Void
+    var indented: Bool = false
 
     var body: some View {
         Button {
@@ -362,17 +414,20 @@ private struct SkillToggleRow: View {
 
                 Spacer()
 
-                // Source badge
-                Text(skill.source.displayName)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(3)
+                // Source badge (hide when indented in bundle)
+                if !indented {
+                    Text(skill.source.displayName)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(3)
+                }
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
+            .padding(.leading, indented ? 20 : 0)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(isEnabled ? Color.orange.opacity(0.05) : Color.clear)
@@ -380,6 +435,125 @@ private struct SkillToggleRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Plugin Skill Bundle Row
+
+private struct PluginSkillBundleRow: View {
+    let pluginName: String
+    let skills: [SkillConfig]
+    let enabledIds: Set<UUID>
+    let onToggleAll: (Bool) -> Void
+    let onToggleSkill: (SkillConfig, Bool) -> Void
+
+    @State private var isExpanded = false
+
+    private var enabledCount: Int {
+        skills.filter { enabledIds.contains($0.id) }.count
+    }
+
+    private var checkboxState: CheckboxState {
+        if enabledCount == 0 {
+            return .none
+        } else if enabledCount == skills.count {
+            return .all
+        } else {
+            return .partial
+        }
+    }
+
+    private enum CheckboxState {
+        case none, partial, all
+
+        var icon: String {
+            switch self {
+            case .none: return "circle"
+            case .partial: return "minus.circle.fill"
+            case .all: return "checkmark.circle.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .none: return .secondary
+            case .partial, .all: return .orange
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Bundle header row
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    // Expand/collapse chevron
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 10)
+
+                    // Bundle checkbox (clickable separately)
+                    Button {
+                        let shouldEnable = checkboxState != .all
+                        onToggleAll(shouldEnable)
+                    } label: {
+                        Image(systemName: checkboxState.icon)
+                            .foregroundColor(checkboxState.color)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Plugin icon
+                    Image(systemName: "puzzlepiece.extension")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                        .frame(width: 16)
+
+                    // Plugin name
+                    Text(pluginName)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
+
+                    Spacer()
+
+                    // Skill count badge
+                    Text("\(enabledCount)/\(skills.count)")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(3)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(enabledCount > 0 ? Color.orange.opacity(0.05) : Color.clear)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Expanded skills
+            if isExpanded {
+                ForEach(skills) { skill in
+                    SkillToggleRow(
+                        skill: skill,
+                        isEnabled: enabledIds.contains(skill.id),
+                        onToggle: { enabled in
+                            onToggleSkill(skill, enabled)
+                        },
+                        indented: true
+                    )
+                }
+            }
+        }
     }
 }
 
