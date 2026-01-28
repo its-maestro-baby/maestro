@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// Monitors agent state files written by the maestro-status MCP server.
 /// Polls /tmp/maestro/agents/ every 0.5 seconds and publishes agent states.
@@ -25,6 +26,9 @@ class MaestroStateMonitor: ObservableObject {
 
     /// Maximum age for state files before cleanup (5 minutes)
     private let maxStateAge: TimeInterval = 300
+
+    /// Previous agent states for detecting transitions
+    private var previousStates: [String: AgentStatusState] = [:]
 
     init(stateDir: String = "/tmp/maestro/agents", pollInterval: TimeInterval = 0.5) {
         self.stateDir = stateDir
@@ -113,9 +117,32 @@ class MaestroStateMonitor: ObservableObject {
             newAgents[state.agentId] = state
         }
 
+        // Detect finished transitions and play sound
+        for (agentId, agentState) in newAgents {
+            let previousState = previousStates[agentId]
+            if agentState.state == .finished && previousState != .finished {
+                playCompletionSound()
+            }
+        }
+        previousStates = newAgents.mapValues { $0.state }
+
         // Only update if changed
         if newAgents != agents {
             agents = newAgents
+        }
+    }
+
+    /// Play a sound when an agent finishes a task
+    private func playCompletionSound() {
+        // Try to play a bundled sound file first
+        if let sound = NSSound(named: "agent-complete") {
+            sound.play()
+        } else if let sound = NSSound(named: NSSound.Name("Glass")) {
+            // Fall back to system "Glass" sound
+            sound.play()
+        } else {
+            // Last resort: system beep
+            NSSound.beep()
         }
     }
 
