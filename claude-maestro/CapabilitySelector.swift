@@ -69,70 +69,31 @@ struct CapabilitySelector: View {
         }
     }
 
-    /// Commands grouped by plugin for bundling
-    /// Returns array of (pluginName, commands) tuples
-    /// All plugin commands are bundled; non-plugin commands shown individually
-    private var commandsByPlugin: [(pluginName: String?, commands: [CommandConfig])] {
-        // Group commands by plugin name
-        var grouped: [String?: [CommandConfig]] = [:]
+    /// Unified plugin bundles containing both skills and commands
+    private var pluginBundles: [(pluginName: String, skills: [SkillConfig], commands: [CommandConfig])] {
+        var plugins = Set<String>()
+        for skill in filteredSkills {
+            if let name = skill.source.pluginName { plugins.insert(name) }
+        }
         for command in filteredCommands {
-            let pluginName = command.source.pluginName
-            grouped[pluginName, default: []].append(command)
+            if let name = command.source.pluginName { plugins.insert(name) }
         }
 
-        // Build result: bundle all plugins, show non-plugin commands individually
-        var result: [(pluginName: String?, commands: [CommandConfig])] = []
-
-        // First add bundles (all plugins, regardless of count)
-        for (pluginName, commands) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName != nil {
-                result.append((pluginName: pluginName, commands: commands))
-            }
+        return plugins.sorted().map { pluginName in
+            let skills = filteredSkills.filter { $0.source.pluginName == pluginName }
+            let commands = filteredCommands.filter { $0.source.pluginName == pluginName }
+            return (pluginName: pluginName, skills: skills, commands: commands)
         }
-
-        // Then add individual commands (non-plugin commands only)
-        for (pluginName, commands) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName == nil {
-                for command in commands {
-                    result.append((pluginName: nil, commands: [command]))
-                }
-            }
-        }
-
-        return result
     }
 
-    /// Skills grouped by plugin for bundling
-    /// Returns array of (pluginName, skills) tuples
-    /// All plugin skills are bundled; non-plugin skills shown individually
-    private var skillsByPlugin: [(pluginName: String?, skills: [SkillConfig])] {
-        // Group skills by plugin name
-        var grouped: [String?: [SkillConfig]] = [:]
-        for skill in filteredSkills {
-            let pluginName = skill.source.pluginName
-            grouped[pluginName, default: []].append(skill)
-        }
+    /// Non-plugin skills (shown individually)
+    private var nonPluginSkills: [SkillConfig] {
+        filteredSkills.filter { $0.source.pluginName == nil }
+    }
 
-        // Build result: bundle all plugins, show non-plugin skills individually
-        var result: [(pluginName: String?, skills: [SkillConfig])] = []
-
-        // First add bundles (all plugins, regardless of count)
-        for (pluginName, skills) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName != nil {
-                result.append((pluginName: pluginName, skills: skills))
-            }
-        }
-
-        // Then add individual skills (non-plugin skills only)
-        for (pluginName, skills) in grouped.sorted(by: { ($0.key ?? "") < ($1.key ?? "") }) {
-            if pluginName == nil {
-                for skill in skills {
-                    result.append((pluginName: nil, skills: [skill]))
-                }
-            }
-        }
-
-        return result
+    /// Non-plugin commands (shown individually)
+    private var nonPluginCommands: [CommandConfig] {
+        filteredCommands.filter { $0.source.pluginName == nil }
     }
 
     /// List of enabled skill names for tooltip
@@ -241,71 +202,61 @@ struct CapabilitySelector: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    // Skills section
-                    if !filteredSkills.isEmpty {
-                        SectionHeader(title: "Skills", count: enabledSkillCount, total: filteredSkills.count)
-                        ForEach(Array(skillsByPlugin.enumerated()), id: \.offset) { _, item in
-                            if let pluginName = item.pluginName {
-                                // Render as bundle
-                                PluginSkillBundleRow(
-                                    pluginName: pluginName,
-                                    skills: item.skills,
-                                    enabledIds: sessionSkillConfig.enabledSkillIds,
-                                    onToggleAll: { enabled in
-                                        for skill in item.skills {
-                                            skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
-                                        }
-                                    },
-                                    onToggleSkill: { skill, enabled in
+                    // Plugins section
+                    if !pluginBundles.isEmpty {
+                        SectionHeader(title: "Plugins", count: pluginBundles.count, total: pluginBundles.count)
+                        ForEach(pluginBundles, id: \.pluginName) { bundle in
+                            PluginToggleRow(
+                                pluginName: bundle.pluginName,
+                                skills: bundle.skills,
+                                commands: bundle.commands,
+                                enabledSkillIds: sessionSkillConfig.enabledSkillIds,
+                                enabledCommandIds: sessionCommandConfig.enabledCommandIds,
+                                onToggleAll: { enabled in
+                                    for skill in bundle.skills {
                                         skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
                                     }
-                                )
-                            } else if let skill = item.skills.first {
-                                // Render as individual skill
-                                SkillToggleRow(
-                                    skill: skill,
-                                    isEnabled: sessionSkillConfig.isSkillEnabled(skill.id),
-                                    onToggle: { enabled in
-                                        skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
+                                    for command in bundle.commands {
+                                        commandManager.setCommandEnabled(command.id, enabled: enabled, for: sessionId)
                                     }
-                                )
-                            }
+                                }
+                            )
                         }
                     }
 
-                    // Commands section
-                    if !filteredCommands.isEmpty {
-                        if !filteredSkills.isEmpty {
+                    // Skills section (non-plugin only)
+                    if !nonPluginSkills.isEmpty {
+                        if !pluginBundles.isEmpty {
                             Divider()
                                 .padding(.vertical, 4)
                         }
-                        SectionHeader(title: "Commands", count: enabledCommandCount, total: filteredCommands.count)
-                        ForEach(Array(commandsByPlugin.enumerated()), id: \.offset) { _, item in
-                            if let pluginName = item.pluginName {
-                                // Render as bundle
-                                PluginCommandBundleRow(
-                                    pluginName: pluginName,
-                                    commands: item.commands,
-                                    enabledIds: sessionCommandConfig.enabledCommandIds,
-                                    onToggleAll: { enabled in
-                                        for command in item.commands {
-                                            commandManager.setCommandEnabled(command.id, enabled: enabled, for: sessionId)
-                                        }
-                                    },
-                                    onToggleCommand: { command, enabled in
-                                        commandManager.setCommandEnabled(command.id, enabled: enabled, for: sessionId)
-                                    }
-                                )
-                            } else if let command = item.commands.first {
-                                // Render as individual command
-                                CommandToggleRow(
-                                    command: command,
-                                    isEnabled: sessionCommandConfig.isCommandEnabled(command.id),
-                                    onToggle: { enabled in
-                                        commandManager.setCommandEnabled(command.id, enabled: enabled, for: sessionId)
-                                    }
-                                )
-                            }
+                        SectionHeader(title: "Skills", count: nonPluginSkills.filter { sessionSkillConfig.isSkillEnabled($0.id) }.count, total: nonPluginSkills.count)
+                        ForEach(nonPluginSkills) { skill in
+                            SkillToggleRow(
+                                skill: skill,
+                                isEnabled: sessionSkillConfig.isSkillEnabled(skill.id),
+                                onToggle: { enabled in
+                                    skillManager.setSkillEnabled(skill.id, enabled: enabled, for: sessionId)
+                                }
+                            )
+                        }
+                    }
+
+                    // Commands section (non-plugin only)
+                    if !nonPluginCommands.isEmpty {
+                        if !pluginBundles.isEmpty || !nonPluginSkills.isEmpty {
+                            Divider()
+                                .padding(.vertical, 4)
+                        }
+                        SectionHeader(title: "Commands", count: nonPluginCommands.filter { sessionCommandConfig.isCommandEnabled($0.id) }.count, total: nonPluginCommands.count)
+                        ForEach(nonPluginCommands) { command in
+                            CommandToggleRow(
+                                command: command,
+                                isEnabled: sessionCommandConfig.isCommandEnabled(command.id),
+                                onToggle: { enabled in
+                                    commandManager.setCommandEnabled(command.id, enabled: enabled, for: sessionId)
+                                }
+                            )
                         }
                     }
 
@@ -381,7 +332,6 @@ private struct SkillToggleRow: View {
     let skill: SkillConfig
     let isEnabled: Bool
     let onToggle: (Bool) -> Void
-    var indented: Bool = false
 
     var body: some View {
         Button {
@@ -414,20 +364,17 @@ private struct SkillToggleRow: View {
 
                 Spacer()
 
-                // Source badge (hide when indented in bundle)
-                if !indented {
-                    Text(skill.source.displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(3)
-                }
+                // Source badge
+                Text(skill.source.displayName)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(3)
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
-            .padding(.leading, indented ? 20 : 0)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(isEnabled ? Color.orange.opacity(0.05) : Color.clear)
@@ -438,25 +385,30 @@ private struct SkillToggleRow: View {
     }
 }
 
-// MARK: - Plugin Skill Bundle Row
+// MARK: - Plugin Toggle Row
 
-private struct PluginSkillBundleRow: View {
+private struct PluginToggleRow: View {
     let pluginName: String
     let skills: [SkillConfig]
-    let enabledIds: Set<UUID>
+    let commands: [CommandConfig]
+    let enabledSkillIds: Set<UUID>
+    let enabledCommandIds: Set<UUID>
     let onToggleAll: (Bool) -> Void
-    let onToggleSkill: (SkillConfig, Bool) -> Void
 
-    @State private var isExpanded = false
+    private var totalCount: Int {
+        skills.count + commands.count
+    }
 
     private var enabledCount: Int {
-        skills.filter { enabledIds.contains($0.id) }.count
+        let enabledSkills = skills.filter { enabledSkillIds.contains($0.id) }.count
+        let enabledCommands = commands.filter { enabledCommandIds.contains($0.id) }.count
+        return enabledSkills + enabledCommands
     }
 
     private var checkboxState: CheckboxState {
         if enabledCount == 0 {
             return .none
-        } else if enabledCount == skills.count {
+        } else if enabledCount == totalCount {
             return .all
         } else {
             return .partial
@@ -477,83 +429,64 @@ private struct PluginSkillBundleRow: View {
         var color: Color {
             switch self {
             case .none: return .secondary
-            case .partial, .all: return .orange
+            case .partial, .all: return .purple
             }
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Bundle header row
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    // Expand/collapse chevron
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 10)
-
-                    // Bundle checkbox (clickable separately)
-                    Button {
-                        let shouldEnable = checkboxState != .all
-                        onToggleAll(shouldEnable)
-                    } label: {
-                        Image(systemName: checkboxState.icon)
-                            .foregroundColor(checkboxState.color)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Plugin icon
-                    Image(systemName: "puzzlepiece.extension")
-                        .foregroundColor(.orange)
-                        .font(.caption)
-                        .frame(width: 16)
-
-                    // Plugin name
-                    Text(pluginName)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-
-                    Spacer()
-
-                    // Skill count badge
-                    Text("\(enabledCount)/\(skills.count)")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(3)
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(enabledCount > 0 ? Color.orange.opacity(0.05) : Color.clear)
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            // Expanded skills
-            if isExpanded {
-                ForEach(skills) { skill in
-                    SkillToggleRow(
-                        skill: skill,
-                        isEnabled: enabledIds.contains(skill.id),
-                        onToggle: { enabled in
-                            onToggleSkill(skill, enabled)
-                        },
-                        indented: true
-                    )
-                }
-            }
+    private var countBadgeText: String {
+        var parts: [String] = []
+        if !skills.isEmpty {
+            parts.append("\(skills.count) skill\(skills.count == 1 ? "" : "s")")
         }
+        if !commands.isEmpty {
+            parts.append("\(commands.count) command\(commands.count == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    var body: some View {
+        Button {
+            let shouldEnable = checkboxState != .all
+            onToggleAll(shouldEnable)
+        } label: {
+            HStack(spacing: 8) {
+                // Checkbox
+                Image(systemName: checkboxState.icon)
+                    .foregroundColor(checkboxState.color)
+
+                // Plugin icon
+                Image(systemName: "puzzlepiece.extension")
+                    .foregroundColor(.purple)
+                    .font(.caption)
+                    .frame(width: 16)
+
+                // Plugin name
+                Text(pluginName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+
+                Spacer()
+
+                // Count badge
+                Text(countBadgeText)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(3)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(enabledCount > 0 ? Color.purple.opacity(0.05) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -563,7 +496,6 @@ private struct CommandToggleRow: View {
     let command: CommandConfig
     let isEnabled: Bool
     let onToggle: (Bool) -> Void
-    var indented: Bool = false
 
     var body: some View {
         Button {
@@ -596,20 +528,17 @@ private struct CommandToggleRow: View {
 
                 Spacer()
 
-                // Source badge (hide when indented in bundle)
-                if !indented {
-                    Text(command.source.displayName)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(3)
-                }
+                // Source badge
+                Text(command.source.displayName)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(3)
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
-            .padding(.leading, indented ? 20 : 0)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(isEnabled ? Color.blue.opacity(0.05) : Color.clear)
@@ -617,125 +546,6 @@ private struct CommandToggleRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Plugin Command Bundle Row
-
-private struct PluginCommandBundleRow: View {
-    let pluginName: String
-    let commands: [CommandConfig]
-    let enabledIds: Set<UUID>
-    let onToggleAll: (Bool) -> Void
-    let onToggleCommand: (CommandConfig, Bool) -> Void
-
-    @State private var isExpanded = false
-
-    private var enabledCount: Int {
-        commands.filter { enabledIds.contains($0.id) }.count
-    }
-
-    private var checkboxState: CheckboxState {
-        if enabledCount == 0 {
-            return .none
-        } else if enabledCount == commands.count {
-            return .all
-        } else {
-            return .partial
-        }
-    }
-
-    private enum CheckboxState {
-        case none, partial, all
-
-        var icon: String {
-            switch self {
-            case .none: return "circle"
-            case .partial: return "minus.circle.fill"
-            case .all: return "checkmark.circle.fill"
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .none: return .secondary
-            case .partial, .all: return .blue
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Bundle header row
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    // Expand/collapse chevron
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 10)
-
-                    // Bundle checkbox (clickable separately)
-                    Button {
-                        let shouldEnable = checkboxState != .all
-                        onToggleAll(shouldEnable)
-                    } label: {
-                        Image(systemName: checkboxState.icon)
-                            .foregroundColor(checkboxState.color)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Plugin icon
-                    Image(systemName: "puzzlepiece.extension")
-                        .foregroundColor(.blue)
-                        .font(.caption)
-                        .frame(width: 16)
-
-                    // Plugin name
-                    Text(pluginName)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-
-                    Spacer()
-
-                    // Command count badge
-                    Text("\(enabledCount)/\(commands.count)")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(3)
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(enabledCount > 0 ? Color.blue.opacity(0.05) : Color.clear)
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            // Expanded commands
-            if isExpanded {
-                ForEach(commands) { command in
-                    CommandToggleRow(
-                        command: command,
-                        isEnabled: enabledIds.contains(command.id),
-                        onToggle: { enabled in
-                            onToggleCommand(command, enabled)
-                        },
-                        indented: true
-                    )
-                }
-            }
-        }
     }
 }
 
