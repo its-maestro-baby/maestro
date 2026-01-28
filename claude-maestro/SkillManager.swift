@@ -101,9 +101,10 @@ class SkillManager: ObservableObject {
         }
 
         // 4. Project skills (if project path is set)
+        // Note: followSymlinks: false prevents worktree symlinks from being re-discovered as project skills
         if let projectPath = currentProjectPath {
             let projectSkillsPath = "\(projectPath)/.claude/skills"
-            if let projectSkills = scanDirectory(projectSkillsPath, source: .project(projectPath: projectPath)) {
+            if let projectSkills = scanDirectory(projectSkillsPath, source: .project(projectPath: projectPath), followSymlinks: false) {
                 discoveredSkills.append(contentsOf: projectSkills)
             }
         }

@@ -56,6 +56,26 @@ struct CapabilitySelector: View {
         }
     }
 
+    /// Deduplicated skills (by commandName, preferring plugin over marketplace)
+    /// This prevents the same skill from appearing twice when it exists in both
+    /// ~/.claude/plugins/ and as an installed marketplace plugin
+    private var deduplicatedSkills: [SkillConfig] {
+        var skillsByName: [String: SkillConfig] = [:]
+        for skill in filteredSkills {
+            let name = skill.commandName
+            if let existing = skillsByName[name] {
+                // Prefer plugin source over marketplace
+                if case .plugin = skill.source, case .marketplace = existing.source {
+                    skillsByName[name] = skill
+                }
+                // Otherwise keep existing (first one wins if same source type)
+            } else {
+                skillsByName[name] = skill
+            }
+        }
+        return Array(skillsByName.values)
+    }
+
     /// Filtered commands based on search
     private var filteredCommands: [CommandConfig] {
         if searchText.isEmpty {
@@ -72,7 +92,7 @@ struct CapabilitySelector: View {
     /// Unified plugin bundles containing both skills and commands
     private var pluginBundles: [(pluginName: String, skills: [SkillConfig], commands: [CommandConfig])] {
         var plugins = Set<String>()
-        for skill in filteredSkills {
+        for skill in deduplicatedSkills {
             if let name = skill.source.pluginName { plugins.insert(name) }
         }
         for command in filteredCommands {
@@ -80,7 +100,7 @@ struct CapabilitySelector: View {
         }
 
         return plugins.sorted().map { pluginName in
-            let skills = filteredSkills.filter { $0.source.pluginName == pluginName }
+            let skills = deduplicatedSkills.filter { $0.source.pluginName == pluginName }
             let commands = filteredCommands.filter { $0.source.pluginName == pluginName }
             return (pluginName: pluginName, skills: skills, commands: commands)
         }
@@ -88,7 +108,7 @@ struct CapabilitySelector: View {
 
     /// Non-plugin skills (shown individually)
     private var nonPluginSkills: [SkillConfig] {
-        filteredSkills.filter { $0.source.pluginName == nil }
+        deduplicatedSkills.filter { $0.source.pluginName == nil }
     }
 
     /// Non-plugin commands (shown individually)
