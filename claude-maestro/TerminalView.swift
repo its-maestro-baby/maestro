@@ -630,8 +630,8 @@ struct TerminalSessionView: View {
             } else {
                 // Pending state placeholder - centered with fitted backdrop
                 ZStack {
-                    // Terminal-like background
-                    Color(NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0))
+                    // Terminal-like background (Catppuccin Mocha Base)
+                    Color(NSColor(red: 30/255.0, green: 30/255.0, blue: 46/255.0, alpha: 1.0))
 
                     // Content with fitted backdrop
                     VStack(spacing: 12) {
