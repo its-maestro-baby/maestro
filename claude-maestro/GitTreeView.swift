@@ -178,12 +178,9 @@ struct GitTreeView: View {
                         }
                     }
 
-                    // Load more sentinel - triggers when scrolled to bottom
+                    // Load more button
                     if graphData.hasMoreCommits && !graphData.commits.isEmpty {
                         loadMoreView
-                            .onAppear {
-                                Task { await loadMoreCommits() }
-                            }
                     }
                 }
             }
@@ -205,9 +202,13 @@ struct GitTreeView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                Text("Scroll to load more")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Button(action: {
+                    Task { await loadMoreCommits() }
+                }) {
+                    Text("Load More Commits")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
             }
             Spacer()
         }
