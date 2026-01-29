@@ -181,6 +181,7 @@ struct GitTreeView: View {
                     // Load more sentinel - triggers when scrolled to bottom
                     if graphData.hasMoreCommits && !graphData.commits.isEmpty {
                         loadMoreView
+                            .id(graphData.commits.count)  // Force new view identity when count changes
                             .onAppear {
                                 Task { await loadMoreCommits() }
                             }
