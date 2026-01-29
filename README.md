@@ -1,4 +1,4 @@
-# Claude Maestro
+# Maestro
 
 <!-- Add your banner: save as assets/banner.png -->
 ![Claude Maestro Banner](assets/banner.png)
