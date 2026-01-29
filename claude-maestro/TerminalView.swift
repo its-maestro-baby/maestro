@@ -229,28 +229,43 @@ struct EmbeddedTerminalView: NSViewRepresentable {
                 terminal.send(txt: "cd '\(self.workingDirectory)'\r")
             }
         } else {
-            // AI CLI mode - use -c to run setup commands and launch CLI
-            // Source user's shell profile to get full environment (PATH, NVM, etc.)
-            // This is necessary because macOS apps launched from Finder have a limited environment
-            let command = """
-                if [ -f ~/.zprofile ]; then source ~/.zprofile 2>/dev/null; fi; \
-                if [ -f ~/.zshrc ]; then source ~/.zshrc 2>/dev/null; fi; \
-                if [ -f ~/.bash_profile ]; then source ~/.bash_profile 2>/dev/null; fi; \
-                if [ -f ~/.bashrc ]; then source ~/.bashrc 2>/dev/null; fi; \
-                cd '\(workingDirectory)' && \(mode.command ?? "echo 'No CLI configured'")
-                """
-
-            // Mark CLI as launched
-            DispatchQueue.main.async {
-                self.onCLILaunched()
-            }
-
+            // AI CLI mode - launch interactive login shell then send CLI command
+            // This allows the shell to persist after the AI CLI exits, enabling the user to:
+            // - run additional shell commands
+            // - re-launch the AI CLI if needed
+            // - inspect files or run build commands
             terminal.startProcess(
                 executable: shell,
-                args: ["-l", "-i", "-c", command],
-                environment: nil,  // Let shell inherit and source profiles for full environment
+                args: ["-l", "-i"],
+                environment: nil,
                 execName: nil
             )
+
+            // Send setup and CLI launch commands after shell starts
+            // Source user's shell profile to get full environment (PATH, NVM, etc.)
+            // This is necessary because macOS apps launched from Finder have a limited environment
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Build command sequence that sources profiles, changes directory, and launches CLI
+                let setupCommands = """
+                    if [ -f ~/.zprofile ]; then source ~/.zprofile 2>/dev/null; fi
+                    if [ -f ~/.zshrc ]; then source ~/.zshrc 2>/dev/null; fi
+                    if [ -f ~/.bash_profile ]; then source ~/.bash_profile 2>/dev/null; fi
+                    if [ -f ~/.bashrc ]; then source ~/.bashrc 2>/dev/null; fi
+                    cd '\(self.workingDirectory)'
+                    \(self.mode.command ?? "echo 'No CLI configured'")
+                    """
+
+                // Send each command line separately for better compatibility
+                for line in setupCommands.split(separator: "\n") {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty {
+                        terminal.send(txt: "\(trimmed)\r")
+                    }
+                }
+
+                // Mark CLI as launched after sending commands
+                self.onCLILaunched()
+            }
         }
 
         // Capture the shell PID for native process management
