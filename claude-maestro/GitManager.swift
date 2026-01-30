@@ -570,8 +570,9 @@ class GitManager: ObservableObject {
         let repoPath = self.repoPath
         let commandDesc = args.joined(separator: " ")
 
-        // Debug logging
+        // Debug logging (opt-in via: defaults write com.maestro.claude-maestro debug-git-logging -bool true)
         func debugLog(_ msg: String) {
+            guard UserDefaults.standard.bool(forKey: "debug-git-logging") else { return }
             let logPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("maestro-debug.log")
             let timestamp = ISO8601DateFormatter().string(from: Date())
             let line = "[\(timestamp)] \(msg)\n"
