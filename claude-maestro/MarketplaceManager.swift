@@ -723,6 +723,13 @@ class MarketplaceManager: ObservableObject {
                 .appendingPathComponent(".claude.local/plugins/\(plugin.id)").path
         }
 
+        // Ensure the parent directory exists for project/local scopes
+        let fm = FileManager.default
+        let installDir = URL(fileURLWithPath: installPath).deletingLastPathComponent().path
+        if !fm.fileExists(atPath: installDir) {
+            try fm.createDirectory(atPath: installDir, withIntermediateDirectories: true)
+        }
+
         // Determine the source path for symlinking
         // Priority: 1. Local marketplace source (already cloned), 2. Clone external URL, 3. Error
         var sourcePath: String = installPath
