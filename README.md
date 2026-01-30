@@ -7,7 +7,7 @@
 
 A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) sessions simultaneously, each in its own isolated git worktree.
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-blue)
+![macOS](https://img.shields.io/badge/macOS-13%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![X (Twitter)](https://img.shields.io/badge/X-@maestro5240871-000000?style=flat&logo=x&logoColor=white)](https://x.com/maestro5240871)
@@ -148,7 +148,7 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
 
 ### Requirements
 
-- macOS 14 (Sonoma) or later
+- macOS 13 (Ventura) or later
 - Xcode 15 or later
 - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
@@ -240,6 +240,20 @@ Each session can have quick action buttons:
 ### Session Persistence
 
 Session configurations (modes, branches, count) are automatically persisted to UserDefaults and restored on app launch.
+
+### Debug Logging
+
+For troubleshooting git operations, you can enable debug logging:
+
+```bash
+# Enable debug logging
+defaults write com.maestro.claude-maestro debug-git-logging -bool true
+
+# Disable debug logging
+defaults write com.maestro.claude-maestro debug-git-logging -bool false
+```
+
+When enabled, git command logs are written to `~/maestro-debug.log`.
 
 ---
 

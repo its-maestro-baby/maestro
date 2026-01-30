@@ -268,7 +268,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.01;
+				MARKETING_VERSION = 1.01;
 				PRODUCT_BUNDLE_IDENTIFIER = "personal.claude-maestro";
 				PRODUCT_NAME = Maestro;
 				REGISTER_APP_GROUPS = YES;
@@ -297,7 +297,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.01;
+				MARKETING_VERSION = 1.01;
 				PRODUCT_BUNDLE_IDENTIFIER = "personal.claude-maestro";
 				PRODUCT_NAME = Maestro;
 				REGISTER_APP_GROUPS = YES;
