@@ -63,7 +63,7 @@ struct SidebarView: View {
 
                 Divider()
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 4)
 
             // Tab Content
             switch selectedTab {
