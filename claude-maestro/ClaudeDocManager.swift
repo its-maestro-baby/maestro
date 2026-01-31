@@ -6,8 +6,18 @@
 //
 
 import Foundation
+import CryptoKit
 
 class ClaudeDocManager {
+
+    /// Generate a stable hash for a project path (mirrors MaestroStateMonitor.generateProjectHash)
+    /// Uses first 12 characters of SHA256 for uniqueness with reasonable length
+    static func generateProjectHash(_ projectPath: String) -> String {
+        let data = Data(projectPath.utf8)
+        let hash = SHA256.hash(data: data)
+        let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()
+        return String(hashString.prefix(12))
+    }
 
     /// Detect run command based on common project configuration files
     static func detectRunCommand(for projectPath: String) -> String? {
@@ -232,15 +242,20 @@ class ClaudeDocManager {
 
         // Add Maestro MCP if available (native Swift binary)
         if let maestroPath = maestroServerPath {
+            var env: [String: String] = [
+                "MAESTRO_SESSION_ID": "\(sessionId)",
+                "MAESTRO_PORT_RANGE_START": "\(portRangeStart)",
+                "MAESTRO_PORT_RANGE_END": "\(portRangeEnd)"
+            ]
+            // Add project hash for multi-project isolation
+            if let path = projectPath, !path.isEmpty {
+                env["MAESTRO_PROJECT_HASH"] = generateProjectHash(path)
+            }
             mcpServers["maestro"] = [
                 "type": "stdio",
                 "command": maestroPath,
                 "args": [] as [String],
-                "env": [
-                    "MAESTRO_SESSION_ID": "\(sessionId)",
-                    "MAESTRO_PORT_RANGE_START": "\(portRangeStart)",
-                    "MAESTRO_PORT_RANGE_END": "\(portRangeEnd)"
-                ]
+                "env": env
             ] as [String: Any]
         }
 
@@ -557,14 +572,19 @@ class ClaudeDocManager {
 
         // Add Maestro MCP if available (native Swift binary)
         if let maestroPath = maestroServerPath {
+            var env: [String: String] = [
+                "MAESTRO_SESSION_ID": "\(sessionId)",
+                "MAESTRO_PORT_RANGE_START": "\(portRangeStart)",
+                "MAESTRO_PORT_RANGE_END": "\(portRangeEnd)"
+            ]
+            // Add project hash for multi-project isolation
+            if let path = projectPath, !path.isEmpty {
+                env["MAESTRO_PROJECT_HASH"] = generateProjectHash(path)
+            }
             mcpServers["maestro"] = [
                 "command": maestroPath,
                 "args": [] as [String],
-                "env": [
-                    "MAESTRO_SESSION_ID": "\(sessionId)",
-                    "MAESTRO_PORT_RANGE_START": "\(portRangeStart)",
-                    "MAESTRO_PORT_RANGE_END": "\(portRangeEnd)"
-                ]
+                "env": env
             ] as [String: Any]
         }
 
@@ -678,7 +698,7 @@ class ClaudeDocManager {
 
                 // Add Maestro MCP if available (native Swift binary)
                 if let maestroPath = maestroServerPath {
-                    let serverConfig = """
+                    var serverConfig = """
 
                     # Claude Maestro Session \(sessionId)
                     [mcp_servers.\(sessionKey)]
@@ -690,6 +710,10 @@ class ClaudeDocManager {
                     MAESTRO_PORT_RANGE_START = "\(portRangeStart)"
                     MAESTRO_PORT_RANGE_END = "\(portRangeEnd)"
                     """
+                    // Add project hash for multi-project isolation
+                    if let path = projectPath, !path.isEmpty {
+                        serverConfig += "\nMAESTRO_PROJECT_HASH = \"\(generateProjectHash(path))\""
+                    }
                     content += serverConfig
                 }
 

@@ -426,6 +426,8 @@ class SessionManager: ObservableObject {
             projectPath = path
             // Load the main project's CLAUDE.md content
             claudeMDManager.loadContent(from: path)
+            // Set project path for state monitor to use project-scoped directories
+            stateMonitor.setProjectPath(path)
         }
         await gitManager.setRepository(path: path)
 
