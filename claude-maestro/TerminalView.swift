@@ -108,6 +108,11 @@ class MaestroTerminalView: LocalProcessTerminalView {
     // Intercept key equivalents so SwiftUI doesn't swallow Cmd+C/V
     // Only handle if THIS terminal is the first responder (fixes multi-split paste issue)
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Allow Alt+Space to pass through to system (e.g., for MacWhisper, Raycast)
+        if event.modifierFlags.contains(.option) && event.charactersIgnoringModifiers == " " {
+            return false
+        }
+
         guard event.modifierFlags.contains(.command) else {
             return super.performKeyEquivalent(with: event)
         }
@@ -134,15 +139,11 @@ class MaestroTerminalView: LocalProcessTerminalView {
 
     // Ensure the terminal view receives mouse events by making it the hit test target
     // This is needed for SwiftUI/AppKit bridging to work properly
+    // Note: We removed makeFirstResponder from hitTest - it was blocking text selection
+    // because hitTest fires continuously during mouse drags (issue #52)
+    // Focus is now handled by acceptsFirstMouse and the EmbeddedTerminalView's makeFirstResponderWithRetry
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Check if point is within our bounds
-        let result = super.hitTest(point)
-        // If the hit test returns us or a subview, ensure we become first responder
-        // so that subsequent mouse events are handled correctly
-        if result != nil {
-            window?.makeFirstResponder(self)
-        }
-        return result
+        return super.hitTest(point)
     }
 
     // Right-click context menu for native experience

@@ -7,6 +7,7 @@
 
 import Foundation
 import CryptoKit
+import AppKit
 
 class ClaudeDocManager {
 
@@ -473,8 +474,46 @@ class ClaudeDocManager {
         case remove
     }
 
+    // MARK: - CLI Integration Consent
+
+    private static let cliIntegrationPromptShownKey = "CLIIntegrationPromptShown"
+
+    /// Prompt user for consent before modifying third-party CLI config files (issue #51)
+    /// Only shows once per install. If user consents, configures Codex and Gemini CLI.
+    static func promptForCLIIntegration() {
+        let defaults = UserDefaults.standard
+
+        // Only show once
+        guard !defaults.bool(forKey: cliIntegrationPromptShownKey) else {
+            return
+        }
+        defaults.set(true, forKey: cliIntegrationPromptShownKey)
+
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Configure CLI Tool Integration?"
+            alert.informativeText = """
+            Maestro can configure Codex CLI and Gemini CLI to read CLAUDE.md files for context. This will modify:
+
+            • ~/.codex/config.toml
+            • ~/.gemini/settings.json
+
+            You can skip this if you don't use these tools.
+            """
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Configure")
+            alert.addButton(withTitle: "Skip")
+
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                setupCLIContextFiles()
+            }
+        }
+    }
+
     /// One-time setup: Configure Codex and Gemini CLI to read CLAUDE.md
-    static func setupCLIContextFiles() {
+    /// Called only after user consent via promptForCLIIntegration()
+    private static func setupCLIContextFiles() {
         setupCodexFallbackFilenames()
         setupGeminiContextFileName()
     }
