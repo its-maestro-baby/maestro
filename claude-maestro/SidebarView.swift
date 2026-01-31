@@ -85,6 +85,7 @@ struct SidebarView: View {
 struct ConfigurationSidebarContent: View {
     @ObservedObject var manager: SessionManager
     @ObservedObject var appearanceManager: AppearanceManager
+    @StateObject private var collapseManager = SidebarCollapseStateManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -192,46 +193,10 @@ struct ConfigurationSidebarContent: View {
                     }
 
                     // Session List Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Sessions")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-
-                            Spacer()
-
-                            // Selection count badge
-                            if manager.selectionManager.hasSelection {
-                                Text("\(manager.selectionManager.selectionCount)")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentColor)
-                                    .foregroundColor(.white)
-                                    .clipShape(Capsule())
-                            }
-                        }
-
-                        LazyVStack(spacing: 4) {
-                            ForEach(manager.sessions) { session in
-                                let sessionId = session.id
-                                SelectableSessionRow(
-                                    session: session,
-                                    isSelected: manager.selectionManager.isSelected(sessionId),
-                                    isMultiSelectMode: manager.selectionManager.isMultiSelectMode,
-                                    mode: Binding(
-                                        get: { manager.session(byId: sessionId)?.mode ?? .claudeCode },
-                                        set: { newValue in manager.updateSession(id: sessionId) { $0.mode = newValue } }
-                                    ),
-                                    onSelect: {
-                                        manager.selectionManager.toggleSelection(for: sessionId)
-                                    },
-                                    isRunning: manager.isRunning
-                                )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 8)
+                    SessionsSectionCollapsible(
+                        manager: manager,
+                        collapseManager: collapseManager
+                    )
 
                     // Status Overview Section
                     VStack(alignment: .leading, spacing: 8) {
@@ -250,7 +215,7 @@ struct ConfigurationSidebarContent: View {
                     MaestroMCPStatusSection()
 
                     // Custom MCP Servers Section
-                    CustomMCPServersSection()
+                    CustomMCPServersSectionCollapsible(collapseManager: collapseManager)
 
                     Divider()
                         .padding(.horizontal, 8)
@@ -262,7 +227,7 @@ struct ConfigurationSidebarContent: View {
                         .padding(.horizontal, 8)
 
                     // Quick Actions Section
-                    QuickActionsSection()
+                    QuickActionsSectionCollapsible(collapseManager: collapseManager)
 
                     Divider()
                         .padding(.horizontal, 8)
@@ -1090,6 +1055,240 @@ struct ThemeSwitcherSection: View {
             .cornerRadius(8)
         }
         .padding(.horizontal, 8)
+    }
+}
+
+// MARK: - Collapsible Wrapper Views
+
+struct SessionsSectionCollapsible: View {
+    @ObservedObject var manager: SessionManager
+    @ObservedObject var collapseManager: SidebarCollapseStateManager
+
+    var body: some View {
+        CollapsibleSection(
+            title: "Sessions",
+            icon: "terminal",
+            iconColor: .blue,
+            count: manager.sessions.count,
+            countColor: manager.selectionManager.hasSelection ? .accentColor : .blue,
+            isExpanded: collapseManager.binding(for: .sessions)
+        ) {
+            LazyVStack(spacing: 4) {
+                ForEach(manager.sessions) { session in
+                    let sessionId = session.id
+                    SelectableSessionRow(
+                        session: session,
+                        isSelected: manager.selectionManager.isSelected(sessionId),
+                        isMultiSelectMode: manager.selectionManager.isMultiSelectMode,
+                        mode: Binding(
+                            get: { manager.session(byId: sessionId)?.mode ?? .claudeCode },
+                            set: { newValue in manager.updateSession(id: sessionId) { $0.mode = newValue } }
+                        ),
+                        onSelect: {
+                            manager.selectionManager.toggleSelection(for: sessionId)
+                        },
+                        isRunning: manager.isRunning
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+    }
+}
+
+struct CustomMCPServersSectionCollapsible: View {
+    @StateObject private var mcpManager = MCPServerManager.shared
+    @StateObject private var marketplaceManager = MarketplaceManager.shared
+    @ObservedObject var collapseManager: SidebarCollapseStateManager
+    @State private var showAddSheet: Bool = false
+    @State private var editingServer: MCPServerConfig? = nil
+    @State private var showDeleteConfirmation: Bool = false
+    @State private var serverToDelete: MCPServerConfig? = nil
+
+    /// Plugins that have MCP servers and are enabled
+    private var pluginsWithMCP: [InstalledPlugin] {
+        marketplaceManager.installedPlugins.filter {
+            $0.isEnabled && !$0.mcpServers.isEmpty
+        }
+    }
+
+    /// Total count of MCP servers
+    private var serverCount: Int {
+        mcpManager.customServers.count + pluginsWithMCP.reduce(0) { $0 + $1.mcpServers.count }
+    }
+
+    var body: some View {
+        CollapsibleSection(
+            title: "MCP Servers",
+            icon: "server.rack",
+            iconColor: .blue,
+            count: serverCount,
+            countColor: .blue,
+            isExpanded: collapseManager.binding(for: .mcpServers)
+        ) {
+            Button {
+                showAddSheet = true
+            } label: {
+                Image(systemName: "plus.circle")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("Add MCP server")
+        } content: {
+            VStack(spacing: 0) {
+                if serverCount == 0 {
+                    HStack {
+                        Image(systemName: "server.rack")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("No MCP servers")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                } else {
+                    VStack(spacing: 4) {
+                        // Custom MCP servers
+                        ForEach(mcpManager.customServers) { server in
+                            MCPServerRow(
+                                server: server,
+                                onEdit: { editingServer = server },
+                                onDelete: {
+                                    serverToDelete = server
+                                    showDeleteConfirmation = true
+                                },
+                                onToggle: { enabled in
+                                    var updated = server
+                                    updated.isEnabled = enabled
+                                    mcpManager.updateServer(updated)
+                                }
+                            )
+                        }
+
+                        // Plugin MCP servers
+                        ForEach(pluginsWithMCP) { plugin in
+                            ForEach(plugin.mcpServers, id: \.self) { serverName in
+                                PluginMCPServerRow(
+                                    serverName: serverName,
+                                    pluginName: plugin.name
+                                )
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(8)
+        }
+        .padding(.horizontal, 8)
+        .sheet(isPresented: $showAddSheet) {
+            MCPServerEditorSheet(
+                server: nil,
+                onSave: { server in
+                    mcpManager.addServer(server)
+                    showAddSheet = false
+                },
+                onCancel: { showAddSheet = false }
+            )
+        }
+        .sheet(item: $editingServer) { server in
+            MCPServerEditorSheet(
+                server: server,
+                onSave: { updated in
+                    mcpManager.updateServer(updated)
+                    editingServer = nil
+                },
+                onCancel: { editingServer = nil }
+            )
+        }
+        .alert("Delete Server?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                serverToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let server = serverToDelete {
+                    mcpManager.deleteServer(id: server.id)
+                }
+                serverToDelete = nil
+            }
+        } message: {
+            if let server = serverToDelete {
+                Text("Are you sure you want to delete \"\(server.name)\"? This cannot be undone.")
+            }
+        }
+    }
+}
+
+struct QuickActionsSectionCollapsible: View {
+    @StateObject private var quickActionManager = QuickActionManager.shared
+    @ObservedObject var collapseManager: SidebarCollapseStateManager
+    @State private var showManagerSheet: Bool = false
+
+    var body: some View {
+        CollapsibleSection(
+            title: "Quick Actions",
+            icon: "bolt.circle",
+            iconColor: .yellow,
+            count: quickActionManager.quickActions.count,
+            countColor: .yellow,
+            isExpanded: collapseManager.binding(for: .quickActions)
+        ) {
+            Button {
+                showManagerSheet = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Manage quick actions")
+        } content: {
+            VStack(spacing: 0) {
+                if quickActionManager.quickActions.isEmpty {
+                    HStack {
+                        Image(systemName: "bolt.circle")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("No quick actions")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                } else {
+                    VStack(spacing: 4) {
+                        ForEach(quickActionManager.sortedActions) { action in
+                            HStack(spacing: 8) {
+                                Image(systemName: action.icon)
+                                    .foregroundColor(action.color)
+                                    .font(.caption)
+                                    .frame(width: 16)
+
+                                Text(action.name)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 4)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .background(Color(NSColor.windowBackgroundColor))
+            .cornerRadius(8)
+        }
+        .padding(.horizontal, 8)
+        .sheet(isPresented: $showManagerSheet) {
+            QuickActionsManagerSheet(
+                quickActionManager: quickActionManager,
+                onDismiss: { showManagerSheet = false }
+            )
+        }
     }
 }
 

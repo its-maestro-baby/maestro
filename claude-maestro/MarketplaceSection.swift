@@ -11,6 +11,7 @@ struct MarketplaceSection: View {
     @StateObject private var marketplaceManager = MarketplaceManager.shared
     @StateObject private var skillManager = SkillManager.shared
     @StateObject private var commandManager = CommandManager.shared
+    @StateObject private var collapseManager = SidebarCollapseStateManager.shared
     @State private var showBrowser: Bool = false
     @State private var showPluginDetail: InstalledPlugin? = nil
     @State private var showDeleteConfirmation: Bool = false
@@ -26,16 +27,22 @@ struct MarketplaceSection: View {
         commandManager.installedCommands.filter { $0.source.pluginName == nil }
     }
 
+    /// Total count of all items
+    private var totalCount: Int {
+        marketplaceManager.installedPlugins.count + standaloneSkills.count + standaloneCommands.count
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header
-            HStack {
-                Text("Plugins & Skills")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
+        CollapsibleSection(
+            title: "Plugins & Skills",
+            icon: "puzzlepiece.extension",
+            iconColor: .purple,
+            count: totalCount,
+            countColor: .purple,
+            isExpanded: collapseManager.binding(for: .pluginsAndSkills)
+        ) {
+            // Header accessory buttons
+            HStack(spacing: 8) {
                 // Refresh button
                 Button {
                     skillManager.scanForSkills()
@@ -59,8 +66,8 @@ struct MarketplaceSection: View {
                 .buttonStyle(.plain)
                 .help("Browse marketplace")
             }
-
-            // Skills list
+        } content: {
+            // Content
             VStack(spacing: 0) {
                 if skillManager.isScanning || marketplaceManager.isLoading {
                     HStack {
@@ -72,6 +79,8 @@ struct MarketplaceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .cornerRadius(8)
                 } else if standaloneSkills.isEmpty && standaloneCommands.isEmpty && marketplaceManager.installedPlugins.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -88,6 +97,8 @@ struct MarketplaceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .cornerRadius(8)
                 } else {
                     VStack(spacing: 4) {
                         // Installed plugins
@@ -113,10 +124,10 @@ struct MarketplaceSection: View {
                         }
                     }
                     .padding(8)
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .cornerRadius(8)
                 }
             }
-            .background(Color(NSColor.windowBackgroundColor))
-            .cornerRadius(8)
         }
         .padding(.horizontal, 8)
         .sheet(isPresented: $showBrowser) {
