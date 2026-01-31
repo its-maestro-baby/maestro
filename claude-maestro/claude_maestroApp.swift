@@ -22,7 +22,7 @@ struct claude_maestroApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MultiProjectContentView()
         }
     }
 }
