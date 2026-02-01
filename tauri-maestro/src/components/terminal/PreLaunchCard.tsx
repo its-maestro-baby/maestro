@@ -2,6 +2,7 @@ import {
   BrainCircuit,
   Check,
   ChevronDown,
+  ChevronRight,
   Code2,
   FolderGit2,
   GitBranch,
@@ -9,6 +10,7 @@ import {
   Play,
   Server,
   Sparkles,
+  Store,
   Terminal,
   X,
   Zap,
@@ -110,13 +112,12 @@ export function PreLaunchCard({
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
-  const [skillsDropdownOpen, setSkillsDropdownOpen] = useState(false);
-  const [pluginsDropdownOpen, setPluginsDropdownOpen] = useState(false);
+  const [pluginsSkillsDropdownOpen, setPluginsSkillsDropdownOpen] = useState(false);
+  const [expandedPlugins, setExpandedPlugins] = useState<Set<string>>(new Set());
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const mcpDropdownRef = useRef<HTMLDivElement>(null);
-  const skillsDropdownRef = useRef<HTMLDivElement>(null);
-  const pluginsDropdownRef = useRef<HTMLDivElement>(null);
+  const pluginsSkillsDropdownRef = useRef<HTMLDivElement>(null);
 
   const modeConfig = getModeConfig(slot.mode);
   const ModeIcon = modeConfig.icon;
@@ -133,11 +134,8 @@ export function PreLaunchCard({
       if (mcpDropdownRef.current && !mcpDropdownRef.current.contains(event.target as Node)) {
         setMcpDropdownOpen(false);
       }
-      if (skillsDropdownRef.current && !skillsDropdownRef.current.contains(event.target as Node)) {
-        setSkillsDropdownOpen(false);
-      }
-      if (pluginsDropdownRef.current && !pluginsDropdownRef.current.contains(event.target as Node)) {
-        setPluginsDropdownOpen(false);
+      if (pluginsSkillsDropdownRef.current && !pluginsSkillsDropdownRef.current.contains(event.target as Node)) {
+        setPluginsSkillsDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -149,15 +147,54 @@ export function PreLaunchCard({
   const totalCount = mcpServers.length;
   const hasMcpServers = totalCount > 0;
 
-  // Skills display info
-  const enabledSkillsCount = slot.enabledSkills.length;
-  const totalSkillsCount = skills.length;
-  const hasSkills = totalSkillsCount > 0;
+  // Helper to extract base name from skill ID (strip prefix like "plugin:", "project:", "personal:")
+  const getSkillBaseName = (skillId: string): string => {
+    const colonIndex = skillId.indexOf(":");
+    return colonIndex >= 0 ? skillId.slice(colonIndex + 1) : skillId;
+  };
 
-  // Plugins display info
+  // Build a map of skill base name -> skill for quick lookup
+  const skillByBaseName = new Map(skills.map((s) => [getSkillBaseName(s.id), s]));
+
+  // Group skills by plugin using the plugin's skills array (matching by base name)
+  const pluginSkillsMap = new Map<string, typeof skills>();
+  const skillsInPlugins = new Set<string>();
+
+  for (const plugin of plugins) {
+    const pluginSkills: typeof skills = [];
+    for (const skillId of plugin.skills) {
+      const baseName = getSkillBaseName(skillId);
+      const skill = skillByBaseName.get(baseName);
+      if (skill) {
+        pluginSkills.push(skill);
+        skillsInPlugins.add(skill.id);
+      }
+    }
+    if (pluginSkills.length > 0) {
+      pluginSkillsMap.set(plugin.name, pluginSkills);
+    }
+  }
+
+  // Standalone skills are those not claimed by any plugin
+  const standaloneSkills = skills.filter((s) => !skillsInPlugins.has(s.id));
+
+  // Toggle plugin expansion
+  const togglePluginExpanded = (pluginId: string) => {
+    setExpandedPlugins((prev) => {
+      const next = new Set(prev);
+      if (next.has(pluginId)) {
+        next.delete(pluginId);
+      } else {
+        next.add(pluginId);
+      }
+      return next;
+    });
+  };
+
+  // Display info for combined Plugins & Skills
   const enabledPluginsCount = slot.enabledPlugins.length;
-  const totalPluginsCount = plugins.length;
-  const hasPlugins = totalPluginsCount > 0;
+  const enabledSkillsCount = slot.enabledSkills.length;
+  const hasPluginsOrSkills = plugins.length > 0 || skills.length > 0;
 
   // Find current branch display info
   const currentBranch = branches.find((b) => b.isCurrent);
@@ -423,124 +460,166 @@ export function PreLaunchCard({
           )}
         </div>
 
-        {/* Skills Selector */}
-        <div className="relative" ref={skillsDropdownRef}>
+        {/* Plugins & Skills Selector */}
+        <div className="relative" ref={pluginsSkillsDropdownRef}>
           <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
-            Skills
+            Plugins & Skills
           </label>
-          {!hasSkills ? (
+          {!hasPluginsOrSkills ? (
             <div className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted">
-              <Zap size={14} />
-              <span>No skills configured</span>
+              <Store size={14} />
+              <span>No plugins or skills configured</span>
             </div>
           ) : (
             <>
               <button
                 type="button"
-                onClick={() => setSkillsDropdownOpen(!skillsDropdownOpen)}
+                onClick={() => setPluginsSkillsDropdownOpen(!pluginsSkillsDropdownOpen)}
                 className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50"
               >
                 <div className="flex items-center gap-2">
-                  <Zap size={14} className="text-maestro-orange" />
+                  <Store size={14} className="text-maestro-purple" />
                   <span>
-                    {enabledSkillsCount} of {totalSkillsCount} skills
+                    {enabledPluginsCount} plugins, {enabledSkillsCount} skills
                   </span>
                 </div>
                 <ChevronDown size={14} className="text-maestro-muted" />
               </button>
 
-              {skillsDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
-                  {skills.map((skill) => {
-                    const isEnabled = slot.enabledSkills.includes(skill.id);
-                    const sourceLabel = getSkillSourceLabel(skill.source);
-                    return (
-                      <button
-                        key={skill.id}
-                        type="button"
-                        onClick={() => onSkillToggle(skill.id)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-maestro-surface"
-                        title={skill.description || undefined}
-                      >
-                        <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                            isEnabled
-                              ? "border-maestro-orange bg-maestro-orange"
-                              : "border-maestro-border bg-transparent"
-                          }`}
-                        >
-                          {isEnabled && <Check size={12} className="text-white" />}
-                        </span>
-                        <span className={`flex-1 truncate ${isEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
-                          {skill.name}
-                        </span>
-                        <span className={`shrink-0 rounded px-1 text-[9px] ${sourceLabel.className}`}>
-                          {sourceLabel.text}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+              {pluginsSkillsDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
+                  {/* Plugins with their skills */}
+                  {plugins.length > 0 && (
+                    <>
+                      <div className="border-b border-maestro-border px-3 py-1.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                        Plugins ({plugins.length})
+                      </div>
+                      {plugins.map((plugin) => {
+                        const isPluginEnabled = slot.enabledPlugins.includes(plugin.id);
+                        const pluginSkills = pluginSkillsMap.get(plugin.name) ?? [];
+                        const isExpanded = expandedPlugins.has(plugin.id);
+                        const hasSkillsToShow = pluginSkills.length > 0;
 
-        {/* Plugins Selector */}
-        <div className="relative" ref={pluginsDropdownRef}>
-          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
-            Plugins
-          </label>
-          {!hasPlugins ? (
-            <div className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted">
-              <Package size={14} />
-              <span>No plugins configured</span>
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setPluginsDropdownOpen(!pluginsDropdownOpen)}
-                className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50"
-              >
-                <div className="flex items-center gap-2">
-                  <Package size={14} className="text-maestro-purple" />
-                  <span>
-                    {enabledPluginsCount} of {totalPluginsCount} plugins
-                  </span>
-                </div>
-                <ChevronDown size={14} className="text-maestro-muted" />
-              </button>
+                        return (
+                          <div key={plugin.id}>
+                            {/* Plugin row */}
+                            <div className="flex items-center gap-1 px-2 py-1.5 hover:bg-maestro-surface">
+                              {/* Expand/collapse button */}
+                              {hasSkillsToShow ? (
+                                <button
+                                  type="button"
+                                  onClick={() => togglePluginExpanded(plugin.id)}
+                                  className="shrink-0 rounded p-0.5 hover:bg-maestro-border/40"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown size={12} className="text-maestro-muted" />
+                                  ) : (
+                                    <ChevronRight size={12} className="text-maestro-muted" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="w-5" />
+                              )}
+                              {/* Plugin checkbox */}
+                              <button
+                                type="button"
+                                onClick={() => onPluginToggle(plugin.id)}
+                                className="flex flex-1 items-center gap-2 text-left text-sm"
+                              >
+                                <span
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                    isPluginEnabled
+                                      ? "border-maestro-purple bg-maestro-purple"
+                                      : "border-maestro-border bg-transparent"
+                                  }`}
+                                >
+                                  {isPluginEnabled && <Check size={12} className="text-white" />}
+                                </span>
+                                <Package size={12} className="shrink-0 text-maestro-purple" />
+                                <span className={`flex-1 truncate ${isPluginEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
+                                  {plugin.name}
+                                </span>
+                                {hasSkillsToShow && (
+                                  <span className="text-[10px] text-maestro-muted">{pluginSkills.length}</span>
+                                )}
+                                <span className="text-[10px] text-maestro-muted/60">v{plugin.version}</span>
+                              </button>
+                            </div>
+                            {/* Expanded skills */}
+                            {isExpanded && hasSkillsToShow && (
+                              <div className="ml-5 border-l border-maestro-border/40 pl-2">
+                                {pluginSkills.map((skill) => {
+                                  const isSkillEnabled = slot.enabledSkills.includes(skill.id);
+                                  return (
+                                    <button
+                                      key={skill.id}
+                                      type="button"
+                                      onClick={() => onSkillToggle(skill.id)}
+                                      className="flex w-full items-center gap-2 px-2 py-1 text-left text-sm transition-colors hover:bg-maestro-surface"
+                                      title={skill.description || undefined}
+                                    >
+                                      <span
+                                        className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                                          isSkillEnabled
+                                            ? "border-maestro-orange bg-maestro-orange"
+                                            : "border-maestro-border bg-transparent"
+                                        }`}
+                                      >
+                                        {isSkillEnabled && <Check size={10} className="text-white" />}
+                                      </span>
+                                      <Zap size={11} className="shrink-0 text-maestro-orange" />
+                                      <span className={`flex-1 truncate text-xs ${isSkillEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
+                                        {skill.name}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
 
-              {pluginsDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
-                  {plugins.map((plugin) => {
-                    const isEnabled = slot.enabledPlugins.includes(plugin.id);
-                    return (
-                      <button
-                        key={plugin.id}
-                        type="button"
-                        onClick={() => onPluginToggle(plugin.id)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-maestro-surface"
-                      >
-                        <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                            isEnabled
-                              ? "border-maestro-purple bg-maestro-purple"
-                              : "border-maestro-border bg-transparent"
-                          }`}
-                        >
-                          {isEnabled && <Check size={12} className="text-white" />}
-                        </span>
-                        <span className={isEnabled ? "text-maestro-text" : "text-maestro-muted"}>
-                          {plugin.name}
-                        </span>
-                        <span className="ml-auto text-[10px] text-maestro-muted/60">
-                          v{plugin.version}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {/* Standalone Skills */}
+                  {standaloneSkills.length > 0 && (
+                    <>
+                      <div className="border-b border-t border-maestro-border px-3 py-1.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                        Skills ({standaloneSkills.length})
+                      </div>
+                      {standaloneSkills.map((skill) => {
+                        const isEnabled = slot.enabledSkills.includes(skill.id);
+                        const sourceLabel = getSkillSourceLabel(skill.source);
+                        return (
+                          <button
+                            key={skill.id}
+                            type="button"
+                            onClick={() => onSkillToggle(skill.id)}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-maestro-surface"
+                            title={skill.description || undefined}
+                          >
+                            <span
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                isEnabled
+                                  ? "border-maestro-orange bg-maestro-orange"
+                                  : "border-maestro-border bg-transparent"
+                              }`}
+                            >
+                              {isEnabled && <Check size={12} className="text-white" />}
+                            </span>
+                            <Zap size={12} className="shrink-0 text-maestro-orange" />
+                            <span className={`flex-1 truncate ${isEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
+                              {skill.name}
+                            </span>
+                            <span className={`shrink-0 rounded px-1 text-[9px] ${sourceLabel.className}`}>
+                              {sourceLabel.text}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               )}
             </>

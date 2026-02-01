@@ -713,6 +713,7 @@ function getSkillSourceBadge(source: SkillSource): { text: string; className: st
 
 function PluginsSection() {
   const [expanded, setExpanded] = useState(false);
+  const [expandedPlugins, setExpandedPlugins] = useState<Set<string>>(new Set());
   const tabs = useWorkspaceStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.active);
   const projectPath = activeTab?.projectPath ?? "";
@@ -722,7 +723,52 @@ function PluginsSection() {
   const skills = projectPath ? (projectSkills[projectPath] ?? []) : [];
   const plugins = projectPath ? (projectPlugins[projectPath] ?? []) : [];
   const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
-  const totalCount = skills.length + plugins.length;
+
+  // Helper to extract base name from skill ID (strip prefix like "plugin:", "project:", "personal:")
+  const getSkillBaseName = (skillId: string): string => {
+    const colonIndex = skillId.indexOf(":");
+    return colonIndex >= 0 ? skillId.slice(colonIndex + 1) : skillId;
+  };
+
+  // Build a map of skill base name -> skill for quick lookup
+  const skillByBaseName = new Map(skills.map((s) => [getSkillBaseName(s.id), s]));
+
+  // Group skills by plugin using the plugin's skills array (matching by base name)
+  const pluginSkillsMap = new Map<string, typeof skills>();
+  const skillsInPlugins = new Set<string>();
+
+  for (const plugin of plugins) {
+    const pluginSkills: typeof skills = [];
+    for (const skillId of plugin.skills) {
+      const baseName = getSkillBaseName(skillId);
+      const skill = skillByBaseName.get(baseName);
+      if (skill) {
+        pluginSkills.push(skill);
+        skillsInPlugins.add(skill.id);
+      }
+    }
+    if (pluginSkills.length > 0) {
+      pluginSkillsMap.set(plugin.name, pluginSkills);
+    }
+  }
+
+  // Standalone skills are those not claimed by any plugin
+  const standaloneSkills = skills.filter((s) => !skillsInPlugins.has(s.id));
+
+  // Total count = plugins + standalone skills
+  const totalCount = plugins.length + standaloneSkills.length;
+
+  const togglePlugin = (pluginId: string) => {
+    setExpandedPlugins((prev) => {
+      const next = new Set(prev);
+      if (next.has(pluginId)) {
+        next.delete(pluginId);
+      } else {
+        next.add(pluginId);
+      }
+      return next;
+    });
+  };
 
   // Fetch plugins when project changes
   useEffect(() => {
@@ -788,13 +834,70 @@ function PluginsSection() {
             </>
           ) : (
             <>
-              {/* Skills */}
-              {skills.length > 0 && (
+              {/* Plugins with their skills */}
+              {plugins.length > 0 && (
                 <>
                   <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
-                    Skills ({skills.length})
+                    Plugins ({plugins.length})
                   </div>
-                  {skills.map((skill) => {
+                  {plugins.map((plugin) => {
+                    const pluginSkills = pluginSkillsMap.get(plugin.name) ?? [];
+                    const isPluginExpanded = expandedPlugins.has(plugin.id);
+
+                    return (
+                      <div key={plugin.id}>
+                        {/* Plugin row - clickable to expand */}
+                        <button
+                          type="button"
+                          onClick={() => togglePlugin(plugin.id)}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                          title={plugin.description || plugin.path || undefined}
+                        >
+                          {pluginSkills.length > 0 ? (
+                            isPluginExpanded ? (
+                              <ChevronDown size={10} className="shrink-0 text-maestro-muted" />
+                            ) : (
+                              <ChevronRight size={10} className="shrink-0 text-maestro-muted" />
+                            )
+                          ) : (
+                            <span className="w-[10px]" />
+                          )}
+                          <Package size={12} className="shrink-0 text-maestro-purple" />
+                          <span className="flex-1 truncate font-medium text-left">{plugin.name}</span>
+                          {pluginSkills.length > 0 && (
+                            <span className="text-[10px] text-maestro-muted">{pluginSkills.length}</span>
+                          )}
+                          <span className="text-[10px] text-maestro-muted">v{plugin.version}</span>
+                        </button>
+
+                        {/* Expanded skills */}
+                        {isPluginExpanded && pluginSkills.length > 0 && (
+                          <div className="ml-4 border-l border-maestro-border/40 pl-2">
+                            {pluginSkills.map((skill) => (
+                              <div
+                                key={skill.id}
+                                className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                                title={skill.description || skill.path || undefined}
+                              >
+                                <Zap size={11} className="shrink-0 text-maestro-orange" />
+                                <span className="flex-1 truncate">{skill.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Standalone Skills */}
+              {standaloneSkills.length > 0 && (
+                <>
+                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                    Skills ({standaloneSkills.length})
+                  </div>
+                  {standaloneSkills.map((skill) => {
                     const badge = getSkillSourceBadge(skill.source);
                     return (
                       <div
@@ -810,25 +913,6 @@ function PluginsSection() {
                       </div>
                     );
                   })}
-                </>
-              )}
-              {/* Plugins */}
-              {plugins.length > 0 && (
-                <>
-                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
-                    Plugins ({plugins.length})
-                  </div>
-                  {plugins.map((plugin) => (
-                    <div
-                      key={plugin.id}
-                      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
-                      title={plugin.description || plugin.path || undefined}
-                    >
-                      <Package size={12} className="shrink-0 text-maestro-purple" />
-                      <span className="flex-1 truncate font-medium">{plugin.name}</span>
-                      <span className="text-[10px] text-maestro-muted">v{plugin.version}</span>
-                    </div>
-                  ))}
                 </>
               )}
             </>

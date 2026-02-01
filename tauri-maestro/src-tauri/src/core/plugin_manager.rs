@@ -444,11 +444,17 @@ fn scan_plugins_directory(dir: &Path) -> Vec<(PluginConfig, Vec<SkillConfig>)> {
             .unwrap_or("unknown")
             .to_string();
 
-        // Try to read plugin manifest
+        // Only process directories that have a plugin manifest
+        // This filters out utility directories like cache/, repos/, marketplaces/
         let manifest_path = plugin_dir.join(".claude-plugin").join("plugin.json");
         let manifest: Option<PluginManifest> = fs::read_to_string(&manifest_path)
             .ok()
             .and_then(|content| serde_json::from_str(&content).ok());
+
+        // Skip directories without a valid plugin.json manifest
+        if manifest.is_none() {
+            continue;
+        }
 
         let source = SkillSource::Plugin {
             name: plugin_name.clone(),

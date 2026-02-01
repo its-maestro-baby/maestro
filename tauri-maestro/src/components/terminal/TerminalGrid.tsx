@@ -1,12 +1,22 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
-import { killSession, spawnShell } from "@/lib/terminal";
+import { setSessionMcpServers, type McpServerConfig } from "@/lib/mcp";
+import { setSessionSkills, setSessionPlugins, type PluginConfig, type SkillConfig } from "@/lib/plugins";
+import { assignSessionBranch, createSession, killSession, spawnShell } from "@/lib/terminal";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
+import { useMcpStore } from "@/stores/useMcpStore";
+import { usePluginStore } from "@/stores/usePluginStore";
+import { useSessionStore } from "@/stores/useSessionStore";
 import type { AiMode } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { PreLaunchCard, type SessionSlot } from "./PreLaunchCard";
 import { TerminalView } from "./TerminalView";
+
+/** Stable empty arrays to avoid infinite re-render loops in Zustand selectors. */
+const EMPTY_MCP_SERVERS: McpServerConfig[] = [];
+const EMPTY_SKILLS: SkillConfig[] = [];
+const EMPTY_PLUGINS: PluginConfig[] = [];
 
 /** Hard ceiling on concurrent PTY sessions per grid to bound resource usage. */
 const MAX_SESSIONS = 6;
@@ -32,13 +42,20 @@ function generateSlotId(): string {
 }
 
 /** Creates a new empty session slot with default configuration. */
-function createEmptySlot(): SessionSlot {
+function createEmptySlot(
+  mcpServers: McpServerConfig[] = [],
+  skills: SkillConfig[] = [],
+  plugins: PluginConfig[] = []
+): SessionSlot {
   return {
     id: generateSlotId(),
     mode: "Claude",
     branch: null,
     sessionId: null,
     worktreePath: null,
+    enabledMcpServers: mcpServers.map((s) => s.name), // All enabled by default
+    enabledSkills: skills.map((s) => s.id), // All enabled by default
+    enabledPlugins: plugins.filter((p) => p.enabled_by_default).map((p) => p.id),
   };
 }
 
@@ -86,6 +103,21 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   const addSessionToProject = useWorkspaceStore((s) => s.addSessionToProject);
   const removeSessionFromProject = useWorkspaceStore((s) => s.removeSessionFromProject);
 
+  // MCP store - use stable empty array reference to avoid infinite re-render loops
+  const mcpServers = useMcpStore((s) =>
+    projectPath ? (s.projectServers[projectPath] ?? EMPTY_MCP_SERVERS) : EMPTY_MCP_SERVERS
+  );
+  const fetchMcpServers = useMcpStore((s) => s.fetchProjectServers);
+
+  // Plugin store - use stable empty array references
+  const skills = usePluginStore((s) =>
+    projectPath ? (s.projectSkills[projectPath] ?? EMPTY_SKILLS) : EMPTY_SKILLS
+  );
+  const plugins = usePluginStore((s) =>
+    projectPath ? (s.projectPlugins[projectPath] ?? EMPTY_PLUGINS) : EMPTY_PLUGINS
+  );
+  const fetchPlugins = usePluginStore((s) => s.fetchProjectPlugins);
+
   // Track session slots (pre-launch and launched)
   const [slots, setSlots] = useState<SessionSlot[]>(() => [createEmptySlot()]);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +138,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSessionCountChange?.(slots.length, launchedCount);
   }, [slots, onSessionCountChange]);
 
-  // Fetch branches when projectPath is available
+  // Fetch branches and MCP servers when projectPath is available
   useEffect(() => {
     if (!projectPath) {
       setIsGitRepo(false);
@@ -125,7 +157,51 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         setIsGitRepo(false);
         setIsLoadingBranches(false);
       });
-  }, [projectPath]);
+
+    // Fetch MCP servers
+    fetchMcpServers(projectPath).catch(console.error);
+
+    // Fetch plugins/skills
+    fetchPlugins(projectPath).catch(console.error);
+  }, [projectPath, fetchMcpServers, fetchPlugins]);
+
+  // Update slot enabled MCP servers when servers are fetched
+  useEffect(() => {
+    if (mcpServers.length > 0) {
+      setSlots((prev) =>
+        prev.map((slot) => {
+          // Only update if the slot has no enabled servers (fresh slot)
+          if (slot.enabledMcpServers.length === 0) {
+            return { ...slot, enabledMcpServers: mcpServers.map((s) => s.name) };
+          }
+          return slot;
+        })
+      );
+    }
+  }, [mcpServers]);
+
+  // Update slot enabled skills/plugins when they are fetched
+  useEffect(() => {
+    if (skills.length > 0 || plugins.length > 0) {
+      setSlots((prev) =>
+        prev.map((slot) => {
+          let updated = slot;
+          // Only update if the slot has no enabled skills (fresh slot)
+          if (slot.enabledSkills.length === 0 && skills.length > 0) {
+            updated = { ...updated, enabledSkills: skills.map((s) => s.id) };
+          }
+          // Only update if the slot has no enabled plugins (fresh slot)
+          if (slot.enabledPlugins.length === 0 && plugins.length > 0) {
+            updated = {
+              ...updated,
+              enabledPlugins: plugins.filter((p) => p.enabled_by_default).map((p) => p.id),
+            };
+          }
+          return updated;
+        })
+      );
+    }
+  }, [skills, plugins]);
 
   // Mark as mounted after first render
   useEffect(() => {
@@ -146,9 +222,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   // Auto-respawn a slot when all slots are removed (not on initial mount)
   useEffect(() => {
     if (slots.length === 0 && mounted.current && !error) {
-      setSlots([createEmptySlot()]);
+      setSlots([createEmptySlot(mcpServers, skills, plugins)]);
     }
-  }, [slots.length, error]);
+  }, [slots.length, error, mcpServers, skills, plugins]);
 
   /**
    * Launches a single slot by spawning a shell with the configured settings.
@@ -172,6 +248,30 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
       // Spawn the shell in the correct directory (worktree or project path)
       const sessionId = await spawnShell(workingDirectory);
+
+      // Register the session in SessionManager (required before assigning branch)
+      if (projectPath) {
+        await createSession(sessionId, slot.mode, projectPath);
+      }
+
+      // Assign the branch to the session so the header displays it
+      if (slot.branch) {
+        await assignSessionBranch(sessionId, slot.branch, worktreePath);
+      }
+
+      // Save enabled MCP servers for this session
+      if (projectPath) {
+        await setSessionMcpServers(projectPath, sessionId, slot.enabledMcpServers);
+      }
+
+      // Save enabled skills and plugins for this session
+      if (projectPath) {
+        await setSessionSkills(projectPath, sessionId, slot.enabledSkills);
+        await setSessionPlugins(projectPath, sessionId, slot.enabledPlugins);
+      }
+
+      // Refresh sessions in store so TerminalView can read the updated config
+      await useSessionStore.getState().fetchSessions();
 
       setSlots((prev) =>
         prev.map((s) =>
@@ -251,15 +351,101 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   }, []);
 
   /**
+   * Toggles an MCP server for a slot.
+   */
+  const toggleSlotMcp = useCallback((slotId: string, serverName: string) => {
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.id !== slotId) return s;
+        const isEnabled = s.enabledMcpServers.includes(serverName);
+        const newEnabled = isEnabled
+          ? s.enabledMcpServers.filter((n) => n !== serverName)
+          : [...s.enabledMcpServers, serverName];
+        return { ...s, enabledMcpServers: newEnabled };
+      })
+    );
+  }, []);
+
+  /**
+   * Toggles a skill for a slot.
+   */
+  const toggleSlotSkill = useCallback((slotId: string, skillId: string) => {
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.id !== slotId) return s;
+        const isEnabled = s.enabledSkills.includes(skillId);
+        const newEnabled = isEnabled
+          ? s.enabledSkills.filter((id) => id !== skillId)
+          : [...s.enabledSkills, skillId];
+        return { ...s, enabledSkills: newEnabled };
+      })
+    );
+  }, []);
+
+  /**
+   * Toggles a plugin for a slot.
+   * Also toggles all skills belonging to that plugin.
+   */
+  const toggleSlotPlugin = useCallback((slotId: string, pluginId: string) => {
+    // Find the plugin and its associated skills
+    const plugin = plugins.find((p) => p.id === pluginId);
+    if (!plugin) return;
+
+    // Helper to extract base name from skill ID
+    const getSkillBaseName = (skillId: string): string => {
+      const colonIndex = skillId.indexOf(":");
+      return colonIndex >= 0 ? skillId.slice(colonIndex + 1) : skillId;
+    };
+
+    // Build map of base name -> skill for lookup
+    const skillByBaseName = new Map(skills.map((s) => [getSkillBaseName(s.id), s]));
+
+    // Find all skill IDs that belong to this plugin
+    const pluginSkillIds: string[] = [];
+    for (const skillId of plugin.skills) {
+      const baseName = getSkillBaseName(skillId);
+      const skill = skillByBaseName.get(baseName);
+      if (skill) {
+        pluginSkillIds.push(skill.id);
+      }
+    }
+
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.id !== slotId) return s;
+        const isEnabled = s.enabledPlugins.includes(pluginId);
+
+        // Toggle plugin
+        const newEnabledPlugins = isEnabled
+          ? s.enabledPlugins.filter((id) => id !== pluginId)
+          : [...s.enabledPlugins, pluginId];
+
+        // Toggle all associated skills
+        let newEnabledSkills: string[];
+        if (isEnabled) {
+          // Disabling plugin - remove all its skills
+          newEnabledSkills = s.enabledSkills.filter((id) => !pluginSkillIds.includes(id));
+        } else {
+          // Enabling plugin - add all its skills (avoid duplicates)
+          const skillsToAdd = pluginSkillIds.filter((id) => !s.enabledSkills.includes(id));
+          newEnabledSkills = [...s.enabledSkills, ...skillsToAdd];
+        }
+
+        return { ...s, enabledPlugins: newEnabledPlugins, enabledSkills: newEnabledSkills };
+      })
+    );
+  }, [plugins, skills]);
+
+  /**
    * Adds a new pre-launch slot to the grid.
    */
   const addSession = useCallback(() => {
     if (slotsRef.current.length >= MAX_SESSIONS) return;
     setSlots((prev) => {
       if (prev.length >= MAX_SESSIONS) return prev;
-      return [...prev, createEmptySlot()];
+      return [...prev, createEmptySlot(mcpServers, skills, plugins)];
     });
-  }, []);
+  }, [mcpServers, skills, plugins]);
 
   useImperativeHandle(ref, () => ({ addSession, launchAll }), [addSession, launchAll]);
 
@@ -302,8 +488,14 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             branches={branches}
             isLoadingBranches={isLoadingBranches}
             isGitRepo={isGitRepo}
+            mcpServers={mcpServers}
+            skills={skills}
+            plugins={plugins}
             onModeChange={(mode) => updateSlotMode(slot.id, mode)}
             onBranchChange={(branch) => updateSlotBranch(slot.id, branch)}
+            onMcpToggle={(serverName) => toggleSlotMcp(slot.id, serverName)}
+            onSkillToggle={(skillId) => toggleSlotSkill(slot.id, skillId)}
+            onPluginToggle={(pluginId) => toggleSlotPlugin(slot.id, pluginId)}
             onLaunch={() => launchSlot(slot.id)}
             onRemove={() => removeSlot(slot.id)}
           />
