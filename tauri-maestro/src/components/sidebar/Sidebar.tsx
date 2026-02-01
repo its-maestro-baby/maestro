@@ -437,7 +437,13 @@ function ProjectContextSection() {
 
 function SessionsSection() {
   const [expanded, setExpanded] = useState(true);
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only show those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
 
   return (
     <div className={cardClass}>
@@ -504,7 +510,13 @@ const MODE_ICON: Record<AiMode, React.ElementType> = {
 };
 
 function StatusSection() {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only count those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
   const counts = sessions.reduce(
     (acc, session) => {
       acc.status[session.status] = (acc.status[session.status] ?? 0) + 1;
@@ -1019,7 +1031,13 @@ function ProcessesTab() {
 /* ── 1. Agent Sessions ── */
 
 function AgentSessionsSection() {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only show those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
 
   return (
     <div className={cardClass}>
