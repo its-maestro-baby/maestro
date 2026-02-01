@@ -10,7 +10,9 @@ import {
   FileText,
   GitBranch,
   Globe,
+  Home,
   Moon,
+  Package,
   Play,
   PlusCircle,
   RefreshCw,
@@ -28,6 +30,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { useGitStore } from "@/stores/useGitStore";
+import { useMcpStore } from "@/stores/useMcpStore";
+import { usePluginStore } from "@/stores/usePluginStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { GitSettingsModal, RemoteStatusIndicator } from "@/components/git";
 
@@ -589,6 +593,26 @@ function MaestroMCPSection() {
 
 function MCPServersSection() {
   const [expanded, setExpanded] = useState(false);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const projectPath = activeTab?.projectPath ?? "";
+
+  const { projectServers, fetchProjectServers, refreshProjectServers, isLoading } = useMcpStore();
+  const servers = projectPath ? (projectServers[projectPath] ?? []) : [];
+  const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
+
+  // Fetch servers when project changes
+  useEffect(() => {
+    if (projectPath) {
+      fetchProjectServers(projectPath);
+    }
+  }, [projectPath, fetchProjectServers]);
+
+  const handleRefresh = useCallback(() => {
+    if (projectPath) {
+      refreshProjectServers(projectPath);
+    }
+  }, [projectPath, refreshProjectServers]);
 
   return (
     <div className={cardClass}>
@@ -604,15 +628,50 @@ function MCPServersSection() {
             <ChevronRight size={13} className="text-maestro-muted/80" />
           )}
         </button>
-        <Server size={13} className="text-maestro-muted/80" />
+        <Server size={13} className={servers.length > 0 ? "text-maestro-green" : "text-maestro-muted/80"} />
         <span className="flex-1">MCP Servers</span>
-        <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-          <PlusCircle size={12} className="text-maestro-accent" />
+        {servers.length > 0 && (
+          <span className="bg-maestro-green/20 text-maestro-green text-[10px] px-1.5 rounded-full font-bold">
+            {servers.length}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="rounded p-0.5 hover:bg-maestro-border/40"
+          title="Refresh MCP servers"
+        >
+          <RefreshCw size={12} className={`text-maestro-muted ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
       {expanded && (
-        <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No MCP servers</div>
+        <div className="space-y-0.5">
+          {!projectPath ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No project selected</div>
+          ) : servers.length === 0 ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">
+              No MCP servers in .mcp.json
+            </div>
+          ) : (
+            servers.map((server) => {
+              const serverType = server.type;
+              const isHttp = serverType === "http";
+              return (
+                <div
+                  key={server.name}
+                  className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                >
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-maestro-green" />
+                  <span className="flex-1 truncate font-medium">{server.name}</span>
+                  <span className="text-[10px] text-maestro-muted">
+                    {isHttp ? "HTTP" : "stdio"}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
       )}
     </div>
   );
@@ -620,28 +679,162 @@ function MCPServersSection() {
 
 /* ── 7. Plugins & Skills ── */
 
+import type { SkillSource } from "@/lib/plugins";
+
+/** Returns badge styling and text for a skill source. */
+function getSkillSourceBadge(source: SkillSource): { text: string; className: string; icon: React.ElementType } {
+  switch (source.type) {
+    case "project":
+      return {
+        text: "Project",
+        className: "bg-maestro-accent/20 text-maestro-accent",
+        icon: FileText,
+      };
+    case "personal":
+      return {
+        text: "Personal",
+        className: "bg-maestro-green/20 text-maestro-green",
+        icon: Home,
+      };
+    case "plugin":
+      return {
+        text: source.name,
+        className: "bg-maestro-purple/20 text-maestro-purple",
+        icon: Package,
+      };
+    case "legacy":
+      return {
+        text: "Legacy",
+        className: "bg-maestro-muted/20 text-maestro-muted",
+        icon: FileText,
+      };
+  }
+}
+
 function PluginsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const projectPath = activeTab?.projectPath ?? "";
+
+  const { projectSkills, projectPlugins, fetchProjectPlugins, refreshProjectPlugins, isLoading } =
+    usePluginStore();
+  const skills = projectPath ? (projectSkills[projectPath] ?? []) : [];
+  const plugins = projectPath ? (projectPlugins[projectPath] ?? []) : [];
+  const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
+  const totalCount = skills.length + plugins.length;
+
+  // Fetch plugins when project changes
+  useEffect(() => {
+    if (projectPath) {
+      fetchProjectPlugins(projectPath);
+    }
+  }, [projectPath, fetchProjectPlugins]);
+
+  const handleRefresh = useCallback(() => {
+    if (projectPath) {
+      refreshProjectPlugins(projectPath);
+    }
+  }, [projectPath, refreshProjectPlugins]);
+
   return (
     <div className={cardClass}>
-      <SectionHeader
-        icon={Store}
-        label="Plugins & Skills"
-        iconColor="text-maestro-purple"
-        right={
-          <div className="flex items-center gap-1">
-            <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-              <RefreshCw size={12} className="text-maestro-muted" />
-            </button>
-            <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-              <PlusCircle size={12} className="text-maestro-accent" />
-            </button>
-          </div>
-        }
-      />
-      <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No skills installed</div>
-      <div className="px-2 text-[10px] text-maestro-muted/40">
-        Browse marketplace to install plugins
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1 hover:text-maestro-text"
+        >
+          {expanded ? (
+            <ChevronDown size={13} className="text-maestro-muted/80" />
+          ) : (
+            <ChevronRight size={13} className="text-maestro-muted/80" />
+          )}
+        </button>
+        <Store size={13} className={totalCount > 0 ? "text-maestro-purple" : "text-maestro-muted/80"} />
+        <span className="flex-1">Plugins & Skills</span>
+        {totalCount > 0 && (
+          <span className="bg-maestro-purple/20 text-maestro-purple text-[10px] px-1.5 rounded-full font-bold">
+            {totalCount}
+          </span>
+        )}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="rounded p-0.5 hover:bg-maestro-border/40"
+            title="Refresh plugins"
+          >
+            <RefreshCw size={12} className={`text-maestro-muted ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40" title="Add plugin">
+            <PlusCircle size={12} className="text-maestro-accent" />
+          </button>
+        </div>
       </div>
+
+      {expanded && (
+        <div className="space-y-0.5">
+          {!projectPath ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No project selected</div>
+          ) : totalCount === 0 ? (
+            <>
+              <div className="px-2 py-1 text-[11px] text-maestro-muted/60">
+                No skills found
+              </div>
+              <div className="px-2 text-[10px] text-maestro-muted/40">
+                Add skills to .claude/skills/ or ~/.claude/skills/
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Skills */}
+              {skills.length > 0 && (
+                <>
+                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                    Skills ({skills.length})
+                  </div>
+                  {skills.map((skill) => {
+                    const badge = getSkillSourceBadge(skill.source);
+                    return (
+                      <div
+                        key={skill.id}
+                        className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                        title={skill.description || skill.path || undefined}
+                      >
+                        <Zap size={12} className="shrink-0 text-maestro-orange" />
+                        <span className="flex-1 truncate font-medium">{skill.name}</span>
+                        <span className={`shrink-0 rounded px-1 text-[9px] ${badge.className}`}>
+                          {badge.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {/* Plugins */}
+              {plugins.length > 0 && (
+                <>
+                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                    Plugins ({plugins.length})
+                  </div>
+                  {plugins.map((plugin) => (
+                    <div
+                      key={plugin.id}
+                      className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                      title={plugin.description || plugin.path || undefined}
+                    >
+                      <Package size={12} className="shrink-0 text-maestro-purple" />
+                      <span className="flex-1 truncate font-medium">{plugin.name}</span>
+                      <span className="text-[10px] text-maestro-muted">v{plugin.version}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

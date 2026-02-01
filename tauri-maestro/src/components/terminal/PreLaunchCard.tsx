@@ -1,18 +1,50 @@
 import {
   BrainCircuit,
+  Check,
   ChevronDown,
   Code2,
   FolderGit2,
   GitBranch,
+  Package,
   Play,
+  Server,
   Sparkles,
   Terminal,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
+import type { McpServerConfig } from "@/lib/mcp";
+import type { PluginConfig, SkillConfig, SkillSource } from "@/lib/plugins";
 import type { AiMode } from "@/stores/useSessionStore";
+
+/** Returns badge styling and text for a skill source. */
+function getSkillSourceLabel(source: SkillSource): { text: string; className: string } {
+  switch (source.type) {
+    case "project":
+      return {
+        text: "Project",
+        className: "bg-maestro-accent/20 text-maestro-accent",
+      };
+    case "personal":
+      return {
+        text: "Personal",
+        className: "bg-maestro-green/20 text-maestro-green",
+      };
+    case "plugin":
+      return {
+        text: source.name,
+        className: "bg-maestro-purple/20 text-maestro-purple",
+      };
+    case "legacy":
+      return {
+        text: "Legacy",
+        className: "bg-maestro-muted/20 text-maestro-muted",
+      };
+  }
+}
 
 /** Pre-launch session slot configuration. */
 export interface SessionSlot {
@@ -22,6 +54,12 @@ export interface SessionSlot {
   sessionId: number | null;
   /** Path to the worktree if one was created for this session. */
   worktreePath: string | null;
+  /** Names of enabled MCP servers for this session. */
+  enabledMcpServers: string[];
+  /** IDs of enabled skills for this session. */
+  enabledSkills: string[];
+  /** IDs of enabled plugins for this session. */
+  enabledPlugins: string[];
 }
 
 interface PreLaunchCardProps {
@@ -30,8 +68,14 @@ interface PreLaunchCardProps {
   branches: BranchWithWorktreeStatus[];
   isLoadingBranches: boolean;
   isGitRepo: boolean;
+  mcpServers: McpServerConfig[];
+  skills: SkillConfig[];
+  plugins: PluginConfig[];
   onModeChange: (mode: AiMode) => void;
   onBranchChange: (branch: string | null) => void;
+  onMcpToggle: (serverName: string) => void;
+  onSkillToggle: (skillId: string) => void;
+  onPluginToggle: (pluginId: string) => void;
   onLaunch: () => void;
   onRemove: () => void;
 }
@@ -52,15 +96,27 @@ export function PreLaunchCard({
   branches,
   isLoadingBranches,
   isGitRepo,
+  mcpServers,
+  skills,
+  plugins,
   onModeChange,
   onBranchChange,
+  onMcpToggle,
+  onSkillToggle,
+  onPluginToggle,
   onLaunch,
   onRemove,
 }: PreLaunchCardProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
+  const [skillsDropdownOpen, setSkillsDropdownOpen] = useState(false);
+  const [pluginsDropdownOpen, setPluginsDropdownOpen] = useState(false);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
+  const mcpDropdownRef = useRef<HTMLDivElement>(null);
+  const skillsDropdownRef = useRef<HTMLDivElement>(null);
+  const pluginsDropdownRef = useRef<HTMLDivElement>(null);
 
   const modeConfig = getModeConfig(slot.mode);
   const ModeIcon = modeConfig.icon;
@@ -74,10 +130,34 @@ export function PreLaunchCard({
       if (branchDropdownRef.current && !branchDropdownRef.current.contains(event.target as Node)) {
         setBranchDropdownOpen(false);
       }
+      if (mcpDropdownRef.current && !mcpDropdownRef.current.contains(event.target as Node)) {
+        setMcpDropdownOpen(false);
+      }
+      if (skillsDropdownRef.current && !skillsDropdownRef.current.contains(event.target as Node)) {
+        setSkillsDropdownOpen(false);
+      }
+      if (pluginsDropdownRef.current && !pluginsDropdownRef.current.contains(event.target as Node)) {
+        setPluginsDropdownOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // MCP server display info
+  const enabledCount = slot.enabledMcpServers.length;
+  const totalCount = mcpServers.length;
+  const hasMcpServers = totalCount > 0;
+
+  // Skills display info
+  const enabledSkillsCount = slot.enabledSkills.length;
+  const totalSkillsCount = skills.length;
+  const hasSkills = totalSkillsCount > 0;
+
+  // Plugins display info
+  const enabledPluginsCount = slot.enabledPlugins.length;
+  const totalPluginsCount = plugins.length;
+  const hasPlugins = totalPluginsCount > 0;
 
   // Find current branch display info
   const currentBranch = branches.find((b) => b.isCurrent);
@@ -275,6 +355,192 @@ export function PreLaunchCard({
                       ))}
                     </>
                   )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* MCP Servers Selector */}
+        <div className="relative" ref={mcpDropdownRef}>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
+            MCP Servers
+          </label>
+          {!hasMcpServers ? (
+            <div className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted">
+              <Server size={14} />
+              <span>No MCP servers configured</span>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setMcpDropdownOpen(!mcpDropdownOpen)}
+                className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50"
+              >
+                <div className="flex items-center gap-2">
+                  <Server size={14} className="text-maestro-green" />
+                  <span>
+                    {enabledCount} of {totalCount} servers
+                  </span>
+                </div>
+                <ChevronDown size={14} className="text-maestro-muted" />
+              </button>
+
+              {mcpDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
+                  {mcpServers.map((server) => {
+                    const isEnabled = slot.enabledMcpServers.includes(server.name);
+                    const serverType = server.type;
+                    return (
+                      <button
+                        key={server.name}
+                        type="button"
+                        onClick={() => onMcpToggle(server.name)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-maestro-surface"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            isEnabled
+                              ? "border-maestro-green bg-maestro-green"
+                              : "border-maestro-border bg-transparent"
+                          }`}
+                        >
+                          {isEnabled && <Check size={12} className="text-white" />}
+                        </span>
+                        <span className={isEnabled ? "text-maestro-text" : "text-maestro-muted"}>
+                          {server.name}
+                        </span>
+                        <span className="ml-auto text-[10px] text-maestro-muted/60">
+                          {serverType}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Skills Selector */}
+        <div className="relative" ref={skillsDropdownRef}>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
+            Skills
+          </label>
+          {!hasSkills ? (
+            <div className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted">
+              <Zap size={14} />
+              <span>No skills configured</span>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setSkillsDropdownOpen(!skillsDropdownOpen)}
+                className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50"
+              >
+                <div className="flex items-center gap-2">
+                  <Zap size={14} className="text-maestro-orange" />
+                  <span>
+                    {enabledSkillsCount} of {totalSkillsCount} skills
+                  </span>
+                </div>
+                <ChevronDown size={14} className="text-maestro-muted" />
+              </button>
+
+              {skillsDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
+                  {skills.map((skill) => {
+                    const isEnabled = slot.enabledSkills.includes(skill.id);
+                    const sourceLabel = getSkillSourceLabel(skill.source);
+                    return (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        onClick={() => onSkillToggle(skill.id)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-maestro-surface"
+                        title={skill.description || undefined}
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            isEnabled
+                              ? "border-maestro-orange bg-maestro-orange"
+                              : "border-maestro-border bg-transparent"
+                          }`}
+                        >
+                          {isEnabled && <Check size={12} className="text-white" />}
+                        </span>
+                        <span className={`flex-1 truncate ${isEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
+                          {skill.name}
+                        </span>
+                        <span className={`shrink-0 rounded px-1 text-[9px] ${sourceLabel.className}`}>
+                          {sourceLabel.text}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Plugins Selector */}
+        <div className="relative" ref={pluginsDropdownRef}>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
+            Plugins
+          </label>
+          {!hasPlugins ? (
+            <div className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted">
+              <Package size={14} />
+              <span>No plugins configured</span>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setPluginsDropdownOpen(!pluginsDropdownOpen)}
+                className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50"
+              >
+                <div className="flex items-center gap-2">
+                  <Package size={14} className="text-maestro-purple" />
+                  <span>
+                    {enabledPluginsCount} of {totalPluginsCount} plugins
+                  </span>
+                </div>
+                <ChevronDown size={14} className="text-maestro-muted" />
+              </button>
+
+              {pluginsDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
+                  {plugins.map((plugin) => {
+                    const isEnabled = slot.enabledPlugins.includes(plugin.id);
+                    return (
+                      <button
+                        key={plugin.id}
+                        type="button"
+                        onClick={() => onPluginToggle(plugin.id)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-maestro-surface"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            isEnabled
+                              ? "border-maestro-purple bg-maestro-purple"
+                              : "border-maestro-border bg-transparent"
+                          }`}
+                        >
+                          {isEnabled && <Check size={12} className="text-white" />}
+                        </span>
+                        <span className={isEnabled ? "text-maestro-text" : "text-maestro-muted"}>
+                          {plugin.name}
+                        </span>
+                        <span className="ml-auto text-[10px] text-maestro-muted/60">
+                          v{plugin.version}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </>

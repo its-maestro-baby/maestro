@@ -2,6 +2,8 @@ mod commands;
 mod core;
 mod git;
 
+use core::mcp_manager::McpManager;
+use core::plugin_manager::PluginManager;
 use core::ProcessManager;
 use core::session_manager::SessionManager;
 use core::worktree_manager::WorktreeManager;
@@ -17,6 +19,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .manage(McpManager::new())
+        .manage(PluginManager::new())
         .manage(ProcessManager::new())
         .manage(SessionManager::new())
         .manage(WorktreeManager::new())
@@ -74,6 +78,21 @@ pub fn run() {
             // Worktree commands
             commands::worktree::prepare_session_worktree,
             commands::worktree::cleanup_session_worktree,
+            // MCP commands
+            commands::mcp::get_project_mcp_servers,
+            commands::mcp::refresh_project_mcp_servers,
+            commands::mcp::get_session_mcp_servers,
+            commands::mcp::set_session_mcp_servers,
+            commands::mcp::get_session_mcp_count,
+            // Plugin commands
+            commands::plugin::get_project_plugins,
+            commands::plugin::refresh_project_plugins,
+            commands::plugin::get_session_skills,
+            commands::plugin::set_session_skills,
+            commands::plugin::get_session_plugins,
+            commands::plugin::set_session_plugins,
+            commands::plugin::get_session_skills_count,
+            commands::plugin::get_session_plugins_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maestro");
