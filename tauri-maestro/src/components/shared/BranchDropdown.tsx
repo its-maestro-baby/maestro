@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check } from "lucide-react";
+import { Check, GitBranch, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface BranchInfo {
@@ -12,6 +12,7 @@ interface BranchDropdownProps {
   repoPath: string;
   currentBranch: string;
   onSelect: (branch: string) => void;
+  onCreateBranch: (name: string) => void;
   onClose: () => void;
 }
 
@@ -19,14 +20,19 @@ export function BranchDropdown({
   repoPath,
   currentBranch,
   onSelect,
+  onCreateBranch,
   onClose,
 }: BranchDropdownProps) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [focusIndex, setFocusIndex] = useState(-1);
+  const [showCreateInput, setShowCreateInput] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -74,6 +80,16 @@ export function BranchDropdown({
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (showCreateInput) {
+        // When create input is shown, only handle Escape
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setShowCreateInput(false);
+          setNewBranchName("");
+        }
+        return;
+      }
+
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
@@ -95,7 +111,7 @@ export function BranchDropdown({
           break;
       }
     },
-    [focusIndex, branches, onSelect, onClose],
+    [focusIndex, branches, onSelect, onClose, showCreateInput],
   );
 
   useEffect(() => {
@@ -124,6 +140,38 @@ export function BranchDropdown({
     }
   }, [focusIndex]);
 
+  // Focus input when create mode is shown
+  useEffect(() => {
+    if (showCreateInput && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [showCreateInput]);
+
+  const handleCreateBranch = async () => {
+    const trimmedName = newBranchName.trim();
+    if (!trimmedName || isCreating) return;
+
+    // Validate branch name
+    if (!/^[a-zA-Z0-9._/-]+$/.test(trimmedName)) {
+      setError("Invalid branch name. Use only letters, numbers, dots, dashes, and slashes.");
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      await onCreateBranch(trimmedName);
+      setNewBranchName("");
+      setShowCreateInput(false);
+      // Refresh branches
+      await fetchBranches();
+    } catch (err) {
+      console.error("Failed to create branch:", err);
+      setError(err instanceof Error ? err.message : "Failed to create branch");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <div
       ref={dropdownRef}
@@ -132,8 +180,58 @@ export function BranchDropdown({
       {/* Current branch header */}
       <div className="border-b border-maestro-border px-4 py-3">
         <span className="text-sm text-maestro-muted">Current: </span>
-        <span className="text-sm text-maestro-muted">{currentBranch}</span>
+        <span className="text-sm font-medium text-maestro-text">{currentBranch}</span>
       </div>
+
+      {/* Create new branch section */}
+      {showCreateInput ? (
+        <div className="border-b border-maestro-border p-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-maestro-muted/70">
+            New Branch Name
+          </div>
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={newBranchName}
+              onChange={(e) => {
+                setNewBranchName(e.target.value);
+                setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreateBranch();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setShowCreateInput(false);
+                  setNewBranchName("");
+                }
+              }}
+              placeholder="feature/my-branch"
+              className="flex-1 rounded border border-maestro-border bg-maestro-surface px-2 py-1 text-sm text-maestro-text placeholder:text-maestro-muted/50 focus:border-maestro-accent focus:outline-none"
+              disabled={isCreating}
+            />
+            <button
+              type="button"
+              onClick={handleCreateBranch}
+              disabled={!newBranchName.trim() || isCreating}
+              className="rounded bg-maestro-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {isCreating ? "..." : "Create"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowCreateInput(true)}
+          className="flex w-full items-center gap-2 border-b border-maestro-border px-4 py-2.5 text-sm text-maestro-accent transition-colors hover:bg-maestro-accent/10"
+        >
+          <Plus size={14} />
+          <span>Create New Branch</span>
+        </button>
+      )}
 
       {/* Switch to Branch */}
       <div className="px-4 pb-1 pt-3">
@@ -160,7 +258,11 @@ export function BranchDropdown({
               }`}
             >
               <span className="w-4 shrink-0">
-                {isCurrent && <Check size={12} className="text-maestro-accent" />}
+                {isCurrent ? (
+                  <Check size={12} className="text-maestro-accent" />
+                ) : (
+                  <GitBranch size={12} className="text-maestro-muted/40" />
+                )}
               </span>
               <span
                 className={`truncate ${
@@ -180,11 +282,14 @@ export function BranchDropdown({
         {loading && <div className="px-3 py-2 text-sm text-maestro-muted">Loading branches...</div>}
         {!loading && error && (
           <div className="px-3 py-2 text-sm text-maestro-red">
-            <div>Failed to load branches</div>
+            <div>{error}</div>
             <div className="mt-2">
               <button
                 type="button"
-                onClick={() => fetchBranches()}
+                onClick={() => {
+                  setError(null);
+                  fetchBranches();
+                }}
                 className="rounded border border-maestro-border px-2 py-1 text-[11px] text-maestro-text hover:bg-maestro-border/40"
               >
                 Retry

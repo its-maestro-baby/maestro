@@ -2,6 +2,8 @@ mod commands;
 mod core;
 mod git;
 
+use core::mcp_manager::McpManager;
+use core::plugin_manager::PluginManager;
 use core::ProcessManager;
 use core::session_manager::SessionManager;
 use core::worktree_manager::WorktreeManager;
@@ -17,6 +19,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .manage(McpManager::new())
+        .manage(PluginManager::new())
         .manage(ProcessManager::new())
         .manage(SessionManager::new())
         .manage(WorktreeManager::new())
@@ -42,7 +46,8 @@ pub fn run() {
             commands::terminal::write_stdin,
             commands::terminal::resize_pty,
             commands::terminal::kill_session,
-            // Git commands (new)
+            commands::terminal::check_cli_available,
+            // Git commands
             commands::git::git_branches,
             commands::git::git_current_branch,
             commands::git::git_uncommitted_count,
@@ -50,6 +55,19 @@ pub fn run() {
             commands::git::git_worktree_add,
             commands::git::git_worktree_remove,
             commands::git::git_commit_log,
+            commands::git::git_checkout_branch,
+            commands::git::git_create_branch,
+            commands::git::git_commit_files,
+            commands::git::git_user_config,
+            commands::git::git_set_user_config,
+            commands::git::git_list_remotes,
+            commands::git::git_add_remote,
+            commands::git::git_remove_remote,
+            commands::git::git_refs_for_commit,
+            commands::git::git_test_remote,
+            commands::git::git_set_remote_url,
+            commands::git::git_get_default_branch,
+            commands::git::git_set_default_branch,
             // Session commands (new)
             commands::session::get_sessions,
             commands::session::create_session,
@@ -58,6 +76,30 @@ pub fn run() {
             commands::session::remove_session,
             commands::session::get_sessions_for_project,
             commands::session::remove_sessions_for_project,
+            // Worktree commands
+            commands::worktree::prepare_session_worktree,
+            commands::worktree::cleanup_session_worktree,
+            // MCP commands
+            commands::mcp::get_project_mcp_servers,
+            commands::mcp::refresh_project_mcp_servers,
+            commands::mcp::get_session_mcp_servers,
+            commands::mcp::set_session_mcp_servers,
+            commands::mcp::get_session_mcp_count,
+            commands::mcp::save_project_mcp_defaults,
+            commands::mcp::load_project_mcp_defaults,
+            // Plugin commands
+            commands::plugin::get_project_plugins,
+            commands::plugin::refresh_project_plugins,
+            commands::plugin::get_session_skills,
+            commands::plugin::set_session_skills,
+            commands::plugin::get_session_plugins,
+            commands::plugin::set_session_plugins,
+            commands::plugin::get_session_skills_count,
+            commands::plugin::get_session_plugins_count,
+            commands::plugin::save_project_skill_defaults,
+            commands::plugin::load_project_skill_defaults,
+            commands::plugin::save_project_plugin_defaults,
+            commands::plugin::load_project_plugin_defaults,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maestro");

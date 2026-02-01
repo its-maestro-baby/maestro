@@ -95,17 +95,17 @@ export function TerminalView({ sessionId, status = "idle", onKill }: TerminalVie
   const fitAddonRef = useRef<FitAddon | null>(null);
 
   /**
-   * Sends a kill IPC to the backend and always invokes onKill afterward,
-   * even on failure, so the parent grid can remove the dead cell.
+   * Immediately removes the terminal from UI (optimistic update),
+   * then kills the backend session in the background.
    */
   const handleKill = useCallback(
     (id: number) => {
-      killSession(id)
-        .then(() => onKill(id))
-        .catch((err) => {
-          console.error("Failed to kill session:", err);
-          onKill(id);
-        });
+      // Update UI immediately (optimistic)
+      onKill(id);
+      // Kill session in background - don't await
+      killSession(id).catch((err) => {
+        console.error("Failed to kill session:", err);
+      });
     },
     [onKill],
   );

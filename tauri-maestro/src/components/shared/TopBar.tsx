@@ -3,13 +3,15 @@ import {
   ChevronDown,
   GitBranch,
   GitMerge,
+  Loader2,
   Minus,
   PanelLeft,
   Settings,
   Square,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useGitStore } from "../../stores/useGitStore";
 import { BranchDropdown } from "./BranchDropdown";
 import { StatusLegend } from "./StatusLegend";
 
@@ -22,6 +24,8 @@ interface TopBarProps {
   gitPanelOpen?: boolean;
   /** When true, hides window controls (minimize/maximize/close) - use when ProjectTabs provides them */
   hideWindowControls?: boolean;
+  /** Called when branch is switched */
+  onBranchChanged?: (newBranch: string) => void;
 }
 
 export function TopBar({
@@ -32,17 +36,52 @@ export function TopBar({
   onToggleGitPanel,
   gitPanelOpen,
   hideWindowControls = false,
+  onBranchChanged,
 }: TopBarProps) {
   const appWindow = useMemo(() => getCurrentWindow(), []);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
 
-  const handleBranchSelect = (branch: string) => {
-    console.info("Selected branch:", branch);
-    setBranchDropdownOpen(false);
-  };
+  const { checkoutBranch, createBranch, fetchCurrentBranch } = useGitStore();
+
+  const handleBranchSelect = useCallback(
+    async (branch: string) => {
+      if (!repoPath || branch === branchName) {
+        setBranchDropdownOpen(false);
+        return;
+      }
+
+      setIsSwitching(true);
+      try {
+        await checkoutBranch(repoPath, branch);
+        // Refresh current branch and notify parent
+        await fetchCurrentBranch(repoPath);
+        onBranchChanged?.(branch);
+        setBranchDropdownOpen(false);
+      } catch (err) {
+        console.error("Failed to switch branch:", err);
+        // Show error to user
+        window.alert(`Failed to switch to ${branch}: ${err}`);
+      } finally {
+        setIsSwitching(false);
+      }
+    },
+    [repoPath, branchName, checkoutBranch, fetchCurrentBranch, onBranchChanged]
+  );
+
+  const handleCreateBranch = useCallback(
+    async (name: string) => {
+      if (!repoPath) return;
+
+      await createBranch(repoPath, name);
+      // After creation, switch to the new branch
+      await handleBranchSelect(name);
+    },
+    [repoPath, createBranch, handleBranchSelect]
+  );
 
   return (
-    <div data-tauri-drag-region className="no-select flex h-10 items-center bg-maestro-bg">
+    <div data-tauri-drag-region className="no-select flex h-10 flex-1 items-center bg-maestro-bg">
       {/* Left: collapse toggle (3D button) + branch area */}
       <div className="flex items-center gap-2 px-2">
         {/* Sidebar toggle - only shown when ProjectTabs isn't providing it */}
@@ -66,13 +105,18 @@ export function TopBar({
           <div className="relative">
             <button
               type="button"
-              onClick={() => setBranchDropdownOpen((p) => !p)}
+              onClick={() => !isSwitching && setBranchDropdownOpen((p) => !p)}
+              disabled={isSwitching}
               aria-haspopup="listbox"
               aria-expanded={branchDropdownOpen}
               aria-label="Select branch"
-              className="flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-maestro-card/50"
+              className="flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-maestro-card/50 disabled:opacity-70"
             >
-              <GitBranch size={13} className="text-maestro-muted" />
+              {isSwitching ? (
+                <Loader2 size={13} className="animate-spin text-maestro-accent" />
+              ) : (
+                <GitBranch size={13} className="text-maestro-muted" />
+              )}
               <span className="max-w-[200px] truncate text-xs font-medium text-maestro-text">
                 {branchName}
               </span>
@@ -84,6 +128,7 @@ export function TopBar({
                 repoPath={repoPath}
                 currentBranch={branchName}
                 onSelect={handleBranchSelect}
+                onCreateBranch={handleCreateBranch}
                 onClose={() => setBranchDropdownOpen(false)}
               />
             )}

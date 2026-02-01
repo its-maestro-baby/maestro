@@ -2,7 +2,6 @@ import {
   Activity,
   AlertTriangle,
   Bot,
-  Check,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -11,7 +10,9 @@ import {
   FileText,
   GitBranch,
   Globe,
+  Home,
   Moon,
+  Package,
   Play,
   PlusCircle,
   RefreshCw,
@@ -22,11 +23,17 @@ import {
   Sparkles,
   Store,
   Sun,
+  User,
   Wrench,
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
+import { useGitStore } from "@/stores/useGitStore";
+import { useMcpStore } from "@/stores/useMcpStore";
+import { usePluginStore } from "@/stores/usePluginStore";
+import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { GitSettingsModal, RemoteStatusIndicator } from "@/components/git";
 
 type SidebarTab = "config" | "processes";
 
@@ -289,32 +296,114 @@ function ConfigTab({
 /* ── 1. Git Repository ── */
 
 function GitRepositorySection() {
+  const [showSettings, setShowSettings] = useState(false);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const repoPath = activeTab?.projectPath ?? "";
+
+  const { userConfig, remotes, remoteStatuses, fetchUserConfig, fetchRemotes, testAllRemotes } =
+    useGitStore();
+
+  // Fetch data on mount and when repoPath changes
+  useEffect(() => {
+    if (!repoPath) return;
+    fetchUserConfig(repoPath);
+    fetchRemotes(repoPath);
+  }, [repoPath, fetchUserConfig, fetchRemotes]);
+
+  // Test remotes after fetching them
+  useEffect(() => {
+    if (!repoPath || remotes.length === 0) return;
+    // Only test if we don't have statuses yet
+    const hasStatuses = remotes.some((r) => remoteStatuses[r.name] !== undefined);
+    if (!hasStatuses) {
+      testAllRemotes(repoPath);
+    }
+  }, [repoPath, remotes, remoteStatuses, testAllRemotes]);
+
+  const hasUser = userConfig?.name || userConfig?.email;
+  const displayName = userConfig?.name || "Not configured";
+  const displayEmail = userConfig?.email || "No email set";
+
+  // Format remote URL for display (shorten GitHub URLs)
+  const formatRemoteUrl = (url: string) => {
+    // git@github.com:user/repo.git -> github.com/user/repo
+    // https://github.com/user/repo.git -> github.com/user/repo
+    const match = url.match(/github\.com[:/](.+?)(?:\.git)?$/);
+    if (match) {
+      return `github.com/${match[1]}`;
+    }
+    // For other URLs, just show the host/path
+    try {
+      const parsed = new URL(url.replace(/^git@/, "https://").replace(/:(?!\/\/)/, "/"));
+      return `${parsed.host}${parsed.pathname.replace(/\.git$/, "")}`;
+    } catch {
+      return url;
+    }
+  };
+
+  if (!repoPath) {
+    return (
+      <div className={cardClass}>
+        <SectionHeader
+          icon={GitBranch}
+          label="Git Repository"
+          iconColor="text-maestro-muted"
+        />
+        <div className="px-1 py-1 text-xs text-maestro-muted">No project selected</div>
+      </div>
+    );
+  }
+
   return (
-    <div className={cardClass}>
-      <SectionHeader
-        icon={GitBranch}
-        label="Git Repository"
-        iconColor="text-maestro-green"
-        right={
-          <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-            <Settings size={12} className="text-maestro-muted" />
-          </button>
-        }
-      />
-      {/* User */}
-      <div className="flex items-center gap-2 px-1 py-1">
-        <span className="h-2 w-2 shrink-0 rounded-full bg-maestro-green" />
-        <span className="text-xs font-semibold text-maestro-text truncate">User</span>
+    <>
+      <div className={cardClass}>
+        <SectionHeader
+          icon={GitBranch}
+          label="Git Repository"
+          iconColor="text-maestro-green"
+          right={
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="rounded p-0.5 hover:bg-maestro-border/40"
+              title="Git settings"
+            >
+              <Settings size={12} className="text-maestro-muted" />
+            </button>
+          }
+        />
+        {/* User */}
+        <div className="flex items-center gap-2 px-1 py-1">
+          <User size={12} className={hasUser ? "text-maestro-green" : "text-maestro-muted"} />
+          <span className="text-xs font-semibold text-maestro-text truncate">{displayName}</span>
+        </div>
+        <div className="pl-5 text-[11px] text-maestro-muted truncate">{displayEmail}</div>
+
+        {/* Remotes */}
+        {remotes.length === 0 ? (
+          <div className="mt-2 px-1 py-1 text-xs text-maestro-muted">No remotes configured</div>
+        ) : (
+          remotes.map((remote) => (
+            <div key={remote.name} className="mt-1">
+              <div className="flex items-center gap-2 px-1 py-1">
+                <RemoteStatusIndicator status={remoteStatuses[remote.name] ?? "unknown"} />
+                <span className="text-xs font-semibold text-maestro-text truncate">
+                  {remote.name}
+                </span>
+              </div>
+              <div className="pl-5 text-[11px] text-maestro-muted truncate">
+                {formatRemoteUrl(remote.url)}
+              </div>
+            </div>
+          ))
+        )}
       </div>
-      <div className="pl-5 text-[11px] text-maestro-muted truncate">user@example.com</div>
-      {/* Origin */}
-      <div className="flex items-center gap-2 px-1 py-1 mt-1">
-        <span className="h-2 w-2 shrink-0 rounded-full bg-maestro-green" />
-        <Check size={10} className="text-maestro-green shrink-0" />
-        <span className="text-xs font-semibold text-maestro-text truncate">origin</span>
-      </div>
-      <div className="pl-5 text-[11px] text-maestro-muted truncate">github.com/user/project</div>
-    </div>
+
+      {showSettings && (
+        <GitSettingsModal repoPath={repoPath} onClose={() => setShowSettings(false)} />
+      )}
+    </>
   );
 }
 
@@ -348,7 +437,13 @@ function ProjectContextSection() {
 
 function SessionsSection() {
   const [expanded, setExpanded] = useState(true);
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only show those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
 
   return (
     <div className={cardClass}>
@@ -415,7 +510,13 @@ const MODE_ICON: Record<AiMode, React.ElementType> = {
 };
 
 function StatusSection() {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only count those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
   const counts = sessions.reduce(
     (acc, session) => {
       acc.status[session.status] = (acc.status[session.status] ?? 0) + 1;
@@ -504,6 +605,26 @@ function MaestroMCPSection() {
 
 function MCPServersSection() {
   const [expanded, setExpanded] = useState(false);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const projectPath = activeTab?.projectPath ?? "";
+
+  const { projectServers, fetchProjectServers, refreshProjectServers, isLoading } = useMcpStore();
+  const servers = projectPath ? (projectServers[projectPath] ?? []) : [];
+  const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
+
+  // Fetch servers when project changes
+  useEffect(() => {
+    if (projectPath) {
+      fetchProjectServers(projectPath);
+    }
+  }, [projectPath, fetchProjectServers]);
+
+  const handleRefresh = useCallback(() => {
+    if (projectPath) {
+      refreshProjectServers(projectPath);
+    }
+  }, [projectPath, refreshProjectServers]);
 
   return (
     <div className={cardClass}>
@@ -519,15 +640,50 @@ function MCPServersSection() {
             <ChevronRight size={13} className="text-maestro-muted/80" />
           )}
         </button>
-        <Server size={13} className="text-maestro-muted/80" />
+        <Server size={13} className={servers.length > 0 ? "text-maestro-green" : "text-maestro-muted/80"} />
         <span className="flex-1">MCP Servers</span>
-        <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-          <PlusCircle size={12} className="text-maestro-accent" />
+        {servers.length > 0 && (
+          <span className="bg-maestro-green/20 text-maestro-green text-[10px] px-1.5 rounded-full font-bold">
+            {servers.length}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="rounded p-0.5 hover:bg-maestro-border/40"
+          title="Refresh MCP servers"
+        >
+          <RefreshCw size={12} className={`text-maestro-muted ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
       {expanded && (
-        <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No MCP servers</div>
+        <div className="space-y-0.5">
+          {!projectPath ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No project selected</div>
+          ) : servers.length === 0 ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">
+              No MCP servers in .mcp.json
+            </div>
+          ) : (
+            servers.map((server) => {
+              const serverType = server.type;
+              const isHttp = serverType === "http";
+              return (
+                <div
+                  key={server.name}
+                  className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                >
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-maestro-green" />
+                  <span className="flex-1 truncate font-medium">{server.name}</span>
+                  <span className="text-[10px] text-maestro-muted">
+                    {isHttp ? "HTTP" : "stdio"}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
       )}
     </div>
   );
@@ -535,28 +691,246 @@ function MCPServersSection() {
 
 /* ── 7. Plugins & Skills ── */
 
+import type { SkillSource } from "@/lib/plugins";
+
+/** Returns badge styling and text for a skill source. */
+function getSkillSourceBadge(source: SkillSource): { text: string; className: string; icon: React.ElementType } {
+  switch (source.type) {
+    case "project":
+      return {
+        text: "Project",
+        className: "bg-maestro-accent/20 text-maestro-accent",
+        icon: FileText,
+      };
+    case "personal":
+      return {
+        text: "Personal",
+        className: "bg-maestro-green/20 text-maestro-green",
+        icon: Home,
+      };
+    case "plugin":
+      return {
+        text: source.name,
+        className: "bg-maestro-purple/20 text-maestro-purple",
+        icon: Package,
+      };
+    case "legacy":
+      return {
+        text: "Legacy",
+        className: "bg-maestro-muted/20 text-maestro-muted",
+        icon: FileText,
+      };
+  }
+}
+
 function PluginsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedPlugins, setExpandedPlugins] = useState<Set<string>>(new Set());
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const projectPath = activeTab?.projectPath ?? "";
+
+  const { projectSkills, projectPlugins, fetchProjectPlugins, refreshProjectPlugins, isLoading } =
+    usePluginStore();
+  const skills = projectPath ? (projectSkills[projectPath] ?? []) : [];
+  const plugins = projectPath ? (projectPlugins[projectPath] ?? []) : [];
+  const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
+
+  // Helper to extract base name from skill ID (strip prefix like "plugin:", "project:", "personal:")
+  const getSkillBaseName = (skillId: string): string => {
+    const colonIndex = skillId.indexOf(":");
+    return colonIndex >= 0 ? skillId.slice(colonIndex + 1) : skillId;
+  };
+
+  // Build a map of skill base name -> skill for quick lookup
+  const skillByBaseName = new Map(skills.map((s) => [getSkillBaseName(s.id), s]));
+
+  // Group skills by plugin using the plugin's skills array (matching by base name)
+  const pluginSkillsMap = new Map<string, typeof skills>();
+  const skillsInPlugins = new Set<string>();
+
+  for (const plugin of plugins) {
+    const pluginSkills: typeof skills = [];
+    for (const skillId of plugin.skills) {
+      const baseName = getSkillBaseName(skillId);
+      const skill = skillByBaseName.get(baseName);
+      if (skill) {
+        pluginSkills.push(skill);
+        skillsInPlugins.add(skill.id);
+      }
+    }
+    if (pluginSkills.length > 0) {
+      pluginSkillsMap.set(plugin.name, pluginSkills);
+    }
+  }
+
+  // Standalone skills are those not claimed by any plugin
+  const standaloneSkills = skills.filter((s) => !skillsInPlugins.has(s.id));
+
+  // Total count = plugins + standalone skills
+  const totalCount = plugins.length + standaloneSkills.length;
+
+  const togglePlugin = (pluginId: string) => {
+    setExpandedPlugins((prev) => {
+      const next = new Set(prev);
+      if (next.has(pluginId)) {
+        next.delete(pluginId);
+      } else {
+        next.add(pluginId);
+      }
+      return next;
+    });
+  };
+
+  // Fetch plugins when project changes
+  useEffect(() => {
+    if (projectPath) {
+      fetchProjectPlugins(projectPath);
+    }
+  }, [projectPath, fetchProjectPlugins]);
+
+  const handleRefresh = useCallback(() => {
+    if (projectPath) {
+      refreshProjectPlugins(projectPath);
+    }
+  }, [projectPath, refreshProjectPlugins]);
+
   return (
     <div className={cardClass}>
-      <SectionHeader
-        icon={Store}
-        label="Plugins & Skills"
-        iconColor="text-maestro-purple"
-        right={
-          <div className="flex items-center gap-1">
-            <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-              <RefreshCw size={12} className="text-maestro-muted" />
-            </button>
-            <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
-              <PlusCircle size={12} className="text-maestro-accent" />
-            </button>
-          </div>
-        }
-      />
-      <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No skills installed</div>
-      <div className="px-2 text-[10px] text-maestro-muted/40">
-        Browse marketplace to install plugins
+      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1 hover:text-maestro-text"
+        >
+          {expanded ? (
+            <ChevronDown size={13} className="text-maestro-muted/80" />
+          ) : (
+            <ChevronRight size={13} className="text-maestro-muted/80" />
+          )}
+        </button>
+        <Store size={13} className={totalCount > 0 ? "text-maestro-purple" : "text-maestro-muted/80"} />
+        <span className="flex-1">Plugins & Skills</span>
+        {totalCount > 0 && (
+          <span className="bg-maestro-purple/20 text-maestro-purple text-[10px] px-1.5 rounded-full font-bold">
+            {totalCount}
+          </span>
+        )}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="rounded p-0.5 hover:bg-maestro-border/40"
+            title="Refresh plugins"
+          >
+            <RefreshCw size={12} className={`text-maestro-muted ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40" title="Add plugin">
+            <PlusCircle size={12} className="text-maestro-accent" />
+          </button>
+        </div>
       </div>
+
+      {expanded && (
+        <div className="space-y-0.5">
+          {!projectPath ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No project selected</div>
+          ) : totalCount === 0 ? (
+            <>
+              <div className="px-2 py-1 text-[11px] text-maestro-muted/60">
+                No skills found
+              </div>
+              <div className="px-2 text-[10px] text-maestro-muted/40">
+                Add skills to .claude/skills/ or ~/.claude/skills/
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Plugins with their skills */}
+              {plugins.length > 0 && (
+                <>
+                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                    Plugins ({plugins.length})
+                  </div>
+                  {plugins.map((plugin) => {
+                    const pluginSkills = pluginSkillsMap.get(plugin.name) ?? [];
+                    const isPluginExpanded = expandedPlugins.has(plugin.id);
+
+                    return (
+                      <div key={plugin.id}>
+                        {/* Plugin row - clickable to expand */}
+                        <button
+                          type="button"
+                          onClick={() => togglePlugin(plugin.id)}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                          title={plugin.description || plugin.path || undefined}
+                        >
+                          {pluginSkills.length > 0 ? (
+                            isPluginExpanded ? (
+                              <ChevronDown size={10} className="shrink-0 text-maestro-muted" />
+                            ) : (
+                              <ChevronRight size={10} className="shrink-0 text-maestro-muted" />
+                            )
+                          ) : (
+                            <span className="w-[10px]" />
+                          )}
+                          <Package size={12} className="shrink-0 text-maestro-purple" />
+                          <span className="flex-1 truncate font-medium text-left">{plugin.name}</span>
+                          {pluginSkills.length > 0 && (
+                            <span className="text-[10px] text-maestro-muted">{pluginSkills.length}</span>
+                          )}
+                          <span className="text-[10px] text-maestro-muted">v{plugin.version}</span>
+                        </button>
+
+                        {/* Expanded skills */}
+                        {isPluginExpanded && pluginSkills.length > 0 && (
+                          <div className="ml-4 border-l border-maestro-border/40 pl-2">
+                            {pluginSkills.map((skill) => (
+                              <div
+                                key={skill.id}
+                                className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                                title={skill.description || skill.path || undefined}
+                              >
+                                <Zap size={11} className="shrink-0 text-maestro-orange" />
+                                <span className="flex-1 truncate">{skill.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Standalone Skills */}
+              {standaloneSkills.length > 0 && (
+                <>
+                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                    Skills ({standaloneSkills.length})
+                  </div>
+                  {standaloneSkills.map((skill) => {
+                    const badge = getSkillSourceBadge(skill.source);
+                    return (
+                      <div
+                        key={skill.id}
+                        className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+                        title={skill.description || skill.path || undefined}
+                      >
+                        <Zap size={12} className="shrink-0 text-maestro-orange" />
+                        <span className="flex-1 truncate font-medium">{skill.name}</span>
+                        <span className={`shrink-0 rounded px-1 text-[9px] ${badge.className}`}>
+                          {badge.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -657,7 +1031,13 @@ function ProcessesTab() {
 /* ── 1. Agent Sessions ── */
 
 function AgentSessionsSection() {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const activeTab = tabs.find((t) => t.active);
+  const activeProjectPath = activeTab?.projectPath ?? "";
+
+  // Filter sessions to only show those belonging to the active project
+  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
 
   return (
     <div className={cardClass}>

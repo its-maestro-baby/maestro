@@ -7,11 +7,12 @@ import { TerminalGrid, type TerminalGridHandle } from "../terminal/TerminalGrid"
 const DEFAULT_SESSION_COUNT = 6;
 
 interface MultiProjectViewProps {
-  onSessionCountChange?: (tabId: string, count: number) => void;
+  onSessionCountChange?: (tabId: string, slotCount: number, launchedCount: number) => void;
 }
 
 export interface MultiProjectViewHandle {
   addSessionToActiveProject: () => void;
+  launchAllInActiveProject: () => Promise<void>;
 }
 
 /**
@@ -28,7 +29,7 @@ export const MultiProjectView = forwardRef<MultiProjectViewHandle, MultiProjectV
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
   const gridRefs = useRef<Map<string, TerminalGridHandle>>(new Map());
 
-  // Expose addSessionToActiveProject to parent
+  // Expose methods to parent
   useImperativeHandle(ref, () => ({
     addSessionToActiveProject: () => {
       const activeTab = tabs.find((t) => t.active);
@@ -37,11 +38,18 @@ export const MultiProjectView = forwardRef<MultiProjectViewHandle, MultiProjectV
         gridRef?.addSession();
       }
     },
+    launchAllInActiveProject: async () => {
+      const activeTab = tabs.find((t) => t.active);
+      if (activeTab) {
+        const gridRef = gridRefs.current.get(activeTab.id);
+        await gridRef?.launchAll();
+      }
+    },
   }), [tabs]);
 
   const handleSessionCountChange = useCallback(
-    (tabId: string) => (count: number) => {
-      onSessionCountChange?.(tabId, count);
+    (tabId: string) => (slotCount: number, launchedCount: number) => {
+      onSessionCountChange?.(tabId, slotCount, launchedCount);
     },
     [onSessionCountChange]
   );

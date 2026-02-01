@@ -44,6 +44,41 @@ pub struct CommitInfo {
     pub summary: String,
 }
 
+/// Represents a file changed in a commit.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileChange {
+    pub path: String,
+    pub status: FileChangeStatus,
+    /// Original path for renamed files
+    pub old_path: Option<String>,
+}
+
+/// The type of change made to a file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileChangeStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    Unknown,
+}
+
+/// Git user configuration (name and email).
+#[derive(Debug, Clone, Serialize)]
+pub struct GitUserConfig {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+/// Information about a git remote.
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteInfo {
+    pub name: String,
+    pub url: String,
+}
+
 impl Git {
     /// Lists all local and remote branches, excluding `HEAD` pointer entries.
     ///
@@ -299,5 +334,281 @@ impl Git {
         }
 
         Ok(commits)
+    }
+
+    /// Checks out a branch by name.
+    ///
+    /// For local branches, uses `git checkout <name>`.
+    /// For remote branches like `origin/feature`, creates a local tracking branch.
+    pub async fn checkout_branch(&self, name: &str) -> Result<(), GitError> {
+        // Check if this is a remote branch reference
+        if name.contains('/') {
+            // Try to extract the local branch name from remote ref (e.g., "origin/main" -> "main")
+            if let Some(local_name) = name.split('/').last() {
+                // First try checking out the local branch if it exists
+                match self.run(&["checkout", local_name]).await {
+                    Ok(_) => return Ok(()),
+                    Err(GitError::CommandFailed { .. }) => {
+                        // Local branch doesn't exist, create tracking branch
+                        self.run(&["checkout", "-b", local_name, "--track", name])
+                            .await?;
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
+        // Normal local branch checkout
+        self.run(&["checkout", name]).await?;
+        Ok(())
+    }
+
+    /// Creates a new branch, optionally from a specific starting point.
+    ///
+    /// If `start_point` is None, creates from HEAD.
+    pub async fn create_branch(
+        &self,
+        name: &str,
+        start_point: Option<&str>,
+    ) -> Result<(), GitError> {
+        let mut args = vec!["branch", name];
+        if let Some(point) = start_point {
+            args.push(point);
+        }
+        self.run(&args).await?;
+        Ok(())
+    }
+
+    /// Returns the list of files changed in a specific commit.
+    ///
+    /// Parses `git show --name-status --format=` output.
+    pub async fn commit_files(&self, hash: &str) -> Result<Vec<FileChange>, GitError> {
+        let output = self
+            .run(&["show", "--name-status", "--format=", hash])
+            .await?;
+
+        let mut files = Vec::new();
+        for line in output.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.is_empty() {
+                continue;
+            }
+
+            let status_char = parts[0].chars().next().unwrap_or('?');
+            let (status, path, old_path) = match status_char {
+                'A' => (FileChangeStatus::Added, parts.get(1).unwrap_or(&"").to_string(), None),
+                'M' => (FileChangeStatus::Modified, parts.get(1).unwrap_or(&"").to_string(), None),
+                'D' => (FileChangeStatus::Deleted, parts.get(1).unwrap_or(&"").to_string(), None),
+                'R' => {
+                    // Renamed: R100\told_path\tnew_path
+                    let old = parts.get(1).map(|s| s.to_string());
+                    let new = parts.get(2).unwrap_or(&"").to_string();
+                    (FileChangeStatus::Renamed, new, old)
+                }
+                'C' => {
+                    // Copied: C100\told_path\tnew_path
+                    let old = parts.get(1).map(|s| s.to_string());
+                    let new = parts.get(2).unwrap_or(&"").to_string();
+                    (FileChangeStatus::Copied, new, old)
+                }
+                _ => (FileChangeStatus::Unknown, parts.get(1).unwrap_or(&"").to_string(), None),
+            };
+
+            if !path.is_empty() {
+                files.push(FileChange {
+                    path,
+                    status,
+                    old_path,
+                });
+            }
+        }
+
+        Ok(files)
+    }
+
+    /// Gets the git user config (name and email) for this repository.
+    ///
+    /// First checks local config, falls back to global if not set.
+    pub async fn get_user_config(&self) -> Result<GitUserConfig, GitError> {
+        let name = match self.run(&["config", "user.name"]).await {
+            Ok(output) => Some(output.trimmed().to_string()),
+            Err(GitError::CommandFailed { code: 1, .. }) => None, // Not set
+            Err(e) => return Err(e),
+        };
+
+        let email = match self.run(&["config", "user.email"]).await {
+            Ok(output) => Some(output.trimmed().to_string()),
+            Err(GitError::CommandFailed { code: 1, .. }) => None, // Not set
+            Err(e) => return Err(e),
+        };
+
+        Ok(GitUserConfig { name, email })
+    }
+
+    /// Sets the git user config (name and/or email).
+    ///
+    /// If `global` is true, sets the global config; otherwise, sets repository-local config.
+    pub async fn set_user_config(
+        &self,
+        name: Option<&str>,
+        email: Option<&str>,
+        global: bool,
+    ) -> Result<(), GitError> {
+        let scope = if global { "--global" } else { "--local" };
+
+        if let Some(n) = name {
+            self.run(&["config", scope, "user.name", n]).await?;
+        }
+
+        if let Some(e) = email {
+            self.run(&["config", scope, "user.email", e]).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Lists all configured remotes with their URLs.
+    pub async fn list_remotes(&self) -> Result<Vec<RemoteInfo>, GitError> {
+        let output = self.run(&["remote", "-v"]).await?;
+
+        let mut remotes: Vec<RemoteInfo> = Vec::new();
+        let mut seen_names = std::collections::HashSet::new();
+
+        for line in output.lines() {
+            // Format: "origin\thttps://github.com/user/repo.git (fetch)"
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 2 {
+                continue;
+            }
+
+            let name = parts[0].to_string();
+            if seen_names.contains(&name) {
+                continue; // Skip duplicate entries (fetch/push)
+            }
+
+            // Extract URL (remove the (fetch) or (push) suffix)
+            let url_part = parts[1];
+            let url = url_part
+                .split_whitespace()
+                .next()
+                .unwrap_or(url_part)
+                .to_string();
+
+            seen_names.insert(name.clone());
+            remotes.push(RemoteInfo { name, url });
+        }
+
+        Ok(remotes)
+    }
+
+    /// Adds a new remote with the given name and URL.
+    pub async fn add_remote(&self, name: &str, url: &str) -> Result<(), GitError> {
+        self.run(&["remote", "add", name, url]).await?;
+        Ok(())
+    }
+
+    /// Removes a remote by name.
+    pub async fn remove_remote(&self, name: &str) -> Result<(), GitError> {
+        self.run(&["remote", "remove", name]).await?;
+        Ok(())
+    }
+
+    /// Gets refs (branches and tags) pointing to a specific commit.
+    ///
+    /// Returns refs formatted as "refname" entries.
+    pub async fn refs_for_commit(&self, hash: &str) -> Result<Vec<String>, GitError> {
+        // Get branches pointing to this commit
+        let output = self
+            .run(&[
+                "branch",
+                "-a",
+                "--points-at",
+                hash,
+                "--format=%(refname:short)",
+            ])
+            .await?;
+
+        let mut refs: Vec<String> = output
+            .lines()
+            .iter()
+            .filter(|l| !l.is_empty() && !l.contains("HEAD"))
+            .map(|l| l.to_string())
+            .collect();
+
+        // Get tags pointing to this commit
+        if let Ok(tag_output) = self
+            .run(&["tag", "--points-at", hash])
+            .await
+        {
+            for tag in tag_output.lines() {
+                if !tag.is_empty() {
+                    refs.push(format!("tag:{}", tag));
+                }
+            }
+        }
+
+        Ok(refs)
+    }
+
+    /// Tests connectivity to a remote by running `git ls-remote --heads`.
+    ///
+    /// Returns `true` if the remote is reachable, `false` otherwise.
+    /// Uses a 10-second timeout to avoid hanging on unresponsive remotes.
+    pub async fn test_remote(&self, remote_name: &str) -> Result<bool, GitError> {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.run(&["ls-remote", "--heads", remote_name]),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(true),
+            Ok(Err(GitError::CommandFailed { .. })) => Ok(false),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Ok(false), // Timeout = disconnected
+        }
+    }
+
+    /// Updates the URL of an existing remote.
+    pub async fn set_remote_url(&self, name: &str, url: &str) -> Result<(), GitError> {
+        self.run(&["remote", "set-url", name, url]).await?;
+        Ok(())
+    }
+
+    /// Gets the default branch name from git config (init.defaultBranch).
+    ///
+    /// First checks local config, then global. Returns None if not set.
+    pub async fn get_default_branch(&self) -> Result<Option<String>, GitError> {
+        // Try local first
+        match self.run(&["config", "--local", "init.defaultBranch"]).await {
+            Ok(output) => return Ok(Some(output.trimmed().to_string())),
+            Err(GitError::CommandFailed { code: 1, .. }) => {} // Not set locally
+            Err(e) => return Err(e),
+        }
+
+        // Fall back to global
+        match self.run(&["config", "--global", "init.defaultBranch"]).await {
+            Ok(output) => Ok(Some(output.trimmed().to_string())),
+            Err(GitError::CommandFailed { code: 1, .. }) => Ok(None), // Not set
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Sets the default branch name in git config (init.defaultBranch).
+    ///
+    /// If `global` is true, sets the global config; otherwise, sets repository-local config.
+    pub async fn set_default_branch(&self, branch: &str, global: bool) -> Result<(), GitError> {
+        let scope = if global { "--global" } else { "--local" };
+        self.run(&["config", scope, "init.defaultBranch", branch]).await?;
+        Ok(())
+    }
+
+    /// Detaches HEAD at the current commit.
+    ///
+    /// Used when we need to free up a branch for worktree creation
+    /// but have no other branch to switch to.
+    pub async fn detach_head(&self) -> Result<(), GitError> {
+        self.run(&["checkout", "--detach"]).await?;
+        Ok(())
     }
 }

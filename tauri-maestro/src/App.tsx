@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
+import { GitFork, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { killSession } from "@/lib/terminal";
 import { useOpenProject } from "@/lib/useOpenProject";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { useGitStore } from "./stores/useGitStore";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
-import { FloatingAddButton } from "./components/shared/FloatingAddButton";
 import { MultiProjectView, type MultiProjectViewHandle } from "./components/shared/MultiProjectView";
 import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { TopBar } from "./components/shared/TopBar";
@@ -31,7 +32,8 @@ function App() {
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
-  const [sessionCounts, setSessionCounts] = useState<Map<string, number>>(new Map());
+  const [sessionCounts, setSessionCounts] = useState<Map<string, { slotCount: number; launchedCount: number }>>(new Map());
+  const [isStoppingAll, setIsStoppingAll] = useState(false);
   const [currentBranch, setCurrentBranch] = useState<string | undefined>(undefined);
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem("maestro-theme");
@@ -63,6 +65,20 @@ function App() {
   const activeTab = tabs.find((tab) => tab.active) ?? null;
   const activeProjectPath = activeTab?.projectPath;
 
+  // Git store for commit count and refresh
+  const { commits, fetchCommits } = useGitStore();
+  const [isRefreshingGit, setIsRefreshingGit] = useState(false);
+
+  const handleRefreshGit = useCallback(async () => {
+    if (!activeProjectPath) return;
+    setIsRefreshingGit(true);
+    try {
+      await fetchCommits(activeProjectPath);
+    } finally {
+      setIsRefreshingGit(false);
+    }
+  }, [activeProjectPath, fetchCommits]);
+
   useEffect(() => {
     let cancelled = false;
     if (!activeProjectPath) {
@@ -84,19 +100,21 @@ function App() {
 
   // Derive state from active tab
   const activeTabSessionsLaunched = activeTab?.sessionsLaunched ?? false;
-  const activeTabSessionCount = activeTab ? (sessionCounts.get(activeTab.id) ?? 0) : 0;
+  const activeTabCounts = activeTab ? sessionCounts.get(activeTab.id) : undefined;
+  const activeTabSlotCount = activeTabCounts?.slotCount ?? 0;
+  const activeTabLaunchedCount = activeTabCounts?.launchedCount ?? 0;
 
-  // Handler to launch a session for the active project
-  const handleAddSession = () => {
+  // Handler to enter grid view for the active project
+  const handleEnterGridView = () => {
     if (activeTab) {
       setSessionsLaunched(activeTab.id, true);
     }
   };
 
-  const handleSessionCountChange = useCallback((tabId: string, count: number) => {
+  const handleSessionCountChange = useCallback((tabId: string, slotCount: number, launchedCount: number) => {
     setSessionCounts((prev) => {
       const next = new Map(prev);
-      next.set(tabId, count);
+      next.set(tabId, { slotCount, launchedCount });
       return next;
     });
   }, []);
@@ -125,16 +143,56 @@ function App() {
 
         {/* Right column: top bar + content + bottom bar */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top bar (branch selector, settings - no window controls since ProjectTabs has them) */}
-          <TopBar
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-            branchName={currentBranch}
-            repoPath={activeTab ? activeTab.projectPath : undefined}
-            onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
-            gitPanelOpen={gitPanelOpen}
-            hideWindowControls
-          />
+          {/* Top bar row - includes git panel header when open */}
+          <div className="flex h-10 shrink-0 bg-maestro-bg">
+            {/* TopBar takes flex-1 to fill available space */}
+            <TopBar
+              sidebarOpen={sidebarOpen}
+              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+              branchName={currentBranch}
+              repoPath={activeTab ? activeTab.projectPath : undefined}
+              onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
+              gitPanelOpen={gitPanelOpen}
+              hideWindowControls
+              onBranchChanged={(newBranch) => setCurrentBranch(newBranch)}
+            />
+
+            {/* Git panel header - inline at same level as TopBar */}
+            {gitPanelOpen && (
+              <div
+                className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
+                style={{ width: 560 }}
+              >
+                <GitFork size={14} className="text-maestro-muted" />
+                <span className="text-sm font-medium text-maestro-text">Commits</span>
+                {commits.length > 0 && (
+                  <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
+                    {commits.length}
+                  </span>
+                )}
+                <div className="flex-1" />
+                {activeProjectPath && (
+                  <button
+                    type="button"
+                    onClick={handleRefreshGit}
+                    disabled={isRefreshingGit}
+                    className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
+                    aria-label="Refresh commits"
+                  >
+                    <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setGitPanelOpen(false)}
+                  className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+                  aria-label="Close git panel"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Content area (main + optional git panel) */}
           <div className="flex flex-1 overflow-hidden">
@@ -147,43 +205,59 @@ function App() {
             </main>
 
             {/* Git graph panel (optional right side) */}
-            <GitGraphPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
+            <GitGraphPanel
+              open={gitPanelOpen}
+              onClose={() => setGitPanelOpen(false)}
+              repoPath={activeProjectPath ?? null}
+              currentBranch={currentBranch ?? null}
+            />
           </div>
 
           {/* Bottom action bar */}
           <div className="bg-maestro-bg">
             <BottomBar
-              sessionsActive={activeTabSessionsLaunched}
-              sessionCount={activeTabSessionCount}
+              inGridView={activeTabSessionsLaunched}
+              slotCount={activeTabSlotCount}
+              launchedCount={activeTabLaunchedCount}
+              maxSessions={DEFAULT_SESSION_COUNT}
+              isStoppingAll={isStoppingAll}
               onSelectDirectory={handleOpenProject}
-              onLaunchAll={handleAddSession}
-              onStopAll={async () => {
-                if (!activeTab) return;
-                // Kill all running sessions for this project via the session store
-                const sessionStore = useSessionStore.getState();
-                const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
-                const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
-                for (const result of results) {
-                  if (result.status === "rejected") {
-                    console.error("Failed to stop session:", result.reason);
-                  }
+              onLaunchAll={() => {
+                if (!activeTabSessionsLaunched && activeTab) {
+                  // First enter grid view, then launch
+                  handleEnterGridView();
                 }
-                setSessionsLaunched(activeTab.id, false);
-                setSessionCounts((prev) => {
-                  const next = new Map(prev);
-                  next.set(activeTab.id, 0);
-                  return next;
-                });
+                multiProjectRef.current?.launchAllInActiveProject();
+              }}
+              onAddSession={() => multiProjectRef.current?.addSessionToActiveProject()}
+              onStopAll={async () => {
+                if (!activeTab || isStoppingAll) return;
+                setIsStoppingAll(true);
+                try {
+                  // Kill all running sessions for this project via the session store
+                  const sessionStore = useSessionStore.getState();
+                  const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
+                  const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
+                  for (const result of results) {
+                    if (result.status === "rejected") {
+                      console.error("Failed to stop session:", result.reason);
+                    }
+                  }
+                  setSessionsLaunched(activeTab.id, false);
+                  setSessionCounts((prev) => {
+                    const next = new Map(prev);
+                    next.set(activeTab.id, { slotCount: 0, launchedCount: 0 });
+                    return next;
+                  });
+                } finally {
+                  setIsStoppingAll(false);
+                }
               }}
             />
           </div>
         </div>
       </div>
 
-      {/* Floating add session button (only when sessions active and below max) */}
-      {activeTabSessionsLaunched && activeTabSessionCount < DEFAULT_SESSION_COUNT && (
-        <FloatingAddButton onClick={() => multiProjectRef.current?.addSessionToActiveProject()} />
-      )}
     </div>
   );
 }

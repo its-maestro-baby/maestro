@@ -70,3 +70,31 @@ pub async fn kill_session(
     let pm = state.inner().clone();
     pm.kill_session(session_id).await
 }
+
+/// Checks if a command is available in the user's PATH.
+/// Uses platform-appropriate method:
+/// - Unix: runs `command -v <cmd>` via login shell
+/// - Windows: runs `where.exe <cmd>`
+#[tauri::command]
+pub async fn check_cli_available(command: String) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let output = tokio::process::Command::new(&shell)
+            .args(["-l", "-c", &format!("command -v {}", command)])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to check CLI: {}", e))?;
+        Ok(output.status.success())
+    }
+
+    #[cfg(windows)]
+    {
+        let output = tokio::process::Command::new("where.exe")
+            .arg(&command)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to check CLI: {}", e))?;
+        Ok(output.status.success())
+    }
+}

@@ -1,6 +1,3 @@
-#[cfg(not(unix))]
-compile_error!("process_manager requires a Unix platform (Linux/macOS)");
-
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,6 +7,9 @@ use dashmap::DashMap;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
+
+#[cfg(unix)]
+use libc;
 
 use super::error::PtyError;
 
@@ -21,9 +21,10 @@ struct PtySession {
     master: Mutex<Box<dyn MasterPty + Send>>,
     /// PID of the child process (shell).
     child_pid: i32,
-    /// Process group ID for signal delivery. portable-pty calls setsid() on
-    /// spawn, so the child becomes a session+group leader (PGID == child PID).
+    /// Process group ID for signal delivery (Unix only). portable-pty calls
+    /// setsid() on spawn, so the child becomes a session+group leader (PGID == child PID).
     /// We capture this from master.process_group_leader() for correctness.
+    #[cfg(unix)]
     pgid: i32,
     /// Signal to shut down the reader thread.
     shutdown: Arc<Notify>,
@@ -93,10 +94,15 @@ impl ProcessManager {
             })
             .map_err(|e| PtyError::spawn_failed(format!("Failed to open PTY: {e}")))?;
 
-        // Determine the user's shell
+        // Determine the user's shell (platform-specific)
+        #[cfg(unix)]
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        #[cfg(windows)]
+        let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.arg("-l"); // Login shell for proper env
+        #[cfg(unix)]
+        cmd.arg("-l"); // Login shell for proper env on Unix
 
         if let Some(ref dir) = cwd {
             cmd.cwd(dir);
@@ -112,13 +118,11 @@ impl ProcessManager {
             .map(|pid| pid as i32)
             .ok_or_else(|| PtyError::spawn_failed("Could not obtain child PID"))?;
 
-        // Capture process group ID before moving master into Mutex.
+        // Capture process group ID before moving master into Mutex (Unix only).
         // portable-pty calls setsid() on spawn, so PGID == child PID.
         // Using the API is safer than assuming the identity holds.
-        let pgid = pair
-            .master
-            .process_group_leader()
-            .unwrap_or(child_pid);
+        #[cfg(unix)]
+        let pgid = pair.master.process_group_leader().unwrap_or(child_pid);
 
         // Get writer from master
         let writer = pair
@@ -163,10 +167,13 @@ impl ProcessManager {
                             }
                         }
                         Err(e) => {
-                            // EAGAIN/EINTR are retriable; anything else is fatal
-                            let raw = e.raw_os_error().unwrap_or(0);
-                            if raw == libc::EAGAIN || raw == libc::EINTR {
-                                continue;
+                            // EAGAIN/EINTR are retriable on Unix; anything else is fatal
+                            #[cfg(unix)]
+                            {
+                                let raw = e.raw_os_error().unwrap_or(0);
+                                if raw == libc::EAGAIN || raw == libc::EINTR {
+                                    continue;
+                                }
                             }
                             log::debug!("PTY reader {id} error: {e}");
                             break;
@@ -208,13 +215,17 @@ impl ProcessManager {
             writer: Mutex::new(writer),
             master: Mutex::new(pair.master),
             child_pid,
+            #[cfg(unix)]
             pgid,
             shutdown,
             reader_handle: Mutex::new(Some(reader_handle)),
         };
 
         self.inner.sessions.insert(id, session);
+        #[cfg(unix)]
         log::info!("Spawned PTY session {id} (pid={child_pid}, pgid={pgid}, shell={shell})");
+        #[cfg(windows)]
+        log::info!("Spawned PTY session {id} (pid={child_pid}, shell={shell})");
 
         Ok(id)
     }
@@ -276,13 +287,17 @@ impl ProcessManager {
 
     /// Terminates a PTY session with graceful escalation.
     ///
-    /// Sends SIGTERM to the entire process group (via negative PGID), waits up
-    /// to 3 seconds for the lead process to exit, then escalates to SIGKILL if
-    /// it is still alive. After signaling, drops the master/writer FDs to EOF
-    /// the reader thread, notifies the tokio event emitter to shut down, and
-    /// joins the reader thread via `spawn_blocking` to avoid blocking the
-    /// async runtime. The session is removed from the map before signaling,
-    /// so concurrent calls with the same ID return `SessionNotFound`.
+    /// On Unix: Sends SIGTERM to the entire process group (via negative PGID),
+    /// waits up to 3 seconds for the lead process to exit, then escalates to
+    /// SIGKILL if it is still alive.
+    ///
+    /// On Windows: Uses taskkill to terminate the process tree.
+    ///
+    /// After signaling, drops the master/writer FDs to EOF the reader thread,
+    /// notifies the tokio event emitter to shut down, and joins the reader
+    /// thread via `spawn_blocking` to avoid blocking the async runtime.
+    /// The session is removed from the map before signaling, so concurrent
+    /// calls with the same ID return `SessionNotFound`.
     pub async fn kill_session(&self, session_id: u32) -> Result<(), PtyError> {
         let session = self
             .inner
@@ -292,39 +307,56 @@ impl ProcessManager {
             .1;
 
         let pid = session.child_pid;
-        let pgid = session.pgid;
 
-        // Send SIGTERM to the process group (negative pgid targets the group)
-        let term_result = unsafe { libc::kill(-pgid, libc::SIGTERM) };
-        if term_result != 0 {
-            log::warn!(
-                "Failed to SIGTERM session {session_id} (pgid={pgid}): {}",
-                std::io::Error::last_os_error()
-            );
-        }
+        #[cfg(unix)]
+        {
+            let pgid = session.pgid;
 
-        // Wait up to 3 seconds for the lead process to exit
-        let exited = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            loop {
-                let result = unsafe { libc::kill(pid, 0) };
-                if result != 0 {
-                    return; // Process gone
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        })
-        .await;
-
-        if exited.is_err() {
-            // Still alive after grace period — SIGKILL the process group
-            let kill_result = unsafe { libc::kill(-pgid, libc::SIGKILL) };
-            if kill_result != 0 {
+            // Send SIGTERM to the process group (negative pgid targets the group)
+            let term_result = unsafe { libc::kill(-pgid, libc::SIGTERM) };
+            if term_result != 0 {
                 log::warn!(
-                    "Failed to SIGKILL session {session_id} (pgid={pgid}): {}",
+                    "Failed to SIGTERM session {session_id} (pgid={pgid}): {}",
                     std::io::Error::last_os_error()
                 );
             }
-            log::warn!("Session {session_id} (pid={pid}, pgid={pgid}) required SIGKILL");
+
+            // Wait up to 3 seconds for the lead process to exit
+            let exited = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    let result = unsafe { libc::kill(pid, 0) };
+                    if result != 0 {
+                        return; // Process gone
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            })
+            .await;
+
+            if exited.is_err() {
+                // Still alive after grace period — SIGKILL the process group
+                let kill_result = unsafe { libc::kill(-pgid, libc::SIGKILL) };
+                if kill_result != 0 {
+                    log::warn!(
+                        "Failed to SIGKILL session {session_id} (pgid={pgid}): {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+                log::warn!("Session {session_id} (pid={pid}, pgid={pgid}) required SIGKILL");
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            // Use taskkill to terminate process tree
+            let result = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .output();
+
+            if let Err(e) = result {
+                log::warn!("Failed to taskkill session {session_id} (pid={pid}): {e}");
+            }
         }
 
         // Signal the tokio event emitter to shut down
