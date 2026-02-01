@@ -8,6 +8,7 @@ import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
 import { FloatingAddButton } from "./components/shared/FloatingAddButton";
 import { MultiProjectView, type MultiProjectViewHandle } from "./components/shared/MultiProjectView";
+import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { TopBar } from "./components/shared/TopBar";
 import { Sidebar } from "./components/sidebar/Sidebar";
 
@@ -21,6 +22,8 @@ function isValidTheme(value: string | null): value is Theme {
 
 function App() {
   const tabs = useWorkspaceStore((s) => s.tabs);
+  const selectTab = useWorkspaceStore((s) => s.selectTab);
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
@@ -99,67 +102,81 @@ function App() {
   }, []);
 
   return (
-    <div className="flex h-screen w-screen bg-maestro-bg">
-      {/* Sidebar — full height, left edge */}
-      <Sidebar
-        collapsed={!sidebarOpen}
-        onCollapse={() => setSidebarOpen(false)}
-        theme={theme}
-        onToggleTheme={toggleTheme}
+    <div className="flex h-screen w-screen flex-col bg-maestro-bg">
+      {/* Project tabs — full width at top (with window controls) */}
+      <ProjectTabs
+        tabs={tabs.map((t) => ({ id: t.id, name: t.name, active: t.active }))}
+        onSelectTab={selectTab}
+        onCloseTab={closeTab}
+        onNewTab={handleOpenProject}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        sidebarOpen={sidebarOpen}
       />
 
-      {/* Right column: top bar + content + bottom bar */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar */}
-        <TopBar
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-          branchName={currentBranch}
-          repoPath={activeTab ? activeTab.projectPath : undefined}
-          onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
-          gitPanelOpen={gitPanelOpen}
+      {/* Main area: sidebar + content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar — below project tabs */}
+        <Sidebar
+          collapsed={!sidebarOpen}
+          onCollapse={() => setSidebarOpen(false)}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
 
-        {/* Content area (main + optional git panel) */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Main content - MultiProjectView keeps all projects alive */}
-          <main className="relative flex-1 overflow-hidden bg-maestro-bg">
-            <MultiProjectView
-              ref={multiProjectRef}
-              onSessionCountChange={handleSessionCountChange}
-            />
-          </main>
-
-          {/* Git graph panel (optional right side) */}
-          <GitGraphPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
-        </div>
-
-        {/* Bottom action bar */}
-        <div className="bg-maestro-bg">
-          <BottomBar
-            sessionsActive={activeTabSessionsLaunched}
-            sessionCount={activeTabSessionCount}
-            onSelectDirectory={handleOpenProject}
-            onLaunchAll={handleAddSession}
-            onStopAll={async () => {
-              if (!activeTab) return;
-              // Kill all running sessions for this project via the session store
-              const sessionStore = useSessionStore.getState();
-              const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
-              const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
-              for (const result of results) {
-                if (result.status === "rejected") {
-                  console.error("Failed to stop session:", result.reason);
-                }
-              }
-              setSessionsLaunched(activeTab.id, false);
-              setSessionCounts((prev) => {
-                const next = new Map(prev);
-                next.set(activeTab.id, 0);
-                return next;
-              });
-            }}
+        {/* Right column: top bar + content + bottom bar */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Top bar (branch selector, settings - no window controls since ProjectTabs has them) */}
+          <TopBar
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+            branchName={currentBranch}
+            repoPath={activeTab ? activeTab.projectPath : undefined}
+            onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
+            gitPanelOpen={gitPanelOpen}
+            hideWindowControls
           />
+
+          {/* Content area (main + optional git panel) */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Main content - MultiProjectView keeps all projects alive */}
+            <main className="relative flex-1 overflow-hidden bg-maestro-bg">
+              <MultiProjectView
+                ref={multiProjectRef}
+                onSessionCountChange={handleSessionCountChange}
+              />
+            </main>
+
+            {/* Git graph panel (optional right side) */}
+            <GitGraphPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
+          </div>
+
+          {/* Bottom action bar */}
+          <div className="bg-maestro-bg">
+            <BottomBar
+              sessionsActive={activeTabSessionsLaunched}
+              sessionCount={activeTabSessionCount}
+              onSelectDirectory={handleOpenProject}
+              onLaunchAll={handleAddSession}
+              onStopAll={async () => {
+                if (!activeTab) return;
+                // Kill all running sessions for this project via the session store
+                const sessionStore = useSessionStore.getState();
+                const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
+                const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
+                for (const result of results) {
+                  if (result.status === "rejected") {
+                    console.error("Failed to stop session:", result.reason);
+                  }
+                }
+                setSessionsLaunched(activeTab.id, false);
+                setSessionCounts((prev) => {
+                  const next = new Map(prev);
+                  next.set(activeTab.id, 0);
+                  return next;
+                });
+              }}
+            />
+          </div>
         </div>
       </div>
 
