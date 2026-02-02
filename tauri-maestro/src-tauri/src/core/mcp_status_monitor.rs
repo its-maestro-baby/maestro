@@ -135,6 +135,28 @@ impl McpStatusMonitor {
         }
     }
 
+    /// Remove a session's status file to prevent stale status from polluting new sessions.
+    /// Call this when a session is killed.
+    pub async fn remove_session_status(&self, project_path: &str, session_id: u32) {
+        let hash = Self::generate_project_hash(project_path);
+        let status_file = self.base_state_dir.join(&hash).join(format!("agent-{}.json", session_id));
+
+        if let Err(e) = tokio::fs::remove_file(&status_file).await {
+            // Only log if it's not a "file not found" error
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to remove status file {:?}: {}", status_file, e);
+            }
+        } else {
+            log::debug!("Removed status file for session {} in project {}", session_id, project_path);
+        }
+
+        // Also clear from previous_states so we don't keep emitting for a dead session
+        let mut projects = self.active_projects.write().await;
+        if let Some(project_state) = projects.get_mut(project_path) {
+            project_state.previous_states.remove(&format!("agent-{}", session_id));
+        }
+    }
+
     /// Check if a project is currently being monitored.
     pub async fn is_monitoring_project(&self, project_path: &str) -> bool {
         self.active_projects.read().await.contains_key(project_path)
@@ -266,8 +288,8 @@ impl McpStatusMonitor {
                         needs_input_prompt: agent_state.needs_input_prompt.clone(),
                     };
 
-                    log::debug!(
-                        "Emitting session-status-changed for session {} in project {}: {}",
+                    log::info!(
+                        "Emitting status for session {} project='{}' status={}",
                         session_id,
                         project_path,
                         status

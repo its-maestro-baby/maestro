@@ -77,6 +77,17 @@ let listenerCount = 0;
 let pendingInit: Promise<void> | null = null;
 let activeUnlisten: UnlistenFn | null = null;
 
+/**
+ * Buffer for status events that arrive before their session is added to the store.
+ * Key is "session_id:project_path", value is the latest status payload for that session.
+ */
+const pendingStatusUpdates: Map<string, SessionStatusPayload> = new Map();
+
+/** Generate a unique key for buffering status updates */
+function statusBufferKey(sessionId: number, projectPath: string): string {
+  return `${sessionId}:${projectPath}`;
+}
+
 export const useSessionStore = create<SessionState>()((set, get) => ({
   sessions: [],
   isLoading: false,
@@ -107,6 +118,28 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   addSession: (session: SessionConfig) => {
+    // Check if we have a buffered status update for this session
+    const bufferKey = statusBufferKey(session.id, session.project_path);
+    const bufferedStatus = pendingStatusUpdates.get(bufferKey);
+
+    console.log(`[SessionStore] addSession id=${session.id} project_path='${session.project_path}'`);
+    console.log(`[SessionStore] Buffer key: '${bufferKey}', has buffered status: ${!!bufferedStatus}`);
+    if (pendingStatusUpdates.size > 0) {
+      console.log("[SessionStore] All buffered keys:", Array.from(pendingStatusUpdates.keys()));
+    }
+
+    if (bufferedStatus) {
+      pendingStatusUpdates.delete(bufferKey);
+      console.log(`[SessionStore] Applying buffered status: ${bufferedStatus.status}`);
+      // Apply the buffered status to the session before adding
+      session = {
+        ...session,
+        status: bufferedStatus.status,
+        statusMessage: bufferedStatus.message,
+        needsInputPrompt: bufferedStatus.needs_input_prompt,
+      };
+    }
+
     set((state) => {
       // Don't add if session already exists
       if (state.sessions.some((s) => s.id === session.id)) {
@@ -117,6 +150,13 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   removeSession: (sessionId: number) => {
+    // Clear any buffered status for this session to prevent pollution on restart
+    const sessionsToRemove = get().sessions.filter((s) => s.id === sessionId);
+    for (const session of sessionsToRemove) {
+      const bufferKey = statusBufferKey(session.id, session.project_path);
+      pendingStatusUpdates.delete(bufferKey);
+    }
+
     set((state) => ({
       sessions: state.sessions.filter((s) => s.id !== sessionId),
     }));
@@ -151,10 +191,22 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
         if (!pendingInit) {
           pendingInit = listen<SessionStatusPayload>("session-status-changed", (event) => {
             const { session_id, project_path, status, message, needs_input_prompt } = event.payload;
+
+            // Check if session exists in store
+            const sessionExists = get().sessions.some(
+              (s) => s.id === session_id && s.project_path === project_path
+            );
+
+            if (!sessionExists) {
+              // Buffer this status update - it will be applied when the session is added
+              const bufferKey = statusBufferKey(session_id, project_path);
+              console.log(`[SessionStore] Buffering status for non-existent session. Key: '${bufferKey}'`);
+              pendingStatusUpdates.set(bufferKey, event.payload);
+              return;
+            }
+
             set((state) => ({
               sessions: state.sessions.map((s) =>
-                // Only update if both session ID AND project path match
-                // This prevents cross-project status pollution
                 s.id === session_id && s.project_path === project_path
                   ? {
                       ...s,
@@ -162,7 +214,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
                       statusMessage: message,
                       needsInputPrompt: needs_input_prompt,
                     }
-                  : s,
+                  : s
               ),
             }));
           })

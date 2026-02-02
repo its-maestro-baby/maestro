@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::core::mcp_status_monitor::McpStatusMonitor;
+use crate::core::session_manager::SessionManager;
 use crate::core::{BackendCapabilities, BackendType, ProcessManager, PtyError, SessionProcessTree};
 
 /// Backend information returned to the frontend.
@@ -127,13 +131,30 @@ pub async fn resize_pty(
 
 /// Exposes `ProcessManager::kill_session` to the frontend.
 /// Gracefully terminates the PTY session (SIGTERM, then SIGKILL after 3s).
+/// Also cleans up the session's MCP status file to prevent stale status pollution.
 #[tauri::command]
 pub async fn kill_session(
     state: State<'_, ProcessManager>,
+    session_mgr: State<'_, SessionManager>,
+    mcp_monitor: State<'_, Arc<McpStatusMonitor>>,
     session_id: u32,
 ) -> Result<(), PtyError> {
+    // Get the project_path before killing the session (so we can clean up the status file)
+    let project_path = session_mgr.all_sessions()
+        .into_iter()
+        .find(|s| s.id == session_id)
+        .map(|s| s.project_path);
+
+    // Kill the PTY session
     let pm = state.inner().clone();
-    pm.kill_session(session_id).await
+    let result = pm.kill_session(session_id).await;
+
+    // Clean up the status file to prevent stale status pollution on next session launch
+    if let Some(project_path) = project_path {
+        mcp_monitor.remove_session_status(&project_path, session_id).await;
+    }
+
+    result
 }
 
 /// Returns the process tree for a specific session.

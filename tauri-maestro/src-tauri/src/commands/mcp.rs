@@ -167,6 +167,12 @@ pub async fn add_mcp_project(
         .to_string_lossy()
         .into_owned();
 
+    log::info!(
+        "add_mcp_project called with path='{}', canonical='{}'",
+        project_path,
+        canonical
+    );
+
     state.add_project(&canonical).await;
     Ok(())
 }
@@ -186,6 +192,24 @@ pub async fn remove_mcp_project(
         .into_owned();
 
     state.remove_project(&canonical).await;
+    Ok(())
+}
+
+/// Removes a session's status file to prevent stale status pollution.
+///
+/// Call this when a session is killed to clean up its status file.
+#[tauri::command]
+pub async fn remove_session_status(
+    state: State<'_, Arc<McpStatusMonitor>>,
+    project_path: String,
+    session_id: u32,
+) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(&project_path)
+        .map_err(|e| format!("Invalid project path '{}': {}", project_path, e))?
+        .to_string_lossy()
+        .into_owned();
+
+    state.remove_session_status(&canonical, session_id).await;
     Ok(())
 }
 
