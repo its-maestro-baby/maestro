@@ -1,12 +1,12 @@
 [package]
-name = "maestro-linux"
+name = "maestro"
 version = "0.1.0"
-description = "Maestro — Multi-session AI orchestrator for Linux"
+description = "Maestro — Multi-session AI orchestrator"
 authors = ["lliWcWill"]
 edition = "2021"
 
 [lib]
-name = "maestro_linux_lib"
+name = "maestro_lib"
 crate-type = ["lib"]
 
 [features]
