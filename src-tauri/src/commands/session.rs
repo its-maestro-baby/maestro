@@ -5,10 +5,10 @@ use tauri::State;
 
 use crate::core::mcp_config_writer;
 use crate::core::mcp_manager::McpManager;
-use crate::core::mcp_status_monitor::McpStatusMonitor;
 use crate::core::plugin_manager::PluginManager;
 use crate::core::process_manager::ProcessManager;
 use crate::core::session_manager::{AiMode, SessionConfig, SessionManager, SessionStatus};
+use crate::core::status_server::StatusServer;
 
 /// Exposes `SessionManager::all_sessions` to the frontend.
 /// Returns a snapshot of all active sessions in arbitrary order.
@@ -18,7 +18,7 @@ pub async fn get_sessions(state: State<'_, SessionManager>) -> Result<Vec<Sessio
 }
 
 /// Exposes `SessionManager::create_session` to the frontend.
-/// Registers a new session with `Starting` status. Returns an error if the
+/// Registers a new session with `Idle` status. Returns an error if the
 /// session ID already exists.
 #[tauri::command]
 pub async fn create_session(
@@ -94,7 +94,7 @@ pub async fn remove_sessions_for_project(
     state: State<'_, SessionManager>,
     process_manager: State<'_, ProcessManager>,
     mcp_manager: State<'_, McpManager>,
-    mcp_monitor: State<'_, Arc<McpStatusMonitor>>,
+    status_server: State<'_, Arc<StatusServer>>,
     plugin_manager: State<'_, PluginManager>,
     project_path: String,
 ) -> Result<Vec<SessionConfig>, String> {
@@ -110,6 +110,9 @@ pub async fn remove_sessions_for_project(
         // Clean up in-memory MCP and plugin state
         mcp_manager.remove_session(&canonical, session.id);
         plugin_manager.remove_session(&canonical, session.id);
+
+        // Unregister session from status server
+        status_server.unregister_session(session.id).await;
 
         // Clean up .mcp.json entry (use worktree_path if set, otherwise project_path)
         let working_dir = session
@@ -132,15 +135,11 @@ pub async fn remove_sessions_for_project(
         }
     }
 
-    // If sessions were removed, stop monitoring this project
-    // (no more sessions exist for it)
-    if !removed.is_empty() {
-        mcp_monitor.remove_project(&canonical).await;
-        log::debug!(
-            "Removed project {} from MCP monitor (no more sessions)",
-            canonical
-        );
-    }
+    log::debug!(
+        "Removed {} sessions for project {}",
+        removed.len(),
+        canonical
+    );
 
     Ok(removed)
 }

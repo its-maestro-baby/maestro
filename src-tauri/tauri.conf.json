@@ -36,10 +36,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "../maestro-mcp-server/target/release/maestro-mcp-server": "./"
+    },
     "linux": {
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
     }
   }
 }

@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 
-export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "done" | "error";
+export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "done" | "error" | "timeout";
 
 export type AIProvider = "claude" | "gemini" | "codex" | "plain";
 
@@ -36,6 +36,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
   "needs-input": "text-maestro-yellow",
   done: "text-maestro-green",
   error: "text-maestro-red",
+  timeout: "text-maestro-red",
 };
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
@@ -45,6 +46,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   "needs-input": "Needs Input",
   done: "Done",
   error: "Error",
+  timeout: "Startup Timeout",
 };
 
 const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit; label: string }> = {

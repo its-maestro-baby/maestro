@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::core::mcp_status_monitor::McpStatusMonitor;
 use crate::core::session_manager::SessionManager;
+use crate::core::status_server::StatusServer;
 use crate::core::{BackendCapabilities, BackendType, ProcessManager, PtyError, SessionProcessTree};
 
 /// Backend information returned to the frontend.
@@ -139,28 +139,27 @@ pub async fn resize_pty(
 
 /// Exposes `ProcessManager::kill_session` to the frontend.
 /// Gracefully terminates the PTY session (SIGTERM, then SIGKILL after 3s).
-/// Also cleans up the session's MCP status file to prevent stale status pollution.
+/// Also unregisters the session from the status server.
 #[tauri::command]
 pub async fn kill_session(
     state: State<'_, ProcessManager>,
     session_mgr: State<'_, SessionManager>,
-    mcp_monitor: State<'_, Arc<McpStatusMonitor>>,
+    status_server: State<'_, Arc<StatusServer>>,
     session_id: u32,
 ) -> Result<(), PtyError> {
-    // Get the project_path before killing the session (so we can clean up the status file)
-    let project_path = session_mgr.all_sessions()
-        .into_iter()
-        .find(|s| s.id == session_id)
-        .map(|s| s.project_path);
-
     // Kill the PTY session
     let pm = state.inner().clone();
     let result = pm.kill_session(session_id).await;
 
-    // Clean up the status file to prevent stale status pollution on next session launch
-    if let Some(project_path) = project_path {
-        mcp_monitor.remove_session_status(&project_path, session_id).await;
-    }
+    // Unregister the session from the status server so it stops accepting updates
+    status_server.unregister_session(session_id).await;
+
+    // Log for debugging
+    let _project_path = session_mgr
+        .all_sessions()
+        .into_iter()
+        .find(|s| s.id == session_id)
+        .map(|s| s.project_path);
 
     result
 }
@@ -215,6 +214,16 @@ pub async fn kill_process(
     crate::core::process_tree::kill_process(pid, &session_root_pids)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Kills all active PTY sessions.
+///
+/// Used to clean up orphaned sessions when the frontend reloads.
+/// Returns the number of sessions that were killed.
+#[tauri::command]
+pub async fn kill_all_sessions(state: State<'_, ProcessManager>) -> Result<u32, PtyError> {
+    let pm = state.inner().clone();
+    pm.kill_all_sessions().await
 }
 
 /// Checks if a command is available in the user's PATH.

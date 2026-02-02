@@ -68,14 +68,14 @@ impl SessionManager {
         }
     }
 
-    /// Inserts a new session with `Starting` status and no branch assigned.
+    /// Inserts a new session with `Idle` status and no branch assigned.
     /// Returns `Err` with the existing config if a session with this ID already exists.
     pub fn create_session(&self, id: u32, mode: AiMode, project_path: String) -> Result<SessionConfig, SessionConfig> {
         let config = SessionConfig {
             id,
             mode,
             branch: None,
-            status: SessionStatus::Starting,
+            status: SessionStatus::Idle,
             worktree_path: None,
             project_path,
         };

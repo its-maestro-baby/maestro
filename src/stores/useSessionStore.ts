@@ -8,6 +8,7 @@ export type AiMode = "Claude" | "Gemini" | "Codex" | "Plain";
 /**
  * Backend-emitted session lifecycle states.
  * Must stay in sync with the Rust `SessionStatus` enum.
+ * "Timeout" is a frontend-only status for sessions stuck in Starting state.
  */
 export type BackendSessionStatus =
   | "Starting"
@@ -15,7 +16,11 @@ export type BackendSessionStatus =
   | "Working"
   | "NeedsInput"
   | "Done"
-  | "Error";
+  | "Error"
+  | "Timeout";
+
+/** Timeout in milliseconds for sessions stuck in Starting state (Bug #74) */
+const SESSION_STARTUP_TIMEOUT_MS = 30000;
 
 /**
  * Mirrors the Rust `SessionConfig` struct returned by `get_sessions`.
@@ -83,9 +88,28 @@ let activeUnlisten: UnlistenFn | null = null;
  */
 const pendingStatusUpdates: Map<string, SessionStatusPayload> = new Map();
 
+/**
+ * Tracks startup timeout timers for sessions (Bug #74).
+ * Key is session ID, value is the timeout handle.
+ * When a session transitions out of "Starting" state, its timer is cleared.
+ */
+const startupTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map();
+
 /** Generate a unique key for buffering status updates */
 function statusBufferKey(sessionId: number, projectPath: string): string {
   return `${sessionId}:${projectPath}`;
+}
+
+/**
+ * Clears the startup timeout for a session.
+ * Called when session transitions out of "Starting" state.
+ */
+function clearStartupTimeout(sessionId: number): void {
+  const timer = startupTimeouts.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    startupTimeouts.delete(sessionId);
+  }
 }
 
 export const useSessionStore = create<SessionState>()((set, get) => ({
@@ -118,6 +142,15 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   addSession: (session: SessionConfig) => {
+    // Clear any stale buffered status for this session ID across ALL projects
+    // This prevents pollution from old sessions with the same ID
+    for (const key of pendingStatusUpdates.keys()) {
+      if (key.startsWith(`${session.id}:`)) {
+        console.log(`[SessionStore] Clearing stale buffered status for key: '${key}'`);
+        pendingStatusUpdates.delete(key);
+      }
+    }
+
     // Check if we have a buffered status update for this session
     const bufferKey = statusBufferKey(session.id, session.project_path);
     const bufferedStatus = pendingStatusUpdates.get(bufferKey);
@@ -140,6 +173,36 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       };
     }
 
+    // Start a timeout timer for sessions in "Starting" state (Bug #74)
+    // If no status update is received within the timeout, mark as "Timeout"
+    if (session.status === "Starting") {
+      // Clear any existing timeout for this session (shouldn't happen, but be safe)
+      clearStartupTimeout(session.id);
+
+      const timeoutTimer = setTimeout(() => {
+        startupTimeouts.delete(session.id);
+        // Check if session is still in Starting state
+        const currentState = get();
+        const currentSession = currentState.sessions.find((s) => s.id === session.id);
+        if (currentSession && currentSession.status === "Starting") {
+          console.warn(`[SessionStore] Session ${session.id} startup timeout after ${SESSION_STARTUP_TIMEOUT_MS}ms`);
+          set((state) => ({
+            sessions: state.sessions.map((s) =>
+              s.id === session.id
+                ? {
+                    ...s,
+                    status: "Timeout" as BackendSessionStatus,
+                    statusMessage: "CLI failed to start - check terminal for errors",
+                  }
+                : s
+            ),
+          }));
+        }
+      }, SESSION_STARTUP_TIMEOUT_MS);
+
+      startupTimeouts.set(session.id, timeoutTimer);
+    }
+
     set((state) => {
       // Don't add if session already exists
       if (state.sessions.some((s) => s.id === session.id)) {
@@ -150,6 +213,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   removeSession: (sessionId: number) => {
+    // Clear any startup timeout for this session
+    clearStartupTimeout(sessionId);
+
     // Clear any buffered status for this session to prevent pollution on restart
     const sessionsToRemove = get().sessions.filter((s) => s.id === sessionId);
     for (const session of sessionsToRemove) {
@@ -203,6 +269,11 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
               console.log(`[SessionStore] Buffering status for non-existent session. Key: '${bufferKey}'`);
               pendingStatusUpdates.set(bufferKey, event.payload);
               return;
+            }
+
+            // Clear startup timeout when session transitions out of Starting state (Bug #74)
+            if (status !== "Starting") {
+              clearStartupTimeout(session_id);
             }
 
             set((state) => ({

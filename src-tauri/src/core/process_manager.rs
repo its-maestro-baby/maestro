@@ -98,6 +98,10 @@ struct PtySession {
 struct Inner {
     sessions: DashMap<u32, PtySession>,
     next_id: AtomicU32,
+    /// Tracks last spawn time on Windows to prevent rapid consecutive spawns
+    /// that may cause terminal spawning loops (Bug #76).
+    #[cfg(windows)]
+    last_spawn_time: Mutex<std::time::Instant>,
 }
 
 /// Owns and manages all PTY sessions for the application lifetime.
@@ -124,6 +128,8 @@ impl ProcessManager {
             inner: Arc::new(Inner {
                 sessions: DashMap::new(),
                 next_id: AtomicU32::new(1),
+                #[cfg(windows)]
+                last_spawn_time: Mutex::new(std::time::Instant::now()),
             }),
         }
     }
@@ -141,12 +147,37 @@ impl ProcessManager {
     /// # Environment Variables
     /// - `MAESTRO_SESSION_ID` is automatically set to the session ID
     /// - Additional env vars can be passed via the `env` parameter (e.g., `MAESTRO_PROJECT_HASH`)
+    ///
+    /// # Windows Debouncing
+    /// On Windows, rapid consecutive spawn calls (within 500ms) are rejected to prevent
+    /// terminal spawning loops (Bug #76).
     pub fn spawn_shell(
         &self,
         app_handle: AppHandle,
         cwd: Option<String>,
         env: Option<HashMap<String, String>>,
     ) -> Result<u32, PtyError> {
+        // Windows spawn debounce: prevent rapid consecutive spawns (Bug #76)
+        #[cfg(windows)]
+        {
+            let mut last = self
+                .inner
+                .last_spawn_time
+                .lock()
+                .map_err(|e| PtyError::spawn_failed(format!("Spawn time lock poisoned: {e}")))?;
+            let elapsed = last.elapsed();
+            if elapsed < std::time::Duration::from_millis(500) {
+                log::warn!(
+                    "Windows spawn debounce: rejecting spawn attempt {}ms after previous spawn",
+                    elapsed.as_millis()
+                );
+                return Err(PtyError::spawn_failed(
+                    "Too rapid spawn attempts - please wait before spawning another session",
+                ));
+            }
+            *last = std::time::Instant::now();
+        }
+
         let id = self
             .inner
             .next_id
@@ -486,5 +517,29 @@ impl ProcessManager {
             .iter()
             .map(|entry| (*entry.key(), entry.value().child_pid))
             .collect()
+    }
+
+    /// Kills all active PTY sessions.
+    ///
+    /// This is used to clean up orphaned sessions when the frontend reloads.
+    /// Returns the number of sessions that were killed.
+    pub async fn kill_all_sessions(&self) -> Result<u32, PtyError> {
+        let session_ids: Vec<u32> = self
+            .inner
+            .sessions
+            .iter()
+            .map(|entry| *entry.key())
+            .collect();
+
+        let count = session_ids.len() as u32;
+        log::info!("Killing all {} PTY sessions", count);
+
+        for id in session_ids {
+            if let Err(e) = self.kill_session(id).await {
+                log::warn!("Failed to kill session {}: {}", id, e);
+            }
+        }
+
+        Ok(count)
     }
 }

@@ -41,6 +41,38 @@ const EMPTY_PLUGINS: PluginConfig[] = [];
 const MAX_SESSIONS = 6;
 
 /**
+ * Launch mutex to serialize session launches within the same project.
+ * This prevents race conditions where multiple sessions share the same .mcp.json file.
+ * Without worktrees, sessions can overwrite each other's MCP config before Claude CLI reads it.
+ */
+const projectLaunchLocks = new Map<string, Promise<void>>();
+
+async function withProjectLock<T>(projectPath: string, fn: () => Promise<T>): Promise<T> {
+  // Wait for any pending launches to complete.
+  // Use a while loop because multiple waiters may wake up when a lock resolves.
+  // After waking, we must re-check if another waiter grabbed the lock first.
+  while (projectLaunchLocks.has(projectPath)) {
+    await projectLaunchLocks.get(projectPath);
+  }
+
+  // Now we're guaranteed to be the only one proceeding
+  let resolve: () => void;
+  const newLock = new Promise<void>((r) => {
+    resolve = r;
+  });
+  projectLaunchLocks.set(projectPath, newLock);
+
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+    if (projectLaunchLocks.get(projectPath) === newLock) {
+      projectLaunchLocks.delete(projectPath);
+    }
+  }
+}
+
+/**
  * Returns Tailwind grid-cols/grid-rows classes that produce a compact layout
  * for the given session count (1x1, 2x1, 3x1, 2x2, 3x2, etc.).
  */
@@ -352,10 +384,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   }, [slots, debouncedSaveBranchConfig]);
 
   /**
-   * Launches a single slot by spawning a shell with the configured settings.
-   * If a branch is selected, prepares a worktree for that branch first.
+   * Inner implementation of launchSlot, called within the project lock.
+   * Spawns a shell with the configured settings. If a branch is selected,
+   * prepares a worktree for that branch first.
    */
-  const launchSlot = useCallback(async (slotId: string) => {
+  const launchSlotInner = useCallback(async (slotId: string) => {
     const slot = slotsRef.current.find((s) => s.id === slotId);
     if (!slot || slot.sessionId !== null) return;
 
@@ -424,7 +457,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         await setSessionPlugins(projectPath, sessionId, slot.enabledPlugins);
       }
 
-// Auto-launch AI CLI after shell initializes
+      // Auto-launch AI CLI after shell initializes
       // IMPORTANT: For Claude mode, we must write MCP config and launch CLI atomically
       // to prevent race conditions when multiple sessions launch without worktrees.
       // Without worktrees, all sessions share the same .mcp.json file, so we must:
@@ -463,9 +496,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             // Send CLI launch command IMMEDIATELY after writing config
             await writeStdin(sessionId, `${cliConfig.command}\r`);
 
-            // Wait for CLI to read .mcp.json before returning
-            // This prevents the next session from overwriting .mcp.json too soon
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            // Brief delay for CLI initialization.
+            // With session-specific MCP server names (maestro-1, maestro-2, etc.),
+            // we no longer have race conditions on .mcp.json, so we only need
+            // a minimal delay for general CLI startup.
+            await new Promise((resolve) => setTimeout(resolve, 500));
           } else {
             console.warn(
               `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
@@ -494,7 +529,25 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   }, [projectPath, tabId, addSessionToProject]);
 
   /**
+   * Launches a single slot by spawning a shell with the configured settings.
+   *
+   * NOTE: Uses withProjectLock to serialize launches within the same project.
+   * This prevents race conditions where multiple sessions share the same .mcp.json file.
+   */
+  const launchSlot = useCallback(async (slotId: string) => {
+    const slot = slotsRef.current.find((s) => s.id === slotId);
+    if (!slot || slot.sessionId !== null) return;
+
+    // Serialize launches within the same project to prevent .mcp.json race conditions
+    const lockPath = projectPath ?? "no-project";
+    await withProjectLock(lockPath, async () => {
+      await launchSlotInner(slotId);
+    });
+  }, [projectPath, launchSlotInner]);
+
+  /**
    * Launches all unlaunched slots sequentially.
+   * Note: launchSlot already uses withProjectLock, so launches are serialized.
    */
   const launchAll = useCallback(async () => {
     const unlaunchedSlots = slotsRef.current.filter((s) => s.sessionId === null);
