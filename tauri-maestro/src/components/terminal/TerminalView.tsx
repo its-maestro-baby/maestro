@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import { getBackendInfo, killSession, onPtyOutput, resizePty, writeStdin, type BackendInfo } from "@/lib/terminal";
-import { DEFAULT_THEME, toXtermTheme } from "@/lib/terminalTheme";
+import { DEFAULT_THEME, LIGHT_THEME, toXtermTheme } from "@/lib/terminalTheme";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { QuickActionPills } from "./QuickActionPills";
@@ -109,12 +109,40 @@ export function TerminalView({ sessionId, status = "idle", onKill }: TerminalVie
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_backendInfo, setBackendInfo] = useState<BackendInfo | null>(null);
 
+  // Track app theme (dark/light) for terminal theming
+  const [appTheme, setAppTheme] = useState<"dark" | "light">(() => {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  });
+
   // Fetch backend info on mount (cached after first call)
   useEffect(() => {
     getBackendInfo()
       .then(setBackendInfo)
       .catch((err) => console.warn("Failed to get backend info:", err));
   }, []);
+
+  // Watch for theme changes via MutationObserver
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.attributeName === "data-theme") {
+          const newTheme = document.documentElement.getAttribute("data-theme");
+          setAppTheme(newTheme === "light" ? "light" : "dark");
+        }
+      }
+    });
+
+    observer.observe(document.documentElement, { attributes: true });
+    return () => observer.disconnect();
+  }, []);
+
+  // Update terminal theme when appTheme changes
+  useEffect(() => {
+    if (termRef.current) {
+      const theme = appTheme === "light" ? LIGHT_THEME : DEFAULT_THEME;
+      termRef.current.options.theme = toXtermTheme(theme);
+    }
+  }, [appTheme]);
 
   /**
    * Immediately removes the terminal from UI (optimistic update),
@@ -136,11 +164,15 @@ export function TerminalView({ sessionId, status = "idle", onKill }: TerminalVie
     const container = containerRef.current;
     if (!container) return;
 
+    const initialTheme = document.documentElement.getAttribute("data-theme") === "light" ? LIGHT_THEME : DEFAULT_THEME;
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      theme: toXtermTheme(DEFAULT_THEME),
+      fontFamily: "'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CaskaydiaCove Nerd Font', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      theme: toXtermTheme(initialTheme),
+      allowProposedApi: true,
+      scrollback: 10000,
+      tabStopWidth: 8,
     });
 
     const fitAddon = new FitAddon();
@@ -217,7 +249,7 @@ export function TerminalView({ sessionId, status = "idle", onKill }: TerminalVie
 
   return (
     <div
-      className={`content-dark terminal-cell flex h-full flex-col bg-maestro-bg ${cellStatusClass(effectiveStatus)}`}
+      className={`terminal-cell flex h-full flex-col bg-maestro-bg ${cellStatusClass(effectiveStatus)}`}
     >
       {/* Rich header bar */}
       <TerminalHeader

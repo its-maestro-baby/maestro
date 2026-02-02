@@ -13,6 +13,68 @@ use libc;
 
 use super::error::PtyError;
 
+/// Stateful UTF-8 decoder that handles split multi-byte sequences.
+///
+/// When reading from a PTY in 4096-byte chunks, a multi-byte UTF-8 character
+/// (e.g., emoji, Nerd Font icon, CJK character) can be split across chunk
+/// boundaries. Using `String::from_utf8_lossy` replaces incomplete sequences
+/// with U+FFFD (�), causing garbled output.
+///
+/// This decoder buffers incomplete trailing sequences and prepends them to
+/// the next chunk, ensuring correct UTF-8 decoding across read boundaries.
+pub(crate) struct Utf8Decoder {
+    /// Buffer for incomplete UTF-8 sequence (max 4 bytes for any code point).
+    incomplete: Vec<u8>,
+}
+
+impl Utf8Decoder {
+    /// Creates a new decoder with an empty buffer.
+    pub fn new() -> Self {
+        Self {
+            incomplete: Vec::with_capacity(4),
+        }
+    }
+
+    /// Decodes bytes, buffering incomplete trailing sequences.
+    ///
+    /// Returns a valid UTF-8 string. Any bytes that form an incomplete
+    /// sequence at the end of `input` are buffered for the next call.
+    pub fn decode(&mut self, input: &[u8]) -> String {
+        // Prepend any previously incomplete bytes
+        let mut data = std::mem::take(&mut self.incomplete);
+        data.extend_from_slice(input);
+
+        // Find the last valid UTF-8 boundary
+        let valid_up_to = Self::find_valid_boundary(&data);
+
+        // Buffer any trailing incomplete sequence
+        if valid_up_to < data.len() {
+            self.incomplete = data[valid_up_to..].to_vec();
+        }
+
+        // Convert valid portion (guaranteed valid UTF-8)
+        String::from_utf8(data[..valid_up_to].to_vec())
+            .unwrap_or_else(|_| String::from_utf8_lossy(&data[..valid_up_to]).into_owned())
+    }
+
+    /// Finds the byte index up to which the data is valid UTF-8.
+    fn find_valid_boundary(data: &[u8]) -> usize {
+        match std::str::from_utf8(data) {
+            Ok(_) => data.len(),
+            Err(e) => {
+                let valid = e.valid_up_to();
+                // Check if error is due to incomplete sequence at end
+                if e.error_len().is_none() {
+                    valid // Incomplete sequence - buffer it
+                } else {
+                    // Invalid byte - skip it and continue
+                    valid + e.error_len().unwrap_or(1)
+                }
+            }
+        }
+    }
+}
+
 /// A single PTY session with its associated resources.
 struct PtySession {
     /// Writer half of the PTY master — used for stdin.
@@ -188,14 +250,16 @@ impl ProcessManager {
         let event_name = format!("pty-output-{id}");
         let app = app_handle.clone();
         tokio::spawn(async move {
+            let mut decoder = Utf8Decoder::new();
             loop {
                 tokio::select! {
                     data = rx.recv() => {
                         match data {
                             Some(bytes) => {
-                                // TODO(phase-2): stateful UTF-8 decoder for split multi-byte sequences
-                                let text = String::from_utf8_lossy(&bytes).into_owned();
-                                let _ = app.emit(&event_name, text);
+                                let text = decoder.decode(&bytes);
+                                if !text.is_empty() {
+                                    let _ = app.emit(&event_name, text);
+                                }
                             }
                             None => break, // Channel closed
                         }

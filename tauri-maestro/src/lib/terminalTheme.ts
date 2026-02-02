@@ -79,6 +79,38 @@ export const DEFAULT_THEME: TerminalTheme = {
 };
 
 /**
+ * Light terminal theme (GitHub Light inspired).
+ */
+export const LIGHT_THEME: TerminalTheme = {
+  background: "#ffffff",
+  foreground: "#24292f",
+  cursor: "#0969da",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#0969da33",
+  selectionForeground: undefined,
+
+  // Standard colors (GitHub Light palette)
+  black: "#24292f",
+  red: "#cf222e",
+  green: "#116329",
+  yellow: "#9a6700",
+  blue: "#0969da",
+  magenta: "#8250df",
+  cyan: "#1b7c83",
+  white: "#6e7781",
+
+  // Bright colors
+  brightBlack: "#57606a",
+  brightRed: "#a40e26",
+  brightGreen: "#1a7f37",
+  brightYellow: "#7d4e00",
+  brightBlue: "#218bff",
+  brightMagenta: "#a475f9",
+  brightCyan: "#3192aa",
+  brightWhite: "#8c959f",
+};
+
+/**
  * Converts a TerminalTheme to xterm.js ITheme format.
  */
 export function toXtermTheme(theme: TerminalTheme): ITheme {
