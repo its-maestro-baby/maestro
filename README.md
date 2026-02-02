@@ -24,6 +24,7 @@ A cross-platform desktop application that lets you run 1-12 Claude Code (or othe
 
 - [Why Maestro?](#why-maestro)
 - [Features](#features)
+- [Advanced Features](#advanced-features)
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -68,12 +69,17 @@ A cross-platform desktop application that lets you run 1-12 Claude Code (or othe
 - Each session works on its own branch without conflicts
 - Worktrees are pruned on session close
 - Visual branch assignment in the sidebar
+- **Git Settings Modal**: Configure user identity (name/email), manage remotes with connectivity testing, set default branch
+- Live remote status indicators (connected/disconnected/checking)
 
 ### MCP Server Integration
 - Built-in MCP server for agent status reporting
 - AI sessions report their state (idle, working, needs input, finished, error)
 - Real-time status updates displayed in the session grid
 - Uses the `maestro_status` tool for state communication
+- Custom MCP server editor modal (add/edit/delete servers)
+- Global user-level custom server configuration
+- Support for multiple marketplace sources
 
 ### Visual Git Graph
 - GitKraken-style commit visualization
@@ -87,22 +93,75 @@ A cross-platform desktop application that lets you run 1-12 Claude Code (or othe
 - Persist across app restarts
 
 ### Quick Actions
-- Custom action buttons per session
-- "Run App", "Commit & Push", and custom prompts
-- Execute commands via AI assistant
+- Customizable quick action buttons per session
+- Create and manage custom action prompts
+- Built-in actions: "Run App", "Commit & Push"
+- Actions persist across app restarts
+- Quick Actions Manager for bulk editing
+
+### Keyboard Shortcuts
+- **Cmd/Ctrl + 1-9, 0**: Jump to specific terminal (0 = terminal 10)
+- **Cmd/Ctrl + [ / ]**: Cycle through terminals
+- **Shift + Enter**: Insert literal newline without submitting
+- Visual focus ring indicator shows currently selected terminal
 
 ### Multi-AI Support
 - **Claude Code** - Anthropic's Claude in the terminal
 - **Gemini CLI** - Google's Gemini AI
 - **OpenAI Codex** - OpenAI's coding assistant
 - **Plain Terminal** - Standard shell without AI
+- **Auto-Launch**: Automatically detects and launches your configured AI CLI after shell initialization
+
+### Themes
+- Light and dark mode support
+- Theme preference persisted across sessions
+- Consistent theming across all UI components
+
+### Multi-Project Support
+- Open multiple projects simultaneously in tabs
+- Project-aware session management
+- Sessions preserved when switching between projects
+- Quick project switching via header tabs
+
+### CLAUDE.md Editor
+- In-app editor for viewing and editing project-level CLAUDE.md files
+- Accessible from the sidebar
+- Create new CLAUDE.md if none exists in project
+- Syntax highlighting for markdown content
+
+### Process Management
+- Hierarchical process tree visualization in sidebar
+- View all child processes spawned by sessions
+- Kill individual processes with one click
+- Cross-platform process introspection (macOS, Windows, Linux)
+- Graceful SIGTERM with SIGKILL escalation
+
+### Per-Branch Configuration
+- Plugin, skill, and MCP server selections persist per-branch
+- Auto-saves configuration after changes
+- Automatically loads when selecting a branch
+- Each branch remembers its own tool configuration
 
 ### Plugin Marketplace
 - Browse and install plugins from marketplace sources
+- **Official Claude Code Marketplace** as default source
 - Plugin types: Skills, Commands, and MCP servers
 - Per-session plugin configuration
 - Automatic symlink management for commands and skills
+- Auto-discovery of skills and plugins from multiple directories
+- Source badges showing origin (Project/Personal/Plugin)
+- Delete plugins and skills directly from sidebar
+- Auto-registration in `.claude/settings.local.json`
 - Extend Maestro's capabilities with community plugins
+
+---
+
+## Advanced Features
+
+### Terminal Rendering
+- Advanced UTF-8 handling for multi-byte sequences
+- Proper emoji, Nerd Font, and CJK character rendering
+- Pluggable terminal backend architecture
 
 ---
 
@@ -149,6 +208,7 @@ A cross-platform desktop application that lets you run 1-12 Claude Code (or othe
 | Terminal Emulator | xterm.js |
 | MCP Server | Node.js |
 | Git Operations | Native git CLI |
+| Process Management | sysinfo crate (Rust) |
 
 ---
 
