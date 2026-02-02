@@ -125,6 +125,7 @@ export function PreLaunchCard({
   const [expandedPlugins, setExpandedPlugins] = useState<Set<string>>(new Set());
   const [mcpSearchQuery, setMcpSearchQuery] = useState("");
   const [pluginsSearchQuery, setPluginsSearchQuery] = useState("");
+  const [branchSearchQuery, setBranchSearchQuery] = useState("");
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const mcpDropdownRef = useRef<HTMLDivElement>(null);
@@ -317,92 +318,132 @@ export function PreLaunchCard({
               </button>
 
               {branchDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded border border-maestro-border bg-maestro-card shadow-lg">
-                  {/* Current branch option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onBranchChange(null);
-                      setBranchDropdownOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                      slot.branch === null
-                        ? "bg-maestro-accent/10 text-maestro-text"
-                        : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                    }`}
-                  >
-                    <GitBranch size={14} />
-                    <span>Use current branch</span>
-                  </button>
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded border border-maestro-border bg-maestro-card shadow-lg">
+                  {/* Search input */}
+                  <div className="border-b border-maestro-border p-2">
+                    <div className="relative">
+                      <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-maestro-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search branches..."
+                        value={branchSearchQuery}
+                        onChange={(e) => setBranchSearchQuery(e.target.value)}
+                        className="w-full rounded border border-maestro-border bg-maestro-surface py-1.5 pl-7 pr-2 text-xs text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+                  {/* Branch list */}
+                  <div className="max-h-48 overflow-y-auto">
+                    {/* Current branch option - only show if not searching or if it matches */}
+                    {(!branchSearchQuery || "use current branch".includes(branchSearchQuery.toLowerCase())) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onBranchChange(null);
+                          setBranchDropdownOpen(false);
+                          setBranchSearchQuery("");
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                          slot.branch === null
+                            ? "bg-maestro-accent/10 text-maestro-text"
+                            : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                        }`}
+                      >
+                        <GitBranch size={14} />
+                        <span>Use current branch</span>
+                      </button>
+                    )}
 
-                  {/* Local branches */}
-                  {localBranches.length > 0 && (
-                    <>
-                      <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                        Local
-                      </div>
-                      {localBranches.map((branch) => (
-                        <button
-                          key={branch.name}
-                          type="button"
-                          onClick={() => {
-                            onBranchChange(branch.name);
-                            setBranchDropdownOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                            slot.branch === branch.name
-                              ? "bg-maestro-accent/10 text-maestro-text"
-                              : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                          }`}
-                        >
-                          <GitBranch size={14} />
-                          <span className="truncate">{branch.name}</span>
-                          {branch.hasWorktree && (
-                            <span title="Worktree exists">
-                              <FolderGit2 size={12} className="shrink-0 text-maestro-orange" />
-                            </span>
-                          )}
-                          {branch.isCurrent && (
-                            <span className="shrink-0 rounded bg-maestro-green/20 px-1 text-[9px] text-maestro-green">
-                              current
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </>
-                  )}
+                    {/* Local branches */}
+                    {localBranches.filter((b) =>
+                      b.name.toLowerCase().includes(branchSearchQuery.toLowerCase())
+                    ).length > 0 && (
+                      <>
+                        <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                          Local
+                        </div>
+                        {localBranches
+                          .filter((b) => b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()))
+                          .map((branch) => (
+                            <button
+                              key={branch.name}
+                              type="button"
+                              onClick={() => {
+                                onBranchChange(branch.name);
+                                setBranchDropdownOpen(false);
+                                setBranchSearchQuery("");
+                              }}
+                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                slot.branch === branch.name
+                                  ? "bg-maestro-accent/10 text-maestro-text"
+                                  : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                              }`}
+                            >
+                              <GitBranch size={14} />
+                              <span className="truncate">{branch.name}</span>
+                              {branch.hasWorktree && (
+                                <span title="Worktree exists">
+                                  <FolderGit2 size={12} className="shrink-0 text-maestro-orange" />
+                                </span>
+                              )}
+                              {branch.isCurrent && (
+                                <span className="shrink-0 rounded bg-maestro-green/20 px-1 text-[9px] text-maestro-green">
+                                  current
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                      </>
+                    )}
 
-                  {/* Remote branches */}
-                  {remoteBranches.length > 0 && (
-                    <>
-                      <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                        Remote
-                      </div>
-                      {remoteBranches.map((branch) => (
-                        <button
-                          key={branch.name}
-                          type="button"
-                          onClick={() => {
-                            onBranchChange(branch.name);
-                            setBranchDropdownOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                            slot.branch === branch.name
-                              ? "bg-maestro-accent/10 text-maestro-text"
-                              : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                          }`}
-                        >
-                          <GitBranch size={14} className="text-maestro-muted/60" />
-                          <span className="truncate">{branch.name}</span>
-                          {branch.hasWorktree && (
-                            <span title="Worktree exists">
-                              <FolderGit2 size={12} className="shrink-0 text-maestro-orange" />
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </>
-                  )}
+                    {/* Remote branches */}
+                    {remoteBranches.filter((b) =>
+                      b.name.toLowerCase().includes(branchSearchQuery.toLowerCase())
+                    ).length > 0 && (
+                      <>
+                        <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                          Remote
+                        </div>
+                        {remoteBranches
+                          .filter((b) => b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()))
+                          .map((branch) => (
+                            <button
+                              key={branch.name}
+                              type="button"
+                              onClick={() => {
+                                onBranchChange(branch.name);
+                                setBranchDropdownOpen(false);
+                                setBranchSearchQuery("");
+                              }}
+                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                slot.branch === branch.name
+                                  ? "bg-maestro-accent/10 text-maestro-text"
+                                  : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                              }`}
+                            >
+                              <GitBranch size={14} className="text-maestro-muted/60" />
+                              <span className="truncate">{branch.name}</span>
+                              {branch.hasWorktree && (
+                                <span title="Worktree exists">
+                                  <FolderGit2 size={12} className="shrink-0 text-maestro-orange" />
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                      </>
+                    )}
+
+                    {/* No results message */}
+                    {branchSearchQuery &&
+                      localBranches.filter((b) => b.name.toLowerCase().includes(branchSearchQuery.toLowerCase())).length === 0 &&
+                      remoteBranches.filter((b) => b.name.toLowerCase().includes(branchSearchQuery.toLowerCase())).length === 0 &&
+                      !"use current branch".includes(branchSearchQuery.toLowerCase()) && (
+                        <div className="px-3 py-2 text-center text-xs text-maestro-muted">
+                          No branches match "{branchSearchQuery}"
+                        </div>
+                      )}
+                  </div>
                 </div>
               )}
             </>

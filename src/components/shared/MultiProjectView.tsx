@@ -1,10 +1,7 @@
 import { useRef, forwardRef, useImperativeHandle, useMemo } from "react";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { IdleLandingView } from "./IdleLandingView";
-import { SessionPodGrid } from "../terminal/SessionPodGrid";
 import { TerminalGrid, type TerminalGridHandle } from "../terminal/TerminalGrid";
-
-const DEFAULT_SESSION_COUNT = 6;
 
 interface MultiProjectViewProps {
   onSessionCountChange?: (tabId: string, slotCount: number, launchedCount: number) => void;
@@ -85,9 +82,15 @@ export const MultiProjectView = forwardRef<MultiProjectViewHandle, MultiProjectV
     return setters;
   }, [tabs]);
 
-  // No projects open - show placeholder grid
+  // No projects open - show simple message
   if (tabs.length === 0) {
-    return <SessionPodGrid sessionCount={DEFAULT_SESSION_COUNT} />;
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-maestro-muted">
+          Select a directory to launch Claude Code instances
+        </p>
+      </div>
+    );
   }
 
   return (
