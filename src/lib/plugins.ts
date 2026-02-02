@@ -259,3 +259,25 @@ export async function loadProjectPluginDefaults(
 ): Promise<string[] | null> {
   return invoke<string[] | null>("load_project_plugin_defaults", { projectPath });
 }
+
+/**
+ * Writes enabled plugins to the session's .claude/settings.local.json.
+ *
+ * This registers plugins with Claude CLI so it can discover all their
+ * components (skills, commands, agents, hooks, MCP servers).
+ */
+export async function writeSessionPluginConfig(
+  workingDir: string,
+  enabledPluginPaths: string[]
+): Promise<void> {
+  return invoke("write_session_plugin_config", { workingDir, enabledPluginPaths });
+}
+
+/**
+ * Removes the plugins array from the session's .claude/settings.local.json.
+ *
+ * This should be called when a session is killed to clean up.
+ */
+export async function removeSessionPluginConfig(workingDir: string): Promise<void> {
+  return invoke("remove_session_plugin_config", { workingDir });
+}

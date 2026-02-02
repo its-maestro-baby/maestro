@@ -1,3 +1,4 @@
+pub mod claudemd;
 pub mod git;
 pub mod marketplace;
 pub mod mcp;

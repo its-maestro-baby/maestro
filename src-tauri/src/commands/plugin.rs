@@ -1,9 +1,12 @@
 //! IPC commands for plugin/skill discovery and session configuration.
 
+use std::path::Path;
+
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreExt;
 
+use crate::core::plugin_config_writer;
 use crate::core::plugin_manager::{PluginManager, ProjectPlugins};
 
 /// Creates a stable hash of a project path for use in store filenames.
@@ -247,4 +250,25 @@ pub async fn load_project_plugin_defaults(
         });
 
     Ok(result)
+}
+
+/// Writes enabled plugins to the session's .claude/settings.local.json.
+///
+/// This registers plugins with Claude CLI so it can discover all their
+/// components (skills, commands, agents, hooks, MCP servers).
+#[tauri::command]
+pub async fn write_session_plugin_config(
+    working_dir: String,
+    enabled_plugin_paths: Vec<String>,
+) -> Result<(), String> {
+    plugin_config_writer::write_session_plugin_config(Path::new(&working_dir), &enabled_plugin_paths)
+        .await
+}
+
+/// Removes the plugins array from the session's .claude/settings.local.json.
+///
+/// This should be called when a session is killed to clean up.
+#[tauri::command]
+pub async fn remove_session_plugin_config(working_dir: String) -> Result<(), String> {
+    plugin_config_writer::remove_session_plugin_config(Path::new(&working_dir)).await
 }

@@ -3,8 +3,16 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { invoke } from "@tauri-apps/api/core";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
+import { getInstalledPlugins } from "@/lib/marketplace";
 import { removeSessionMcpConfig, setSessionMcpServers, writeSessionMcpConfig, type McpServerConfig } from "@/lib/mcp";
-import { setSessionSkills, setSessionPlugins, type PluginConfig, type SkillConfig } from "@/lib/plugins";
+import {
+  removeSessionPluginConfig,
+  setSessionPlugins,
+  setSessionSkills,
+  writeSessionPluginConfig,
+  type PluginConfig,
+  type SkillConfig,
+} from "@/lib/plugins";
 import {
   AI_CLI_CONFIG,
   assignSessionBranch,
@@ -338,19 +346,65 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         await setSessionPlugins(projectPath, sessionId, slot.enabledPlugins);
       }
 
-      // Write MCP config to working directory BEFORE launching Claude CLI
-      // This allows the CLI to discover MCP servers including the Maestro status server
-      if (workingDirectory && slot.mode === "Claude") {
-        try {
-          await writeSessionMcpConfig(
-            workingDirectory,
-            sessionId,
-            projectPath ?? workingDirectory,
-            slot.enabledMcpServers
-          );
-        } catch (err) {
-          console.error("Failed to write MCP config:", err);
-          // Non-fatal - continue with CLI launch, MCP servers just won't be available
+// Auto-launch AI CLI after shell initializes
+      // IMPORTANT: For Claude mode, we must write MCP config and launch CLI atomically
+      // to prevent race conditions when multiple sessions launch without worktrees.
+      // Without worktrees, all sessions share the same .mcp.json file, so we must:
+      // 1. Write .mcp.json for this session
+      // 2. Launch CLI immediately (before any other session can overwrite .mcp.json)
+      // 3. Wait for CLI to read the config
+      if (slot.mode !== "Plain") {
+        const cliConfig = AI_CLI_CONFIG[slot.mode];
+        if (cliConfig.command) {
+          const isAvailable = await checkCliAvailable(cliConfig.command);
+
+          if (isAvailable) {
+            // Write MCP config IMMEDIATELY before launching CLI
+            // This allows the CLI to discover MCP servers including the Maestro status server
+            if (workingDirectory && slot.mode === "Claude") {
+              try {
+                await writeSessionMcpConfig(
+                  workingDirectory,
+                  sessionId,
+                  projectPath ?? workingDirectory,
+                  slot.enabledMcpServers
+                );
+              } catch (err) {
+                console.error("Failed to write MCP config:", err);
+                // Non-fatal - continue with CLI launch, MCP servers just won't be available
+              }
+
+              // Write plugin config to .claude/settings.local.json
+              // This allows Claude CLI to discover installed plugins and their components
+              try {
+                const installedPlugins = await getInstalledPlugins();
+                const enabledPaths = installedPlugins
+                  .filter((p) => slot.enabledPlugins.includes(p.id))
+                  .map((p) => p.path);
+
+                if (enabledPaths.length > 0) {
+                  await writeSessionPluginConfig(workingDirectory, enabledPaths);
+                }
+              } catch (err) {
+                console.error("Failed to write plugin config:", err);
+                // Non-fatal - continue with CLI launch, plugins just won't be available
+              }
+            }
+
+            // Brief delay for shell to initialize (reduced from 500ms)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            // Send CLI launch command IMMEDIATELY after writing config
+            await writeStdin(sessionId, `${cliConfig.command}\r`);
+
+            // Wait for CLI to read .mcp.json before returning
+            // This prevents the next session from overwriting .mcp.json too soon
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          } else {
+            console.warn(
+              `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
+            );
+          }
         }
       }
 
@@ -366,27 +420,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       // Register session with the project
       if (tabId) {
         addSessionToProject(tabId, sessionId);
-      }
-
-      // Auto-launch AI CLI after xterm.js is mounted and ready.
-      // We wait for React to render TerminalView and for xterm.js to initialize.
-      if (slot.mode !== "Plain") {
-        const cliConfig = AI_CLI_CONFIG[slot.mode];
-        if (cliConfig.command) {
-          const isAvailable = await checkCliAvailable(cliConfig.command);
-
-          if (isAvailable) {
-            // Wait for React render cycle + xterm.js initialization.
-            // This ensures the terminal can respond to DSR queries.
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            // Send CLI launch command with carriage return
-            await writeStdin(sessionId, `${cliConfig.command}\r`);
-          } else {
-            console.warn(
-              `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
-            );
-          }
-        }
       }
     } catch (err) {
       console.error("Failed to spawn shell:", err);
@@ -427,6 +460,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     // Clean up session-specific MCP config (fire-and-forget)
     if (workingDir) {
       removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+    }
+
+    // Clean up session-specific plugin config (fire-and-forget)
+    if (workingDir) {
+      removeSessionPluginConfig(workingDir).catch(console.error);
     }
 
     // Clean up worktree if one was created (fire-and-forget)
