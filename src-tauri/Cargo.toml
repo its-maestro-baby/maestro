@@ -1,0 +1,52 @@
+[package]
+name = "maestro-linux"
+version = "0.1.0"
+description = "Maestro — Multi-session AI orchestrator for Linux"
+authors = ["lliWcWill"]
+edition = "2021"
+
+[lib]
+name = "maestro_linux_lib"
+crate-type = ["lib"]
+
+[features]
+default = ["auto-backend"]
+# Automatically select the best backend for the platform
+auto-backend = []
+# Use VTE parser for terminal state tracking (cross-platform)
+vte-backend = ["vte"]
+# Force xterm.js passthrough on all platforms
+xterm-only = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs"] }
+libc = "0.2"
+dashmap = "6"
+log = "0.4"
+thiserror = "2"
+sha2 = "0.10"
+hex = "0.4"
+directories = "5"
+sysinfo = "0.32"
+reqwest = { version = "0.12", features = ["json"] }
+# VT sequence parsing (used by Alacritty)
+vte = { version = "0.14", optional = true }
+
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[workspace]
