@@ -62,6 +62,7 @@ interface SessionState {
   error: string | null;
   fetchSessions: () => Promise<void>;
   fetchSessionsForProject: (projectPath: string) => Promise<void>;
+  addSession: (session: SessionConfig) => void;
   removeSession: (sessionId: number) => void;
   removeSessionsForProject: (projectPath: string) => Promise<SessionConfig[]>;
   getSessionsByProject: (projectPath: string) => SessionConfig[];
@@ -103,6 +104,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       console.error("Failed to fetch sessions for project:", err);
       set({ error: String(err), isLoading: false });
     }
+  },
+
+  addSession: (session: SessionConfig) => {
+    set((state) => {
+      // Don't add if session already exists
+      if (state.sessions.some((s) => s.id === session.id)) {
+        return state;
+      }
+      return { sessions: [...state.sessions, session] };
+    });
   },
 
   removeSession: (sessionId: number) => {

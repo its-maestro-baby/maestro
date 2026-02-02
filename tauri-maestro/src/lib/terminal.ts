@@ -61,13 +61,23 @@ export async function checkCliAvailable(command: string): Promise<boolean> {
   return invoke<boolean>("check_cli_available", { command });
 }
 
+/** Session config returned by createSession. */
+export interface SessionConfig {
+  id: number;
+  mode: AiMode;
+  branch: string | null;
+  status: string;
+  worktree_path: string | null;
+  project_path: string;
+}
+
 /** Creates a session in the SessionManager (separate from PTY spawning). */
 export async function createSession(
   id: number,
   mode: AiMode,
   projectPath: string
-): Promise<void> {
-  return invoke("create_session", { id, mode, projectPath });
+): Promise<SessionConfig> {
+  return invoke<SessionConfig>("create_session", { id, mode, projectPath });
 }
 
 /** Assigns a branch and optional worktree path to a session. */

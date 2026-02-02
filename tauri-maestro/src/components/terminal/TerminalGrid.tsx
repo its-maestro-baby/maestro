@@ -302,9 +302,14 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
       // Register the session in SessionManager (required before assigning branch)
       if (projectPath) {
-        await createSession(sessionId, slot.mode, projectPath);
+        const sessionConfig = await createSession(sessionId, slot.mode, projectPath);
         // Add project to MCP status monitor for polling status updates
         await invoke("add_mcp_project", { projectPath });
+        // Add session to store directly (don't refetch all sessions to avoid status reset)
+        useSessionStore.getState().addSession({
+          ...sessionConfig,
+          status: sessionConfig.status as import("@/stores/useSessionStore").BackendSessionStatus,
+        });
       }
 
       // Assign the branch to the session so the header displays it
@@ -322,9 +327,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         await setSessionSkills(projectPath, sessionId, slot.enabledSkills);
         await setSessionPlugins(projectPath, sessionId, slot.enabledPlugins);
       }
-
-      // Refresh sessions in store so TerminalView can read the updated config
-      await useSessionStore.getState().fetchSessions();
 
       // Write MCP config to working directory BEFORE launching Claude CLI
       // This allows the CLI to discover MCP servers including the Maestro status server
