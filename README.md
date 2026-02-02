@@ -5,34 +5,37 @@
 
 **Orchestrate multiple AI coding assistants in parallel**
 
-A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) sessions simultaneously, each in its own isolated git worktree.
+A cross-platform desktop application that lets you run 1-12 Claude Code (or other AI CLI) sessions simultaneously, each in its own isolated git worktree.
 
 ![macOS](https://img.shields.io/badge/macOS-13%2B-blue)
-![Swift](https://img.shields.io/badge/Swift-6.0-orange)
+![Windows](https://img.shields.io/badge/Windows-10%2B-blue)
+![Linux](https://img.shields.io/badge/Linux-supported-blue)
+![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![X (Twitter)](https://img.shields.io/badge/X-@maestro5240871-000000?style=flat&logo=x&logoColor=white)](https://x.com/maestro5240871)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/3tQyFUYPVP)
 
-⭐ **Star us on GitHub — your support motivates us a lot!** 🙏😊
+**Star us on GitHub — your support motivates us a lot!**
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
-- [🎯 Why Maestro?](#-why-maestro)
-- [✨ Features](#-features)
-- [🏗️ Architecture](#️-architecture)
-- [📦 Installation](#-installation)
-- [🚀 Usage](#-usage)
-- [⚙️ Configuration](#️-configuration)
-- [🔧 Troubleshooting](#-troubleshooting)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [🙏 Acknowledgments](#-acknowledgments)
+- [Why Maestro?](#why-maestro)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ---
 
-## 🎯 Why Maestro?
+## Why Maestro?
 
 **The Problem:** AI coding assistants work on one task at a time. While Claude works on Feature A, you wait. Then you start Feature B. Then you wait again. Context switching is expensive, and your development velocity is bottlenecked by serial execution.
 
@@ -49,10 +52,11 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
 | **Parallel Development** | Launch 1-12 AI sessions simultaneously. Work on feature branches, bug fixes, and refactoring all at once. |
 | **True Isolation** | Each session operates in its own git worktree. No merge conflicts, no stepping on each other's changes. |
 | **AI-Native Workflow** | Built specifically for Claude Code, Gemini CLI, OpenAI Codex, and other AI coding assistants. |
+| **Cross-Platform** | Runs on macOS, Windows, and Linux with native performance. |
 
 ---
 
-## ✨ Features
+## Features
 
 ### Multi-Terminal Session Grid
 - Dynamic grid layout (1x1 to 3x4) that adapts to your session count
@@ -102,11 +106,11 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Claude Maestro (Swift/SwiftUI)               │
+│                    Claude Maestro (Tauri)                       │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │  Session 1   │  │  Session 2   │  │  Session 3   │   ...    │
@@ -115,15 +119,18 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
 │         │                 │                 │                   │
 │  ┌──────▼─────────────────▼─────────────────▼───────┐          │
-│  │              WorktreeManager                      │          │
+│  │              ProcessManager (Rust)               │          │
 │  │     ~/.claude-maestro/worktrees/{repo}/{branch}  │          │
 │  └──────────────────────────────────────────────────┘          │
+│                                                                 │
+│  Frontend: React + TypeScript + Tailwind CSS                    │
+│  Backend: Rust + Tauri                                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               │ MCP Protocol (stdio)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  MaestroMCPServer (Swift)                       │
+│                    MCP Server (Node.js)                         │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │                     StatusManager                           ││
@@ -137,19 +144,23 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
 
 | Component | Technology |
 |-----------|------------|
-| Desktop App | Swift 5.9, SwiftUI, AppKit |
-| Terminal Emulator | SwiftTerm |
-| MCP Server | Swift MCP SDK (agent status reporting) |
+| Desktop App | Tauri 2.0, Rust |
+| Frontend | React, TypeScript, Tailwind CSS |
+| Terminal Emulator | xterm.js |
+| MCP Server | Node.js |
 | Git Operations | Native git CLI |
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Requirements
 
-- macOS 13 (Ventura) or later
-- Xcode 15 or later
+- **macOS** 13 (Ventura) or later
+- **Windows** 10 or later
+- **Linux** with WebKit2GTK
+- Node.js 18+ and npm
+- Rust 1.70+ (for building from source)
 - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 ### Build from Source
@@ -160,20 +171,22 @@ A native macOS application that lets you run 1-12 Claude Code (or other AI CLI) 
    cd maestro
    ```
 
-2. **Open in Xcode:**
+2. **Install dependencies:**
    ```bash
-   open claude-maestro.xcodeproj
+   npm install
    ```
 
-3. **Build and run** (⌘R)
-
-The Swift MCP server (`MaestroMCPServer/`) is built automatically as part of the Xcode build process.
-
-4. **Configure MCP (optional):**
+3. **Run in development mode:**
    ```bash
-   cp .mcp.json.example .mcp.json
+   npm run tauri dev
    ```
-   Edit `.mcp.json` and update the `command` path to point to your built MaestroMCPServer binary (typically found at `~/Library/Application Support/Claude Maestro/MaestroMCPServer` after first run).
+
+4. **Build for production:**
+   ```bash
+   npm run tauri build
+   ```
+
+   The built application will be in `src-tauri/target/release/bundle/`.
 
 ### Optional: Install AI CLIs
 
@@ -190,7 +203,7 @@ npm install -g @openai/codex
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Quick Start
 
@@ -235,29 +248,20 @@ Each session can have quick action buttons:
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### Session Persistence
+### MCP Configuration
 
-Session configurations (modes, branches, count) are automatically persisted to UserDefaults and restored on app launch.
-
-### Debug Logging
-
-For troubleshooting git operations, you can enable debug logging:
-
+Copy the example configuration and update paths:
 ```bash
-# Enable debug logging
-defaults write com.maestro.claude-maestro debug-git-logging -bool true
-
-# Disable debug logging
-defaults write com.maestro.claude-maestro debug-git-logging -bool false
+cp .mcp.json.example .mcp.json
 ```
 
-When enabled, git command logs are written to `~/maestro-debug.log`.
+Edit `.mcp.json` to configure the MCP server for agent status reporting.
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Claude Command Not Found
 
@@ -281,50 +285,64 @@ git worktree remove /path/to/worktree --force
 git worktree prune
 ```
 
+### Build Issues
+
+If you encounter build issues:
+```bash
+# Clear Rust build cache
+rm -rf src-tauri/target
+
+# Clear node modules and reinstall
+rm -rf node_modules
+npm install
+
+# Rebuild
+npm run tauri build
+```
+
 ---
 
-## 🤝 Contributing
+## Contributing
 
 ### Development Setup
 
 1. Fork and clone the repository
-2. Open `claude-maestro.xcodeproj` in Xcode
-3. Make your changes
-4. Test thoroughly with multiple sessions
+2. Install dependencies: `npm install`
+3. Run in dev mode: `npm run tauri dev`
+4. Make your changes
+5. Test thoroughly with multiple sessions
 
 ### Project Structure
 
 ```
-claude-maestro/
-├── claude-maestro/              # Swift/SwiftUI macOS app
-│   ├── ContentView.swift        # Main view and session management
-│   ├── TerminalView.swift       # SwiftTerm integration
-│   ├── WorktreeManager.swift    # Git worktree management
-│   ├── GitManager.swift         # Git operations
-│   ├── GitTreeView.swift        # Commit graph visualization
-│   └── ...
-├── MaestroMCPServer/            # Swift MCP server
-│   ├── Sources/
-│   │   └── MaestroMCPServer/    # MCP tool implementations
-│   └── Package.swift
+maestro/
+├── src/                     # React/TypeScript frontend
+│   ├── components/          # UI components
+│   ├── lib/                 # Utility libraries
+│   └── App.tsx              # Main application
+├── src-tauri/               # Rust backend
+│   ├── src/
+│   │   ├── commands/        # Tauri command handlers
+│   │   ├── core/            # Core business logic
+│   │   └── lib.rs           # Main Rust entry point
+│   ├── Cargo.toml           # Rust dependencies
+│   └── tauri.conf.json      # Tauri configuration
+├── package.json             # Node.js dependencies
 └── README.md
 ```
 
-### Code Style
-
-- Follow Apple's Swift API Design Guidelines
-
 ---
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) - Terminal emulator for Swift
+- [Tauri](https://tauri.app/) - Cross-platform desktop framework
+- [xterm.js](https://xtermjs.org/) - Terminal emulator for the web
 - [Model Context Protocol](https://modelcontextprotocol.io/) - MCP SDK
 - [Claude Code](https://claude.ai/claude-code) - AI coding assistant
 
