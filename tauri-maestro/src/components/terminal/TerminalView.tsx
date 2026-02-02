@@ -219,13 +219,23 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
       resizePty(sessionId, rows, cols).catch(console.error);
     });
 
-    // Handle Shift+Enter to insert a literal newline without submitting
+    // Handle special keyboard shortcuts
     term.attachCustomKeyEventHandler((event) => {
+      // Shift+Enter: insert literal newline without submitting
       if (event.key === "Enter" && event.shiftKey && event.type === "keydown") {
-        // Send a literal newline character
         writeStdin(sessionId, "\n").catch(console.error);
         return false; // Don't let xterm process it
       }
+
+      // Cmd+C (Mac) or Ctrl+C (Linux/Windows): copy selection to clipboard
+      // Only intercept if there's a selection, otherwise let SIGINT go through
+      const isCopy = event.key === "c" && (event.metaKey || event.ctrlKey) && event.type === "keydown";
+      if (isCopy && term.hasSelection()) {
+        const selection = term.getSelection();
+        navigator.clipboard.writeText(selection).catch(console.error);
+        return false; // Don't send to PTY
+      }
+
       return true; // Let xterm handle all other keys
     });
 

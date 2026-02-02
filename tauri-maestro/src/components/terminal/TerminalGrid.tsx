@@ -344,25 +344,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         }
       }
 
-      // Auto-launch AI CLI after shell initializes
-      if (slot.mode !== "Plain") {
-        const cliConfig = AI_CLI_CONFIG[slot.mode];
-        if (cliConfig.command) {
-          const isAvailable = await checkCliAvailable(cliConfig.command);
-
-          if (isAvailable) {
-            // Wait for shell to initialize
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            // Send CLI launch command with carriage return
-            await writeStdin(sessionId, `${cliConfig.command}\r`);
-          } else {
-            console.warn(
-              `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
-            );
-          }
-        }
-      }
-
+      // Update slot state FIRST to mount TerminalView and initialize xterm.js.
+      // This is critical because CLIs like Codex send DSR (cursor position) queries
+      // on startup, and xterm.js must be mounted to respond to them.
       setSlots((prev) =>
         prev.map((s) =>
           s.id === slotId ? { ...s, sessionId, worktreePath } : s
@@ -372,6 +356,27 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       // Register session with the project
       if (tabId) {
         addSessionToProject(tabId, sessionId);
+      }
+
+      // Auto-launch AI CLI after xterm.js is mounted and ready.
+      // We wait for React to render TerminalView and for xterm.js to initialize.
+      if (slot.mode !== "Plain") {
+        const cliConfig = AI_CLI_CONFIG[slot.mode];
+        if (cliConfig.command) {
+          const isAvailable = await checkCliAvailable(cliConfig.command);
+
+          if (isAvailable) {
+            // Wait for React render cycle + xterm.js initialization.
+            // This ensures the terminal can respond to DSR queries.
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            // Send CLI launch command with carriage return
+            await writeStdin(sessionId, `${cliConfig.command}\r`);
+          } else {
+            console.warn(
+              `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
+            );
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to spawn shell:", err);
