@@ -12,5 +12,5 @@ fn main() {
         }
     }
 
-    maestro_linux_lib::run()
+    maestro_lib::run()
 }
