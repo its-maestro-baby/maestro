@@ -141,7 +141,7 @@ pub async fn write_session_mcp_config(
         );
 
         mcp_servers.insert(
-            format!("maestro-{}", session_id),
+            "maestro".to_string(),
             json!({
                 "type": "stdio",
                 "command": mcp_path.to_string_lossy(),
@@ -197,7 +197,7 @@ pub async fn write_session_mcp_config(
 /// * `session_id` - Session identifier to remove
 pub async fn remove_session_mcp_config(
     working_dir: &Path,
-    session_id: u32,
+    _session_id: u32,
 ) -> Result<(), String> {
     let mcp_path = working_dir.join(".mcp.json");
     if !mcp_path.exists() {
@@ -211,12 +211,11 @@ pub async fn remove_session_mcp_config(
     let mut config: Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse .mcp.json: {}", e))?;
 
-    let server_key = format!("maestro-{}", session_id);
+    let server_key = "maestro";
     if let Some(servers) = config.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
-        if servers.remove(&server_key).is_some() {
+        if servers.remove(server_key).is_some() {
             log::debug!(
-                "Removed session {} MCP config from {:?}",
-                session_id,
+                "Removed maestro MCP config from {:?}",
                 mcp_path
             );
         }

@@ -622,7 +622,10 @@ function MCPServersSection() {
   const projectPath = activeTab?.projectPath ?? "";
 
   const { projectServers, fetchProjectServers, refreshProjectServers, isLoading } = useMcpStore();
-  const servers = projectPath ? (projectServers[projectPath] ?? []) : [];
+  // Filter out the internal "maestro" server - it's shown in the dedicated Maestro MCP section
+  const servers = projectPath
+    ? (projectServers[projectPath] ?? []).filter((s) => s.name !== "maestro")
+    : [];
   const loading = projectPath ? (isLoading[projectPath] ?? false) : false;
 
   // Fetch servers when project changes

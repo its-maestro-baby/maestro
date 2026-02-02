@@ -1,5 +1,10 @@
+use std::path::Path;
+
 use tauri::State;
 
+use crate::core::mcp_config_writer;
+use crate::core::mcp_manager::McpManager;
+use crate::core::plugin_manager::PluginManager;
 use crate::core::process_manager::ProcessManager;
 use crate::core::session_manager::{AiMode, SessionConfig, SessionManager, SessionStatus};
 
@@ -81,11 +86,13 @@ pub async fn get_sessions_for_project(
 }
 
 /// Removes all sessions for a project (used when closing a project tab).
-/// Also kills the associated PTY sessions.
+/// Also kills the associated PTY sessions and cleans up MCP/plugin state.
 #[tauri::command]
 pub async fn remove_sessions_for_project(
     state: State<'_, SessionManager>,
     process_manager: State<'_, ProcessManager>,
+    mcp_manager: State<'_, McpManager>,
+    plugin_manager: State<'_, PluginManager>,
     project_path: String,
 ) -> Result<Vec<SessionConfig>, String> {
     let canonical = std::fs::canonicalize(&project_path)
@@ -95,8 +102,27 @@ pub async fn remove_sessions_for_project(
 
     let removed = state.remove_sessions_for_project(&canonical);
 
-    // Also kill associated PTY sessions
+    // Clean up MCP, plugin, and PTY state for each removed session
     for session in &removed {
+        // Clean up in-memory MCP and plugin state
+        mcp_manager.remove_session(&canonical, session.id);
+        plugin_manager.remove_session(&canonical, session.id);
+
+        // Clean up .mcp.json entry (use worktree_path if set, otherwise project_path)
+        let working_dir = session
+            .worktree_path
+            .as_deref()
+            .unwrap_or(&session.project_path);
+        if let Err(e) =
+            mcp_config_writer::remove_session_mcp_config(Path::new(working_dir), session.id).await
+        {
+            log::warn!(
+                "Failed to remove MCP config for session {}: {}",
+                session.id,
+                e
+            );
+        }
+
         // Fire-and-forget kill -- log errors but don't fail the removal
         if let Err(e) = process_manager.kill_session(session.id).await {
             log::warn!("Failed to kill PTY for session {}: {}", session.id, e);
