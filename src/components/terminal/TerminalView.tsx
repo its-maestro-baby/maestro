@@ -53,6 +53,7 @@ function mapStatus(status: BackendSessionStatus): SessionStatus {
     NeedsInput: "needs-input",
     Done: "done",
     Error: "error",
+    Timeout: "timeout",
   };
   const mapped = map[status];
   if (!mapped) {

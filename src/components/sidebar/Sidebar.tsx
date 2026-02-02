@@ -74,6 +74,7 @@ const STATUS_DOT_CLASS: Record<BackendSessionStatus, string> = {
   NeedsInput: "bg-maestro-yellow",
   Done: "bg-maestro-green",
   Error: "bg-maestro-red",
+  Timeout: "bg-maestro-red",
 };
 
 const STATUS_LABEL: Record<BackendSessionStatus, string> = {
@@ -83,6 +84,7 @@ const STATUS_LABEL: Record<BackendSessionStatus, string> = {
   NeedsInput: "Needs Input",
   Done: "Done",
   Error: "Error",
+  Timeout: "Startup Timeout",
 };
 
 /* ================================================================ */

@@ -11,6 +11,7 @@ const STATUS_DEFS: {
   { key: "NeedsInput", label: "Needs Input", colorClass: "bg-yellow-300" },
   { key: "Done", label: "Done", colorClass: "bg-maestro-green" },
   { key: "Error", label: "Error", colorClass: "bg-red-400" },
+  { key: "Timeout", label: "Timeout", colorClass: "bg-red-400" },
 ];
 
 export function StatusLegend() {
@@ -27,6 +28,7 @@ export function StatusLegend() {
       NeedsInput: 0,
       Done: 0,
       Error: 0,
+      Timeout: 0,
     },
   );
 

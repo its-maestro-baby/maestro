@@ -8,8 +8,8 @@ use tauri::Manager;
 
 use core::marketplace_manager::MarketplaceManager;
 use core::mcp_manager::McpManager;
-use core::mcp_status_monitor::McpStatusMonitor;
 use core::plugin_manager::PluginManager;
+use core::status_server::StatusServer;
 use core::ProcessManager;
 use core::session_manager::SessionManager;
 use core::worktree_manager::WorktreeManager;
@@ -22,17 +22,28 @@ use core::worktree_manager::WorktreeManager;
 /// command handlers for the terminal, git, and session subsystems.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize logger for RUST_LOG environment variable support
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .init();
+
+    log::info!("Maestro starting up...");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(MarketplaceManager::new())
         .manage(McpManager::new())
-        .manage(Arc::new(McpStatusMonitor::new()))
         .manage(PluginManager::new())
         .manage(ProcessManager::new())
         .manage(SessionManager::new())
         .manage(WorktreeManager::new())
         .setup(|app| {
+            // Generate a unique instance ID for this Maestro run
+            // This prevents status pollution between different app instances
+            let instance_id = uuid::Uuid::new_v4().to_string();
+            log::info!("Maestro instance ID: {}", instance_id);
+
             // Verify git is available at startup (non-blocking with timeout)
             tauri::async_runtime::spawn(async {
                 match tokio::time::timeout(
@@ -47,12 +58,29 @@ pub fn run() {
                 }
             });
 
-            // Start MCP status monitor polling
-            let monitor = app.state::<Arc<McpStatusMonitor>>().inner().clone();
+            // Start the HTTP status server for MCP status reporting
+            // IMPORTANT: This must be done synchronously so the server is ready
+            // before any commands try to use it
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                monitor.start_polling(app_handle).await;
+            let server = tauri::async_runtime::block_on(async {
+                StatusServer::start(app_handle, instance_id).await
             });
+
+            match server {
+                Some(server) => {
+                    log::info!(
+                        "Status server started on port {}, URL: {}",
+                        server.port(),
+                        server.status_url()
+                    );
+                    app.manage(Arc::new(server));
+                }
+                None => {
+                    log::error!("Failed to start status server - MCP status reporting will not work");
+                    // Return error to prevent app from starting without status server
+                    return Err("Failed to start status server".into());
+                }
+            }
 
             Ok(())
         })
@@ -62,6 +90,7 @@ pub fn run() {
             commands::terminal::write_stdin,
             commands::terminal::resize_pty,
             commands::terminal::kill_session,
+            commands::terminal::kill_all_sessions,
             commands::terminal::check_cli_available,
             commands::terminal::get_backend_info,
             commands::terminal::get_session_process_tree,
@@ -116,6 +145,7 @@ pub fn run() {
             commands::mcp::get_custom_mcp_servers,
             commands::mcp::save_custom_mcp_server,
             commands::mcp::delete_custom_mcp_server,
+            commands::mcp::get_status_server_info,
             // Plugin commands
             commands::plugin::get_project_plugins,
             commands::plugin::refresh_project_plugins,

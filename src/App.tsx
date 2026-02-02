@@ -45,6 +45,20 @@ function App() {
     localStorage.setItem("maestro-theme", theme);
   }, [theme]);
 
+  // Clean up orphaned PTY sessions on mount (e.g., after page reload)
+  // This ensures no stale processes remain from the previous frontend state
+  useEffect(() => {
+    invoke<number>("kill_all_sessions")
+      .then((count) => {
+        if (count > 0) {
+          console.log(`Cleaned up ${count} orphaned PTY session(s) from previous page load`);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to clean up orphaned sessions:", err);
+      });
+  }, []);
+
   // Initialize session store: fetch initial state and subscribe to events
   useEffect(() => {
     fetchSessions().catch((err) => {
