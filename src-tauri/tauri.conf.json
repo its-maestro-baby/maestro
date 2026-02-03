@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: asset:; img-src 'self' data: tauri: asset:; style-src 'self'; script-src 'self'; connect-src 'self' tauri: asset:; font-src 'self' data:;",
+      "csp": "default-src 'self' tauri: asset:; img-src 'self' data: tauri: asset:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' tauri: asset:; font-src 'self' data:;",
       "devCsp": "default-src 'self' tauri: asset:; img-src 'self' data: tauri: asset:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' tauri: asset: ws://localhost:1420;"
     }
   },
