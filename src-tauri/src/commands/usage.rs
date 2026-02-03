@@ -93,15 +93,38 @@ fn get_username() -> Option<String> {
         .ok()
 }
 
-/// Read credentials from platform credential store (cross-platform).
-/// Claude Code stores credentials with:
-/// - Service: "Claude Code-credentials"
-/// - Account: <username>
-///
-/// Uses keyring crate for unified access to:
-/// - macOS: Keychain
+/// Read credentials from macOS Keychain using the `security` CLI.
+/// This avoids permission prompts since `security` is Apple-signed.
+#[cfg(target_os = "macos")]
+async fn read_keychain_credentials() -> Result<CredentialsData, String> {
+    let username = get_username().ok_or("Could not get username")?;
+
+    let output = tokio::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s", "Claude Code-credentials",
+            "-a", &username,
+            "-w",
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run security: {}", e))?;
+
+    if !output.status.success() {
+        return Err("No keychain entry found".to_string());
+    }
+
+    let data = String::from_utf8(output.stdout)
+        .map_err(|_| "Invalid keychain data")?;
+
+    serde_json::from_str(data.trim())
+        .map_err(|e| format!("Failed to parse keychain data: {}", e))
+}
+
+/// Read credentials from platform credential store (Windows/Linux).
 /// - Windows: Credential Manager
 /// - Linux: Secret Service (D-Bus)
+#[cfg(not(target_os = "macos"))]
 async fn read_keychain_credentials() -> Result<CredentialsData, String> {
     let username = get_username().ok_or("Could not get username")?;
 
