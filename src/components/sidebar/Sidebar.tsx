@@ -46,6 +46,7 @@ import { McpServerEditorModal } from "@/components/mcp";
 import { ClaudeMdEditorModal } from "@/components/claudemd";
 import { CliSettingsModal } from "@/components/terminal/CliSettingsModal";
 import { TerminalSettingsModal } from "@/components/terminal/TerminalSettingsModal";
+import { Tamagotchi } from "@/components/tamagotchi";
 import type { McpCustomServer } from "@/lib/mcp";
 import { checkClaudeMd, type ClaudeMdStatus } from "@/lib/claudemd";
 
@@ -221,6 +222,9 @@ export function Sidebar({ collapsed, onCollapse, theme, onToggleTheme }: Sidebar
           <ProcessesTab />
         )}
       </div>
+
+      {/* Tamagotchi widget - fixed footer */}
+      {!collapsed && <Tamagotchi />}
 
       {/* Drag handle */}
       {!collapsed && (
