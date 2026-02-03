@@ -6,6 +6,7 @@ import { useOpenProject } from "@/lib/useOpenProject";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useGitStore } from "./stores/useGitStore";
+import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
 import { MultiProjectView, type MultiProjectViewHandle } from "./components/shared/MultiProjectView";
@@ -74,6 +75,14 @@ function App() {
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [fetchSessions, initListeners]);
+
+  // Initialize terminal settings store (detects available fonts)
+  const initializeTerminalSettings = useTerminalSettingsStore((s) => s.initialize);
+  useEffect(() => {
+    initializeTerminalSettings().catch((err) => {
+      console.error("Failed to initialize terminal settings:", err);
+    });
+  }, [initializeTerminalSettings]);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
   const activeTab = tabs.find((tab) => tab.active) ?? null;

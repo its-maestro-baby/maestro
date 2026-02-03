@@ -1,4 +1,5 @@
 pub mod error;
+pub mod font_detector;
 pub mod marketplace_error;
 pub mod marketplace_manager;
 pub mod marketplace_models;
@@ -18,6 +19,7 @@ pub mod xterm_backend;
 pub mod vte_backend;
 
 pub use error::PtyError;
+pub use font_detector::{detect_available_fonts, is_font_available, AvailableFont};
 pub use marketplace_manager::MarketplaceManager;
 pub use mcp_manager::McpManager;
 pub use plugin_manager::PluginManager;

@@ -185,6 +185,9 @@ pub fn run() {
             commands::claudemd::check_claude_md,
             commands::claudemd::read_claude_md,
             commands::claudemd::write_claude_md,
+            // Font detection commands
+            commands::fonts::get_available_fonts,
+            commands::fonts::check_font_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maestro");

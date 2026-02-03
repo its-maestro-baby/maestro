@@ -5,7 +5,6 @@ import {
   Code2,
   GitBranch,
   GitCompareArrows,
-  Settings,
   Sparkles,
   Terminal,
   X,
@@ -174,18 +173,6 @@ export function TerminalHeader({
         <span className={`text-[10px] font-medium ${STATUS_COLOR[status]}`}>
           {STATUS_LABEL[status]}
         </span>
-
-        {/* Per-session settings gear - hidden on worktree */}
-        {!isWorktree && (
-          <button
-            type="button"
-            className="rounded p-0.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-            title="Session settings"
-            aria-label="Session settings"
-          >
-            <Settings size={11} />
-          </button>
-        )}
 
         {/* Close button */}
         <button

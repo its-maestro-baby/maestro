@@ -5,10 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
+import { buildFontFamily, waitForFont } from "@/lib/fonts";
 import { getBackendInfo, killSession, onPtyOutput, resizePty, writeStdin, type BackendInfo } from "@/lib/terminal";
 import { DEFAULT_THEME, LIGHT_THEME, toXtermTheme } from "@/lib/terminalTheme";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
+import { useTerminalSettingsStore } from "@/stores/useTerminalSettingsStore";
 import { QuickActionPills } from "./QuickActionPills";
 import { type AIProvider, type SessionStatus, TerminalHeader } from "./TerminalHeader";
 
@@ -101,6 +103,10 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
   const isWorktree = Boolean(sessionConfig?.worktree_path);
   const projectPath = sessionConfig?.project_path ?? "";
 
+  // Get terminal settings from store
+  const terminalSettings = useTerminalSettingsStore((s) => s.settings);
+  const getEffectiveFontFamily = useTerminalSettingsStore((s) => s.getEffectiveFontFamily);
+
   // Get MCP count for this session (primitive values are stable, no reference issues)
   const mcpCount = useMcpStore((s) => {
     if (!projectPath) return 0;
@@ -153,6 +159,27 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
     }
   }, [appTheme]);
 
+  // Update terminal font settings when they change
+  useEffect(() => {
+    if (termRef.current && fitAddonRef.current) {
+      const effectiveFont = getEffectiveFontFamily();
+      const fontFamily = buildFontFamily(effectiveFont);
+
+      termRef.current.options.fontSize = terminalSettings.fontSize;
+      termRef.current.options.fontFamily = fontFamily;
+      termRef.current.options.lineHeight = terminalSettings.lineHeight;
+
+      // Refit terminal to recalculate cell dimensions
+      requestAnimationFrame(() => {
+        try {
+          fitAddonRef.current?.fit();
+        } catch {
+          // Ignore fit errors during transition
+        }
+      });
+    }
+  }, [terminalSettings.fontSize, terminalSettings.fontFamily, terminalSettings.lineHeight, getEffectiveFontFamily]);
+
   /**
    * Immediately removes the terminal from UI (optimistic update),
    * then kills the backend session in the background.
@@ -183,107 +210,133 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
     const container = containerRef.current;
     if (!container) return;
 
-    const initialTheme = document.documentElement.getAttribute("data-theme") === "light" ? LIGHT_THEME : DEFAULT_THEME;
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily: "'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CaskaydiaCove Nerd Font', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      theme: toXtermTheme(initialTheme),
-      allowProposedApi: true,
-      scrollback: 10000,
-      tabStopWidth: 8,
-    });
-
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
-
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
-    term.open(container);
-
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit();
-      } catch {
-        // Container may not be sized yet
-      }
-    });
-
-    const dataDisposable = term.onData((data) => {
-      writeStdin(sessionId, data).catch(console.error);
-    });
-
-    const resizeDisposable = term.onResize(({ rows, cols }) => {
-      resizePty(sessionId, rows, cols).catch(console.error);
-    });
-
-    // Handle special keyboard shortcuts
-    term.attachCustomKeyEventHandler((event) => {
-      // Shift+Enter: insert literal newline without submitting
-      if (event.key === "Enter" && event.shiftKey && event.type === "keydown") {
-        writeStdin(sessionId, "\n").catch(console.error);
-        return false; // Don't let xterm process it
-      }
-
-      // Cmd+C (Mac) or Ctrl+C (Linux/Windows): copy selection to clipboard
-      // Only intercept if there's a selection, otherwise let SIGINT go through
-      const isCopy = event.key === "c" && (event.metaKey || event.ctrlKey) && event.type === "keydown";
-      if (isCopy && term.hasSelection()) {
-        const selection = term.getSelection();
-        navigator.clipboard.writeText(selection).catch(console.error);
-        return false; // Don't send to PTY
-      }
-
-      return true; // Let xterm handle all other keys
-    });
+    // Get current settings at initialization time (not reactive)
+    const currentSettings = useTerminalSettingsStore.getState();
+    const effectiveFont = currentSettings.getEffectiveFontFamily();
+    const fontFamily = buildFontFamily(effectiveFont);
 
     let disposed = false;
+    let term: Terminal | null = null;
+    let fitAddon: FitAddon | null = null;
     let unlisten: (() => void) | null = null;
-    const listenerReady = onPtyOutput(sessionId, (data) => {
-      if (!disposed) {
-        term.write(data);
-      }
-    });
-    listenerReady
-      .then((fn) => {
-        if (disposed) {
-          fn();
-        } else {
-          unlisten = fn;
-        }
-      })
-      .catch((err) => {
-        if (!disposed) {
-          console.error("PTY listener failed:", err);
+    let dataDisposable: { dispose: () => void } | null = null;
+    let resizeDisposable: { dispose: () => void } | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    // Wait for font to load before initializing terminal
+    const initTerminal = async () => {
+      await waitForFont(fontFamily, 2000);
+
+      if (disposed) return;
+
+      const initialTheme = document.documentElement.getAttribute("data-theme") === "light" ? LIGHT_THEME : DEFAULT_THEME;
+      term = new Terminal({
+        cursorBlink: true,
+        fontSize: currentSettings.settings.fontSize,
+        fontFamily: fontFamily,
+        lineHeight: currentSettings.settings.lineHeight,
+        theme: toXtermTheme(initialTheme),
+        allowProposedApi: true,
+        scrollback: 10000,
+        tabStopWidth: 8,
+      });
+
+      fitAddon = new FitAddon();
+      const webLinksAddon = new WebLinksAddon();
+
+      term.loadAddon(fitAddon);
+      term.loadAddon(webLinksAddon);
+      term.open(container);
+
+      termRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      requestAnimationFrame(() => {
+        try {
+          fitAddon?.fit();
+        } catch {
+          // Container may not be sized yet
         }
       });
 
-    const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        if (!disposed) {
-          try {
-            fitAddon.fit();
-          } catch {
-            // Container may have zero dimensions during layout transitions
-          }
+      dataDisposable = term.onData((data) => {
+        writeStdin(sessionId, data).catch(console.error);
+      });
+
+      resizeDisposable = term.onResize(({ rows, cols }) => {
+        resizePty(sessionId, rows, cols).catch(console.error);
+      });
+
+      // Handle special keyboard shortcuts
+      term.attachCustomKeyEventHandler((event) => {
+        // Shift+Enter: insert literal newline without submitting
+        if (event.key === "Enter" && event.shiftKey && event.type === "keydown") {
+          writeStdin(sessionId, "\n").catch(console.error);
+          return false; // Don't let xterm process it
+        }
+
+        // Cmd+C (Mac) or Ctrl+C (Linux/Windows): copy selection to clipboard
+        // Only intercept if there's a selection, otherwise let SIGINT go through
+        const isCopy = event.key === "c" && (event.metaKey || event.ctrlKey) && event.type === "keydown";
+        if (isCopy && term?.hasSelection()) {
+          const selection = term.getSelection();
+          navigator.clipboard.writeText(selection).catch(console.error);
+          return false; // Don't send to PTY
+        }
+
+        return true; // Let xterm handle all other keys
+      });
+
+      const listenerReady = onPtyOutput(sessionId, (data) => {
+        if (!disposed && term) {
+          term.write(data);
         }
       });
+      listenerReady
+        .then((fn) => {
+          if (disposed) {
+            fn();
+          } else {
+            unlisten = fn;
+          }
+        })
+        .catch((err) => {
+          if (!disposed) {
+            console.error("PTY listener failed:", err);
+          }
+        });
+
+      resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(() => {
+          if (!disposed && fitAddon) {
+            try {
+              fitAddon.fit();
+            } catch {
+              // Container may have zero dimensions during layout transitions
+            }
+          }
+        });
+      });
+      resizeObserver.observe(container);
+    };
+
+    initTerminal().catch((err) => {
+      if (!disposed) {
+        console.error("Failed to initialize terminal:", err);
+      }
     });
-    resizeObserver.observe(container);
 
     return () => {
       disposed = true;
-      resizeObserver.disconnect();
-      dataDisposable.dispose();
-      resizeDisposable.dispose();
+      resizeObserver?.disconnect();
+      dataDisposable?.dispose();
+      resizeDisposable?.dispose();
       if (unlisten) unlisten();
-      term.dispose();
+      term?.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Font settings are read once at init, dynamic updates via separate effect
   }, [sessionId]);
 
   // Focus the terminal when isFocused becomes true
