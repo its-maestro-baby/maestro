@@ -228,18 +228,34 @@ pub async fn kill_all_sessions(state: State<'_, ProcessManager>) -> Result<u32, 
 
 /// Checks if a command is available in the user's PATH.
 /// Uses platform-appropriate method:
-/// - Unix: runs `command -v <cmd>` via login shell
+/// - Unix: runs `command -v <cmd>` via interactive login shell to get user's real PATH
 /// - Windows: runs `where.exe <cmd>`
 #[tauri::command]
 pub async fn check_cli_available(command: String) -> Result<bool, String> {
     #[cfg(unix)]
     {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+        // First, get the user's real PATH from their shell profile
+        // This handles nvm, homebrew, etc. that modify PATH in .zshrc/.bashrc
+        let path_output = tokio::process::Command::new(&shell)
+            .args(["-l", "-i", "-c", "echo $PATH"])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to get PATH: {}", e))?;
+
+        let user_path = String::from_utf8_lossy(&path_output.stdout)
+            .trim()
+            .to_string();
+
+        // Now check for the command using the user's PATH
         let output = tokio::process::Command::new(&shell)
             .args(["-l", "-c", &format!("command -v {}", command)])
+            .env("PATH", &user_path)
             .output()
             .await
             .map_err(|e| format!("Failed to check CLI: {}", e))?;
+
         Ok(output.status.success())
     }
 
