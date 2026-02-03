@@ -1,23 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useUsageStore } from "@/stores/useUsageStore";
-import { getMoodDescription, formatResetTime } from "@/lib/usageParser";
+import { formatResetTime } from "@/lib/usageParser";
 import { TamagotchiCharacter } from "./TamagotchiCharacter";
 
 /**
  * Tamagotchi widget that displays Claude Code rate limit usage.
- * Lives in the sidebar footer with usage bar overlaid on the character.
+ * Character visibility is controlled via Appearance settings.
+ * Click label to toggle between daily and weekly.
  */
 export function Tamagotchi() {
-  const { usage, mood, isLoading, error, needsAuth, fetchUsage, startPolling } =
+  const { usage, mood, isLoading, error, needsAuth, fetchUsage, startPolling, showCharacter } =
     useUsageStore();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState(120);
+  const [size, setSize] = useState(100);
   const [showWeekly, setShowWeekly] = useState(false);
-  const [testMoodIndex, setTestMoodIndex] = useState<number | null>(null);
-  const moods = ["sleeping", "hungry", "bored", "content", "happy"] as const;
-  // Mock percentages for each test state
-  const mockPercents = [0, 20, 40, 60, 85];
 
   // Start polling on mount
   useEffect(() => {
@@ -33,8 +30,8 @@ export function Tamagotchi() {
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width;
-        // Scale size to fill container width
-        setSize(Math.max(100, Math.min(width - 16, 220)));
+        // Scale size to fill container width (smaller max)
+        setSize(Math.max(80, Math.min(width - 24, 160)));
       }
     });
 
@@ -55,72 +52,62 @@ export function Tamagotchi() {
   return (
     <div
       ref={containerRef}
-      className="shrink-0 border-t border-maestro-border/60 bg-maestro-surface px-2 py-2"
+      className="shrink-0 border-t border-maestro-border/60 bg-maestro-surface px-2 py-1.5"
     >
-      {/* Character container with overlaid bar */}
-      <div className="relative flex justify-center items-center">
-        <button
-          type="button"
-          onClick={() => setTestMoodIndex(i => i === null ? moods.length - 1 : i === 0 ? null : i - 1)}
-          className="absolute left-0 p-1 rounded hover:bg-maestro-border/40 text-maestro-muted hover:text-maestro-text z-10"
-          title="Previous state"
-        >
-          <ChevronLeft size={16} />
-        </button>
+      {showCharacter ? (
+        /* Character view with overlaid bar */
+        <div className="relative flex justify-center items-center">
+          <TamagotchiCharacter mood={mood} size={size} />
 
-        <TamagotchiCharacter mood={testMoodIndex !== null ? moods[testMoodIndex] : mood} size={size} />
-
-        {/* Overlaid usage bar - positioned at bottom of character */}
-        {!needsAuth && (
-          <div
-            className="absolute left-0 right-0 px-2"
-            style={{ bottom: size * 0.08 }}
-          >
+          {/* Single overlaid usage bar */}
+          {!needsAuth && (
+            <div
+              className="absolute left-0 right-0 px-3"
+              style={{ bottom: size * 0.06 }}
+            >
+              <div className="h-2.5 overflow-hidden rounded-full bg-maestro-border/60">
+                <div
+                  className={`h-full rounded-full ${currentColor} transition-all duration-500`}
+                  style={{ width: `${Math.min(100, currentPercent)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Bars-only view */
+        !needsAuth && (
+          <div className="py-1">
             <div className="h-2.5 overflow-hidden rounded-full bg-maestro-border/60">
               <div
                 className={`h-full rounded-full ${currentColor} transition-all duration-500`}
-                style={{ width: `${Math.min(100, testMoodIndex !== null ? mockPercents[testMoodIndex] : currentPercent)}%` }}
+                style={{ width: `${Math.min(100, currentPercent)}%` }}
               />
             </div>
           </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setTestMoodIndex(i => i === null ? 0 : i === moods.length - 1 ? null : i + 1)}
-          className="absolute right-0 p-1 rounded hover:bg-maestro-border/40 text-maestro-muted hover:text-maestro-text z-10"
-          title="Next state"
-        >
-          <ChevronRight size={16} />
-        </button>
-      </div>
-
-      {/* Test mode indicator */}
-      {testMoodIndex !== null && (
-        <div className="text-center text-[9px] text-maestro-muted mt-1">
-          Testing: {moods[testMoodIndex]} (state {testMoodIndex}, {mockPercents[testMoodIndex]}%)
-        </div>
+        )
       )}
 
       {/* Stats row */}
-      <div className="flex items-center justify-between mt-2">
+      <div className="flex items-center justify-between mt-1">
         <div className="flex-1 min-w-0">
           {needsAuth ? (
-            <div className="text-[10px] text-maestro-muted">
+            <div className="text-[9px] text-maestro-muted">
               Run <code className="rounded bg-maestro-border/50 px-1 py-0.5 font-mono">claude</code> to wake
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setShowWeekly(!showWeekly)}
-              className="flex items-center gap-1.5 text-[10px] text-maestro-muted hover:text-maestro-text transition-colors"
+              className="flex items-center gap-1.5 text-[9px] text-maestro-muted hover:text-maestro-text transition-colors"
               title={currentResetTime ? `Resets ${currentResetTime}. Click to toggle.` : "Click to toggle daily/weekly"}
             >
-              <span className={`inline-block w-2 h-2 rounded-full ${currentColor}`} />
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${currentColor}`} />
               <span>{currentLabel}: {Math.round(currentPercent)}%</span>
             </button>
           )}
         </div>
+
         <button
           type="button"
           onClick={fetchUsage}
@@ -129,7 +116,7 @@ export function Tamagotchi() {
           title="Refresh usage"
         >
           <RefreshCw
-            size={12}
+            size={10}
             className={`text-maestro-muted ${isLoading ? "animate-spin" : ""}`}
           />
         </button>
