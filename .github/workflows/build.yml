@@ -67,10 +67,14 @@ jobs:
             lipo -create -output maestro-mcp-server/target/release/maestro-mcp-server \
               target/aarch64-apple-darwin/release/maestro-mcp-server \
               target/x86_64-apple-darwin/release/maestro-mcp-server
+          elif [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            cargo build --release -p maestro-mcp-server
+            mkdir -p maestro-mcp-server/target/release
+            cp target/release/maestro-mcp-server.exe maestro-mcp-server/target/release/
           else
             cargo build --release -p maestro-mcp-server
             mkdir -p maestro-mcp-server/target/release
-            cp target/release/maestro-mcp-server* maestro-mcp-server/target/release/
+            cp target/release/maestro-mcp-server maestro-mcp-server/target/release/
           fi
 
       - name: Build Tauri app
