@@ -22,12 +22,16 @@ interface UsageState {
   lastFetch: Date | null;
   /** Whether authentication is needed. */
   needsAuth: boolean;
+  /** Whether to show the tamagotchi character (vs bars only). */
+  showCharacter: boolean;
 
   // Actions
   /** Fetch usage data from backend. */
   fetchUsage: () => Promise<void>;
   /** Start polling for usage updates. Returns cleanup function. */
   startPolling: () => () => void;
+  /** Toggle character visibility. */
+  toggleCharacter: () => void;
 }
 
 /**
@@ -41,6 +45,7 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
   error: null,
   lastFetch: null,
   needsAuth: false,
+  showCharacter: true,
 
   fetchUsage: async () => {
     set({ isLoading: true, error: null });
@@ -79,5 +84,9 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
 
     // Return cleanup function
     return () => clearInterval(intervalId);
+  },
+
+  toggleCharacter: () => {
+    set((state) => ({ showCharacter: !state.showCharacter }));
   },
 }));
