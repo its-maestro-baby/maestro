@@ -97,20 +97,17 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+            # Build for both architectures
             cargo build --release -p maestro-mcp-server --target aarch64-apple-darwin
             cargo build --release -p maestro-mcp-server --target x86_64-apple-darwin
-            mkdir -p maestro-mcp-server/target/release
-            lipo -create -output maestro-mcp-server/target/release/maestro-mcp-server \
+            # Create universal binary in workspace target directory
+            mkdir -p target/release
+            lipo -create -output target/release/maestro-mcp-server \
               target/aarch64-apple-darwin/release/maestro-mcp-server \
               target/x86_64-apple-darwin/release/maestro-mcp-server
-          elif [ "${{ matrix.platform }}" = "windows-latest" ]; then
-            cargo build --release -p maestro-mcp-server
-            mkdir -p maestro-mcp-server/target/release
-            cp target/release/maestro-mcp-server.exe maestro-mcp-server/target/release/
           else
+            # Linux and Windows: binary goes to target/release/ automatically
             cargo build --release -p maestro-mcp-server
-            mkdir -p maestro-mcp-server/target/release
-            cp target/release/maestro-mcp-server maestro-mcp-server/target/release/
           fi
 
       - name: Build Tauri app

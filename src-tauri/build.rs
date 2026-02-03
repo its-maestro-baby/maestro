@@ -39,9 +39,8 @@ fn copy_mcp_server_binary() {
         return;
     };
 
-    // Source: maestro-mcp-server/target/{profile}/maestro-mcp-server
+    // Source: target/{profile}/maestro-mcp-server (workspace builds to root target dir)
     let mcp_source = project_root
-        .join("maestro-mcp-server")
         .join("target")
         .join(&profile)
         .join(binary_name);
@@ -51,7 +50,6 @@ fn copy_mcp_server_binary() {
         mcp_source
     } else {
         project_root
-            .join("maestro-mcp-server")
             .join("target")
             .join("release")
             .join(binary_name)
@@ -59,7 +57,7 @@ fn copy_mcp_server_binary() {
 
     if !mcp_source.exists() {
         println!(
-            "cargo:warning=maestro-mcp-server binary not found at {:?}. Build it first with: cd maestro-mcp-server && cargo build --release",
+            "cargo:warning=maestro-mcp-server binary not found at {:?}. Build it first with: cargo build --release -p maestro-mcp-server",
             mcp_source
         );
         return;
