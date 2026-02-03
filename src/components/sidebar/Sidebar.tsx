@@ -763,7 +763,7 @@ function MaestroMCPSection() {
           </button>
         }
       />
-      <div className="flex items-center gap-2 px-1 py-1">
+      <div className="flex items-center gap-2 px-1 py-1" title={error ?? undefined}>
         <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor}`} />
         <span className="text-xs text-maestro-text font-medium">{statusText}</span>
       </div>
