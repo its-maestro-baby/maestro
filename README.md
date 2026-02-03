@@ -172,24 +172,28 @@ xcode-select --install
 ```
 
 **Windows** (10 or later):
-- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "C++ build tools" workload
+- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **"Desktop development with C++"** workload
 - Install [Rust](https://rustup.rs/)
+- WebView2 Runtime is required (pre-installed on Windows 10 21H2+ and Windows 11; [download here](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) for older versions)
 
 **Linux** (Ubuntu/Debian):
 ```bash
 # Install required system dependencies
 sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+sudo apt-get install -y build-essential pkg-config libssl-dev \
+  libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 ```
 
 **Linux** (Fedora):
 ```bash
-sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel
+sudo dnf install gcc-c++ pkg-config openssl-devel \
+  webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel
 ```
 
 **Linux** (Arch):
 ```bash
-sudo pacman -S webkit2gtk-4.1 libappindicator-gtk3 librsvg
+sudo pacman -S base-devel pkgconf openssl \
+  webkit2gtk-4.1 libappindicator-gtk3 librsvg
 ```
 
 ### Build from Source
