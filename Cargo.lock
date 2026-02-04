@@ -2099,6 +2099,7 @@ name = "maestro"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "dashmap",
  "directories",
  "env_logger",

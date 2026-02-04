@@ -1,3 +1,4 @@
+pub mod bookmark;
 pub mod claudemd;
 pub mod fonts;
 pub mod git;

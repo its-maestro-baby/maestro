@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox (required for notarization) -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- User-selected file access (via Open/Save dialogs) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Security-scoped bookmarks - CRITICAL for persistence -->
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+
+    <!-- Network access (for network drives/SMB/NFS) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Allow accessing /Volumes for external drives -->
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-write</key>
+    <array>
+        <string>/Volumes/</string>
+    </array>
+</dict>
+</plist>

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { GitFork, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { killSession } from "@/lib/terminal";
+import { initBookmarks } from "@/lib/dialog";
 import { useOpenProject } from "@/lib/useOpenProject";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -45,6 +46,13 @@ function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("maestro-theme", theme);
   }, [theme]);
+
+  // Initialize security-scoped bookmarks on mount (for external/network drive access)
+  useEffect(() => {
+    initBookmarks().catch((err) => {
+      console.error("Failed to initialize bookmarks:", err);
+    });
+  }, []);
 
   // Clean up orphaned PTY sessions on mount (e.g., after page reload)
   // This ensures no stale processes remain from the previous frontend state

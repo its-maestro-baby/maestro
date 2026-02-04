@@ -1,3 +1,4 @@
+pub mod bookmark_manager;
 pub mod error;
 pub mod font_detector;
 pub mod marketplace_error;
@@ -19,6 +20,7 @@ pub mod xterm_backend;
 #[cfg(feature = "vte-backend")]
 pub mod vte_backend;
 
+pub use bookmark_manager::BookmarkManager;
 pub use error::PtyError;
 pub use font_detector::{detect_available_fonts, is_font_available, AvailableFont};
 pub use marketplace_manager::MarketplaceManager;

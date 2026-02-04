@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+use core::bookmark_manager::BookmarkManager;
 use core::marketplace_manager::MarketplaceManager;
 use core::mcp_manager::McpManager;
 use core::plugin_manager::PluginManager;
@@ -32,6 +33,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .manage(BookmarkManager::new())
         .manage(MarketplaceManager::new())
         .manage(McpManager::new())
         .manage(PluginManager::new())
@@ -85,6 +87,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Bookmark commands (security-scoped file access)
+            commands::bookmark::create_bookmark,
+            commands::bookmark::start_bookmark_access,
+            commands::bookmark::stop_bookmark_access,
+            commands::bookmark::needs_bookmark,
+            commands::bookmark::has_bookmark,
+            commands::bookmark::get_all_bookmarks,
+            commands::bookmark::load_bookmarks,
+            commands::bookmark::remove_bookmark,
             // PTY commands (existing)
             commands::terminal::spawn_shell,
             commands::terminal::write_stdin,
