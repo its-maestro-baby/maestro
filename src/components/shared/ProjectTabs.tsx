@@ -115,9 +115,10 @@ export function ProjectTabs({
       data-tauri-drag-region
       className="theme-transition no-select flex h-9 items-center border-b border-maestro-border bg-maestro-surface"
     >
-      {/* Left: sidebar toggle + tabs (extra left padding on macOS for native traffic lights) */}
+      {/* Left: sidebar toggle + tabs (inset from CSS var for macOS traffic lights) */}
       <div
-        className={`flex items-center gap-0.5 px-1.5 ${isMac() ? "pl-[72px]" : ""}`}
+        className="flex items-center gap-0.5 pr-1.5"
+        style={{ paddingLeft: "max(var(--mac-title-bar-inset, 0px), 6px)" }}
       >
         <button
           type="button"
@@ -183,7 +184,7 @@ export function ProjectTabs({
       {/* Center: drag region fills remaining space */}
       <div data-tauri-drag-region className="flex-1" />
 
-      {/* Right: window controls (hidden on macOS — native traffic lights used instead) */}
+      {/* Right: window controls (hidden on macOS — custom traffic lights in row instead) */}
       {!isMac() && (
         <div className="flex items-center">
           <button

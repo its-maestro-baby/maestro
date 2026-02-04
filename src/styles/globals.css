@@ -6,6 +6,9 @@
   /* ── Theme: CSS Variables (RGB triplets for Tailwind alpha support) ── */
 
   :root {
+    /* macOS overlay title bar: left inset for native traffic lights; set from JS when needed */
+    --mac-title-bar-inset: 0;
+
     /* Dark theme — warm gunmetal, matching macOS Maestro */
     --maestro-bg: 26 26 30; /* #1a1a1e — warm charcoal */
     --maestro-surface: 30 31 35; /* #1e1f23 — sidebar/topbar */

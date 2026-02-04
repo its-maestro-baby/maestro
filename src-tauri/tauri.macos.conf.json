@@ -3,10 +3,10 @@
     "windows": [
       {
         "decorations": true,
-        "titleBarStyle": "Transparent",
+        "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "backgroundColor": "#1a1a1e",
-        "trafficLightPosition": { "x": 20, "y": 14 }
+        "trafficLightPosition": { "x": 12, "y": 20 }
       }
     ]
   }

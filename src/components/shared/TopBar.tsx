@@ -82,9 +82,10 @@ export function TopBar({
 
   return (
     <div data-tauri-drag-region className="no-select flex h-10 flex-1 items-center bg-maestro-bg">
-      {/* Left: collapse toggle (3D button) + branch area (extra left padding on macOS when this bar is at top, for native traffic lights) */}
+      {/* Left: collapse toggle + branch area (inset from CSS var for macOS traffic lights) */}
       <div
-        className={`flex items-center gap-2 px-2 ${isMac() && !hideWindowControls ? "pl-[72px]" : ""}`}
+        className="flex items-center gap-2 pr-2"
+        style={{ paddingLeft: "max(var(--mac-title-bar-inset, 0px), 8px)" }}
       >
         {/* Sidebar toggle - only shown when ProjectTabs isn't providing it */}
         {!hideWindowControls && (
@@ -163,7 +164,7 @@ export function TopBar({
         </button>
       </div>
 
-      {/* Window controls - hidden on macOS (native traffic lights) or when hideWindowControls */}
+      {/* Window controls - hidden on macOS (custom traffic lights in row) or when hideWindowControls */}
       {!hideWindowControls && !isMac() && (
         <div className="flex items-center border-l border-maestro-border">
           <button
