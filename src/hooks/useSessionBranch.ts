@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { getCurrentBranch } from "@/lib/git";
 import { useEffect, useRef, useState } from "react";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -18,7 +18,7 @@ export function useSessionBranch(
   initialBranch: string | null,
 ): string | null {
   const [branch, setBranch] = useState<string | null>(
-    isWorktree ? initialBranch : initialBranch,
+    isWorktree ? initialBranch : null,
   );
   const mountedRef = useRef(true);
 
@@ -31,10 +31,14 @@ export function useSessionBranch(
 
   // Non-worktree: fetch immediately + poll
   useEffect(() => {
+    mountedRef.current = true;
+
     if (isWorktree || !projectPath) return;
 
+    setBranch(null);
+
     const fetchBranch = () => {
-      invoke<string>("git_current_branch", { repoPath: projectPath })
+      getCurrentBranch(projectPath)
         .then((name) => {
           if (mountedRef.current) setBranch(name);
         })
@@ -50,16 +54,9 @@ export function useSessionBranch(
 
     return () => {
       clearInterval(id);
-    };
-  }, [isWorktree, projectPath]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
       mountedRef.current = false;
     };
-  }, []);
+  }, [isWorktree, projectPath]);
 
   return branch;
 }
