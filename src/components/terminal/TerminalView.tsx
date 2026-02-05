@@ -29,6 +29,9 @@ interface TerminalViewProps {
   isFocused?: boolean;
   onFocus?: () => void;
   onKill: (sessionId: number) => void;
+  terminalCount?: number;
+  isZoomed?: boolean;
+  onToggleZoom?: () => void;
 }
 
 /** Map backend AiMode to frontend AIProvider */
@@ -96,7 +99,7 @@ function cellStatusClass(status: SessionStatus): string {
  * ResizeObserver, disposes xterm listeners, unsubscribes the Tauri event listener
  * (even if the listener promise hasn't resolved yet), and destroys the Terminal.
  */
-export function TerminalView({ sessionId, status = "idle", isFocused = false, onFocus, onKill }: TerminalViewProps) {
+export function TerminalView({ sessionId, status = "idle", isFocused = false, onFocus, onKill, terminalCount = 1, isZoomed = false, onToggleZoom }: TerminalViewProps) {
   const sessionConfig = useSessionStore((s) => s.sessions.find((sess) => sess.id === sessionId));
   const effectiveStatus = sessionConfig ? mapStatus(sessionConfig.status) : status;
   const effectiveProvider = sessionConfig ? mapAiMode(sessionConfig.mode) : "claude";
@@ -366,6 +369,9 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
         branchName={effectiveBranch}
         isWorktree={isWorktree}
         onKill={handleKill}
+        terminalCount={terminalCount}
+        isZoomed={isZoomed}
+        onToggleZoom={onToggleZoom}
       />
 
       {/* xterm.js container */}

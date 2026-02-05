@@ -4,8 +4,10 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  Expand,
   FolderGit2,
   GitBranch,
+  Minimize,
   Package,
   Play,
   Search,
@@ -87,6 +89,8 @@ interface PreLaunchCardProps {
   onPluginsUnselectAll: () => void;
   onLaunch: () => void;
   onRemove: () => void;
+  isZoomed?: boolean;
+  onToggleZoom?: () => void;
 }
 
 const AI_MODES: { mode: AiMode; icon: typeof BrainCircuit; label: string; color: string }[] = [
@@ -119,6 +123,8 @@ export function PreLaunchCard({
   onPluginsUnselectAll,
   onLaunch,
   onRemove,
+  isZoomed = false,
+  onToggleZoom,
 }: PreLaunchCardProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
@@ -228,15 +234,29 @@ export function PreLaunchCard({
         {/* Header with remove button */}
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-maestro-text">Configure Session</span>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-red"
-            title="Remove session slot"
-            aria-label="Remove session slot"
-          >
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Zoom toggle button */}
+            {onToggleZoom && (
+              <button
+                type="button"
+                onClick={() => onToggleZoom()}
+                className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-accent"
+                title={isZoomed ? "Restore grid view" : "Zoom terminal"}
+                aria-label={isZoomed ? "Restore grid view" : "Zoom terminal"}
+              >
+                {isZoomed ? <Minimize size={14} /> : <Expand size={14} />}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-red"
+              title="Remove session slot"
+              aria-label="Remove session slot"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {/* AI Mode Selector */}
