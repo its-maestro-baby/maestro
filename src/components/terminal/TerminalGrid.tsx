@@ -180,6 +180,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   // Track which terminal slot is focused (by slot ID)
   const [focusedSlotId, setFocusedSlotId] = useState<string | null>(null);
 
+  // Track which terminal slot is zoomed (takes full screen)
+  const [zoomedSlotId, setZoomedSlotId] = useState<string | null>(null);
+
   // Git branch data
   const [branches, setBranches] = useState<BranchWithWorktreeStatus[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
@@ -853,6 +856,125 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     );
   }
 
+  // Handle zoom toggle for a slot
+  const handleToggleZoom = useCallback((slotId: string) => {
+    setZoomedSlotId(prev => prev === slotId ? null : slotId);
+  }, []);
+
+  // Handle Escape key to exit zoom mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && zoomedSlotId) {
+        handleToggleZoom(zoomedSlotId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomedSlotId, handleToggleZoom]);
+
+  // If a terminal is zoomed, show only that one at full screen with navigation bar
+  if (zoomedSlotId) {
+    const zoomedSlot = slots.find(s => s.id === zoomedSlotId);
+    if (!zoomedSlot) {
+      setZoomedSlotId(null);
+    } else {
+      const zoomedIndex = slots.findIndex(s => s.id === zoomedSlotId);
+
+      return (
+        <div className="relative flex h-full flex-col bg-maestro-bg">
+          {/* Top Navigation Bar */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-maestro-border bg-maestro-surface px-4 py-2 animate-in fade-in slide-in-from-top duration-200">
+            <span className="text-xs font-semibold uppercase tracking-wider text-maestro-muted">
+              Zoom View - Terminal {zoomedIndex + 1}/{slots.length}
+            </span>
+            <div className="h-4 w-px bg-maestro-border" />
+            <div className="flex gap-1">
+              {slots.map((slot, index) => {
+                const isActive = slot.id === zoomedSlotId;
+                const hasSession = slot.sessionId !== null;
+
+                return (
+                  <button
+                    key={slot.id}
+                    onClick={() => handleToggleZoom(slot.id)}
+                    className={`
+                      relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all duration-200
+                      ${isActive
+                        ? 'bg-maestro-card text-white scale-110'
+                        : 'bg-maestro-card text-maestro-muted hover:bg-maestro-card/80 hover:text-maestro-text hover:scale-105'
+                      }
+                    `}
+                    title={isActive ? 'Current terminal (click to exit zoom)' : `Switch to terminal ${index + 1}`}
+                  >
+                    {isActive && (
+                      <span className="absolute inset-0 rounded-lg border-2 border-blue-500 animate-pulse shadow-lg shadow-blue-500/50"></span>
+                    )}
+                    <span className="font-mono text-base">{index + 1}</span>
+                    {hasSession && (
+                      <span className="h-2 w-2 rounded-full bg-maestro-green shadow-lg shadow-maestro-green/50" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1" />
+            <button
+              onClick={() => handleToggleZoom(zoomedSlotId)}
+              className="rounded p-1.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+              title="Exit zoom (Esc)"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Zoomed Terminal Content */}
+          <div className="flex-1 p-2 animate-in zoom-in-95 duration-300">
+            {zoomedSlot.sessionId !== null ? (
+              <TerminalView
+                key={zoomedSlot.id}
+                sessionId={zoomedSlot.sessionId}
+                isFocused={true}
+                onFocus={() => setFocusedSlotId(zoomedSlot.id)}
+                onKill={handleKill}
+                terminalCount={slots.length}
+                isZoomed={true}
+                onToggleZoom={() => handleToggleZoom(zoomedSlot.id)}
+              />
+            ) : (
+              <PreLaunchCard
+                key={zoomedSlot.id}
+                slot={zoomedSlot}
+                projectPath={projectPath ?? ""}
+                branches={branches}
+                isLoadingBranches={isLoadingBranches}
+                isGitRepo={isGitRepo}
+                mcpServers={mcpServers}
+                skills={skills}
+                plugins={plugins}
+                onModeChange={(mode) => updateSlotMode(zoomedSlot.id, mode)}
+                onBranchChange={(branch) => updateSlotBranch(zoomedSlot.id, branch)}
+                onMcpToggle={(serverName) => toggleSlotMcp(zoomedSlot.id, serverName)}
+                onSkillToggle={(skillId) => toggleSlotSkill(zoomedSlot.id, skillId)}
+                onPluginToggle={(pluginId) => toggleSlotPlugin(zoomedSlot.id, pluginId)}
+                onMcpSelectAll={() => selectAllMcp(zoomedSlot.id)}
+                onMcpUnselectAll={() => unselectAllMcp(zoomedSlot.id)}
+                onPluginsSelectAll={() => selectAllPlugins(zoomedSlot.id)}
+                onPluginsUnselectAll={() => unselectAllPlugins(zoomedSlot.id)}
+                onLaunch={() => launchSlot(zoomedSlot.id)}
+                onRemove={() => removeSlot(zoomedSlot.id)}
+                isZoomed={true}
+                onToggleZoom={() => handleToggleZoom(zoomedSlot.id)}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+  }
+
   return (
     <div className={`grid h-full ${gridClass(slots.length)} gap-2 bg-maestro-bg p-2`}>
       {slots.map((slot) =>
@@ -863,6 +985,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             isFocused={focusedSlotId === slot.id}
             onFocus={() => setFocusedSlotId(slot.id)}
             onKill={handleKill}
+            terminalCount={slots.length}
+            isZoomed={false}
+            onToggleZoom={() => handleToggleZoom(slot.id)}
           />
         ) : (
           <PreLaunchCard
@@ -886,6 +1011,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             onPluginsUnselectAll={() => unselectAllPlugins(slot.id)}
             onLaunch={() => launchSlot(slot.id)}
             onRemove={() => removeSlot(slot.id)}
+            isZoomed={false}
+            onToggleZoom={() => handleToggleZoom(slot.id)}
           />
         )
       )}
