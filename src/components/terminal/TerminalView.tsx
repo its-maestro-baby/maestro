@@ -221,6 +221,42 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
     let term: Terminal | null = null;
     let fitAddon: FitAddon | null = null;
     let unlisten: (() => void) | null = null;
+    // === PTY Output Batching (reduces xterm.js render overhead) ===
+    let writeBuffer: string[] = [];
+    let rafId: number | null = null;
+    let fallbackTimerId: ReturnType<typeof setTimeout> | null = null;
+
+    const MAX_BUFFER_CHUNKS = 100;  // Force flush at ~400KB (100 × 4KB chunks)
+    const FALLBACK_FLUSH_MS = 50;   // 20fps floor for backgrounded tabs
+
+    const cancelPendingFlush = () => {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+      if (fallbackTimerId !== null) { clearTimeout(fallbackTimerId); fallbackTimerId = null; }
+    };
+
+    const flushBuffer = () => {
+      cancelPendingFlush();
+      if (disposed || !term || writeBuffer.length === 0) {
+        writeBuffer = [];
+        return;
+      }
+      const data = writeBuffer.join('');
+      writeBuffer = [];  // Clear BEFORE write to prevent duplicates on error
+      try {
+        term.write(data);
+      } catch (e) {
+        console.error('[TerminalView] write error:', e);
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (rafId !== null) return;  // Already scheduled
+      rafId = requestAnimationFrame(flushBuffer);
+      if (fallbackTimerId === null) {
+        fallbackTimerId = setTimeout(flushBuffer, FALLBACK_FLUSH_MS);
+      }
+    };
+
     let dataDisposable: { dispose: () => void } | null = null;
     let resizeDisposable: { dispose: () => void } | null = null;
     let resizeObserver: ResizeObserver | null = null;
@@ -290,8 +326,12 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
       });
 
       const listenerReady = onPtyOutput(sessionId, (data) => {
-        if (!disposed && term) {
-          term.write(data);
+        if (disposed || !term) return;
+        writeBuffer.push(data);
+        if (writeBuffer.length >= MAX_BUFFER_CHUNKS) {
+          flushBuffer();  // Backpressure: immediate flush if buffer full
+        } else {
+          scheduleFlush();
         }
       });
       listenerReady
@@ -333,6 +373,12 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
 
     return () => {
       disposed = true;
+      cancelPendingFlush();
+      // Flush remaining buffered output before disposal
+      if (term && writeBuffer.length > 0) {
+        try { term.write(writeBuffer.join('')); } catch { /* ignore errors during cleanup */ }
+      }
+      writeBuffer = [];
       resizeObserver?.disconnect();
       dataDisposable?.dispose();
       resizeDisposable?.dispose();
