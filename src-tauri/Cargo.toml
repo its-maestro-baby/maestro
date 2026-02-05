@@ -47,6 +47,9 @@ uuid = { version = "1", features = ["v4"] }
 vte = { version = "0.14", optional = true }
 # Cross-platform font detection
 font-kit = "0.14"
+# macOS permissions (Full Disk Access check)
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-macos-permissions = "2.1"
 
 
 [dev-dependencies]

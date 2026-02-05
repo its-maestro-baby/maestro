@@ -29,9 +29,17 @@ pub fn run() {
 
     log::info!("Maestro starting up...");
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    // Register macOS permissions plugin (for Full Disk Access check)
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.plugin(tauri_plugin_macos_permissions::init());
+    }
+
+    builder
         .manage(MarketplaceManager::new())
         .manage(McpManager::new())
         .manage(PluginManager::new())

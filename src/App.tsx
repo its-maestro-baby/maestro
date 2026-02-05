@@ -9,6 +9,7 @@ import { useGitStore } from "./stores/useGitStore";
 import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
+import { FDADialog } from "./components/shared/FDADialog";
 import { MultiProjectView, type MultiProjectViewHandle } from "./components/shared/MultiProjectView";
 import { MAC_TITLE_BAR_INSET_PX, useMacTitleBarPadding } from "@/hooks/useMacTitleBarPadding";
 import { isMac } from "@/lib/platform";
@@ -31,7 +32,14 @@ function App() {
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
-  const handleOpenProject = useOpenProject();
+  const {
+    openProject: handleOpenProject,
+    showFDADialog,
+    fdaPath,
+    dismissFDADialog,
+    dismissFDADialogPermanently,
+    retryAfterFDAGrant,
+  } = useOpenProject();
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
@@ -292,6 +300,15 @@ function App() {
         </div>
       </div>
 
+      {/* FDA Dialog for macOS TCC-protected paths */}
+      {showFDADialog && (
+        <FDADialog
+          path={fdaPath}
+          onDismiss={dismissFDADialog}
+          onDismissPermanently={dismissFDADialogPermanently}
+          onRetry={retryAfterFDAGrant}
+        />
+      )}
     </div>
   );
 }
