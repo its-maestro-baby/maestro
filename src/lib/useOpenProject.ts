@@ -32,12 +32,8 @@ export function useOpenProject(): {
   const dismissFDADialogPermanently = useCallback(() => {
     localStorage.setItem(FDA_DISMISSED_KEY, "true");
     setShowFDADialog(false);
-    // Still try to open the project - might work, might fail gracefully
-    if (pendingPath) {
-      openProjectToWorkspace(pendingPath);
-    }
     setPendingPath(null);
-  }, [pendingPath, openProjectToWorkspace]);
+  }, []);
 
   /**
    * Re-check FDA and open the project if access was granted.
@@ -67,8 +63,11 @@ export function useOpenProject(): {
         // Check if user previously dismissed the dialog permanently
         const dismissed = localStorage.getItem(FDA_DISMISSED_KEY);
         if (dismissed) {
-          // User said "don't ask again" - try to open anyway
-          // It will fail if FDA is actually needed, but that's their choice
+          // Re-check - user may have granted FDA since dismissing
+          const nowHasAccess = await checkFullDiskAccess();
+          if (nowHasAccess) {
+            localStorage.removeItem(FDA_DISMISSED_KEY);
+          }
           openProjectToWorkspace(path);
           return;
         }

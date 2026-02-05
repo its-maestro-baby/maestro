@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { GitFork, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { killSession } from "@/lib/terminal";
-import { initPermissions } from "@/lib/permissions";
 import { useOpenProject } from "@/lib/useOpenProject";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -92,13 +91,6 @@ function App() {
       console.error("Failed to initialize terminal settings:", err);
     });
   }, [initializeTerminalSettings]);
-
-  // Initialize macOS permissions module
-  useEffect(() => {
-    initPermissions().catch((err) => {
-      console.error("Failed to initialize permissions:", err);
-    });
-  }, []);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
   const activeTab = tabs.find((tab) => tab.active) ?? null;
