@@ -250,6 +250,9 @@ export const TerminalView = memo(function TerminalView({ sessionId, status = "id
       if (disposed) return;
 
       const initialTheme = document.documentElement.getAttribute("data-theme") === "light" ? LIGHT_THEME : DEFAULT_THEME;
+      // Reduce scrollback on Linux where the DOM renderer is slow in WebKitGTK.
+      // 10000 lines of scrollback with the DOM renderer causes severe lag.
+      const isLinux = navigator.userAgent.toLowerCase().includes("linux");
       term = new Terminal({
         cursorBlink: true,
         fontSize: currentSettings.settings.fontSize,
@@ -257,7 +260,7 @@ export const TerminalView = memo(function TerminalView({ sessionId, status = "id
         lineHeight: currentSettings.settings.lineHeight,
         theme: toXtermTheme(initialTheme),
         allowProposedApi: true,
-        scrollback: 10000,
+        scrollback: isLinux ? 2000 : 10000,
         tabStopWidth: 8,
       });
 
