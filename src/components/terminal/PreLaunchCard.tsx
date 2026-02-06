@@ -25,35 +25,9 @@ import { useEffect, useRef, useState } from "react";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
 import type { McpServerConfig } from "@/lib/mcp";
-import type { PluginConfig, SkillConfig, SkillSource } from "@/lib/plugins";
+import type { PluginConfig, SkillConfig } from "@/lib/plugins";
 import type { AiMode } from "@/stores/useSessionStore";
 import type { RepositoryInfo, WorkspaceType } from "@/stores/useWorkspaceStore";
-
-/** Returns badge styling and text for a skill source. */
-function getSkillSourceLabel(source: SkillSource): { text: string; className: string } {
-  switch (source.type) {
-    case "project":
-      return {
-        text: "Project",
-        className: "bg-maestro-accent/20 text-maestro-accent",
-      };
-    case "personal":
-      return {
-        text: "Personal",
-        className: "bg-maestro-green/20 text-maestro-green",
-      };
-    case "plugin":
-      return {
-        text: source.name,
-        className: "bg-maestro-purple/20 text-maestro-purple",
-      };
-    case "legacy":
-      return {
-        text: "Legacy",
-        className: "bg-maestro-muted/20 text-maestro-muted",
-      };
-  }
-}
 
 /** Pre-launch session slot configuration. */
 export interface SessionSlot {
@@ -219,9 +193,6 @@ export function PreLaunchCard({
       pluginSkillsMap.set(plugin.name, pluginSkills);
     }
   }
-
-  // Standalone skills are those not claimed by any plugin
-  const standaloneSkills = skills.filter((s) => !skillsInPlugins.has(s.id));
 
   // Toggle plugin expansion
   const togglePluginExpanded = (pluginId: string) => {
@@ -1023,49 +994,7 @@ export function PreLaunchCard({
                       </>
                     )}
 
-                    {/* Standalone Skills */}
-                    {standaloneSkills.length > 0 && (
-                      <>
-                        <div className="border-b border-t border-maestro-border px-3 py-1.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                          Skills ({standaloneSkills.length})
-                        </div>
-                        {standaloneSkills
-                          .filter((skill) =>
-                            !pluginsSearchQuery ||
-                            skill.name.toLowerCase().includes(pluginsSearchQuery.toLowerCase())
-                          )
-                          .map((skill) => {
-                            const isEnabled = slot.enabledSkills.includes(skill.id);
-                            const sourceLabel = getSkillSourceLabel(skill.source);
-                            return (
-                              <button
-                                key={skill.id}
-                                type="button"
-                                onClick={() => onSkillToggle(skill.id)}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-maestro-surface"
-                                title={skill.description || undefined}
-                              >
-                                <span
-                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                                    isEnabled
-                                      ? "border-maestro-orange bg-maestro-orange"
-                                      : "border-maestro-border bg-transparent"
-                                  }`}
-                                >
-                                  {isEnabled && <Check size={12} className="text-white" />}
-                                </span>
-                                <Zap size={12} className="shrink-0 text-maestro-orange" />
-                                <span className={`flex-1 truncate ${isEnabled ? "text-maestro-text" : "text-maestro-muted"}`}>
-                                  {skill.name}
-                                </span>
-                                <span className={`shrink-0 rounded px-1 text-[9px] ${sourceLabel.className}`}>
-                                  {sourceLabel.text}
-                                </span>
-                              </button>
-                            );
-                          })}
-                      </>
-                    )}
+                    {/* Standalone Skills - hidden from toggles since Claude CLI cannot disable them per-session */}
 
                     {/* No results message */}
                     {pluginsSearchQuery &&
@@ -1074,10 +1003,7 @@ export function PreLaunchCard({
                        if (plugin.name.toLowerCase().includes(query)) return true;
                        const pluginSkills = pluginSkillsMap.get(plugin.name) ?? [];
                        return pluginSkills.some((skill) => skill.name.toLowerCase().includes(query));
-                     }).length === 0 &&
-                     standaloneSkills.filter((skill) =>
-                       skill.name.toLowerCase().includes(pluginsSearchQuery.toLowerCase())
-                     ).length === 0 && (
+                     }).length === 0 && (
                       <div className="px-3 py-2 text-center text-xs text-maestro-muted">
                         No results match "{pluginsSearchQuery}"
                       </div>

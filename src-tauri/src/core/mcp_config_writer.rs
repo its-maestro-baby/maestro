@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use super::mcp_manager::{McpServerConfig, McpServerType};
+use super::mcp_manager::{McpServerConfig, McpServerSource, McpServerType};
 use crate::commands::mcp::McpCustomServer;
 
 /// Per-directory lock map to serialize concurrent .mcp.json read-modify-write operations.
@@ -449,6 +449,7 @@ mod tests {
                     env
                 },
             },
+            source: McpServerSource::Project,
         };
 
         let json = server_config_to_json(&config);
@@ -465,6 +466,7 @@ mod tests {
             server_type: McpServerType::Http {
                 url: "http://localhost:3000".to_string(),
             },
+            source: McpServerSource::Project,
         };
 
         let json = server_config_to_json(&config);

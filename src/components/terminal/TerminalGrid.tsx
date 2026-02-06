@@ -10,6 +10,7 @@ import {
   saveBranchConfig,
   setSessionPlugins,
   setSessionSkills,
+  writeSessionPluginConfig,
   type PluginConfig,
   type SkillConfig,
 } from "@/lib/plugins";
@@ -536,9 +537,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 // Non-fatal - continue with CLI launch, MCP servers just won't be available
               }
 
-              // NOTE: We no longer write plugin config to settings.local.json
-              // Claude CLI auto-discovers plugins from ~/.claude/plugins/
-              // Writing a `plugins` array was interfering with auto-discovery
+              // Write plugin enabled/disabled state to settings.local.json
+              // Uses enabledPlugins format (not the legacy plugins array)
+              try {
+                await writeSessionPluginConfig(
+                  workingDirectory,
+                  projectPath ?? workingDirectory,
+                  slot.enabledPlugins
+                );
+              } catch (err) {
+                console.error("Failed to write plugin config:", err);
+                // Non-fatal - continue with CLI launch
+              }
             }
 
             // Wait for xterm.js to mount and start listening for PTY output

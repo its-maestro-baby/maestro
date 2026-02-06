@@ -1,27 +1,29 @@
 //! Writes session-specific plugin configuration for Claude CLI.
 //!
-//! This module handles registering installed plugins in the session's
-//! `.claude/settings.local.json` file so Claude CLI can discover them.
-//! Plugins installed via the marketplace are registered here to enable
-//! all their components (skills, commands, agents, hooks, MCP servers).
+//! This module handles writing `enabledPlugins` to the session's
+//! `.claude/settings.local.json` file so Claude CLI knows which plugins
+//! to enable or disable. The format matches Claude CLI's native format:
+//! ```json
+//! {
+//!   "enabledPlugins": {
+//!     "plugin-name@marketplace": true,
+//!     "other-plugin@marketplace": false
+//!   }
+//! }
+//! ```
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde_json::{json, Value};
 
-/// Plugin entry format for settings.local.json.
-#[derive(Debug, Clone)]
-struct PluginEntry {
-    path: String,
-    enabled: bool,
-}
-
-/// Merges new plugin entries with an existing settings.local.json file.
+/// Merges `enabledPlugins` into an existing settings.local.json file.
 ///
-/// This function preserves user-defined settings while updating the plugins array.
+/// Preserves user-defined settings while replacing the `enabledPlugins` object.
+/// Also removes the legacy `plugins` array if present.
 fn merge_with_existing(
     settings_path: &Path,
-    new_plugins: Vec<PluginEntry>,
+    enabled_plugins: &HashMap<String, bool>,
 ) -> Result<Value, String> {
     let mut config: Value = if settings_path.exists() {
         let content = std::fs::read_to_string(settings_path)
@@ -33,38 +35,37 @@ fn merge_with_existing(
         json!({})
     };
 
-    // Build the plugins array
-    let plugins_array: Vec<Value> = new_plugins
-        .into_iter()
-        .map(|p| {
-            json!({
-                "path": p.path,
-                "enabled": p.enabled
-            })
-        })
+    // Remove legacy plugins array if present
+    if let Some(obj) = config.as_object_mut() {
+        obj.remove("plugins");
+    }
+
+    // Build the enabledPlugins object
+    let plugins_obj: serde_json::Map<String, Value> = enabled_plugins
+        .iter()
+        .map(|(id, enabled)| (id.clone(), json!(*enabled)))
         .collect();
 
-    // Set the plugins array (replaces any existing plugins array)
-    config["plugins"] = json!(plugins_array);
+    config["enabledPlugins"] = Value::Object(plugins_obj);
 
     Ok(config)
 }
 
-/// Writes enabled plugins to the session's .claude/settings.local.json.
+/// Writes plugin enabled/disabled state to the session's .claude/settings.local.json.
 ///
 /// This function:
 /// 1. Creates the .claude directory if it doesn't exist
-/// 2. Builds plugin entries from the provided paths
+/// 2. Builds the `enabledPlugins` object from the provided map
 /// 3. Merges with any existing settings.local.json (preserving other settings)
 /// 4. Writes the final config
 ///
 /// # Arguments
 ///
 /// * `working_dir` - Directory where `.claude/settings.local.json` will be written
-/// * `enabled_plugin_paths` - Paths to enabled plugin directories
+/// * `enabled_plugins` - Map of CLI plugin IDs to enabled state (e.g. "name@marketplace" -> true/false)
 pub async fn write_session_plugin_config(
     working_dir: &Path,
-    enabled_plugin_paths: &[String],
+    enabled_plugins: &HashMap<String, bool>,
 ) -> Result<(), String> {
     // Create .claude directory if needed
     let claude_dir = working_dir.join(".claude");
@@ -74,18 +75,9 @@ pub async fn write_session_plugin_config(
             .map_err(|e| format!("Failed to create .claude directory: {}", e))?;
     }
 
-    // Build plugin entries
-    let plugins: Vec<PluginEntry> = enabled_plugin_paths
-        .iter()
-        .map(|path| PluginEntry {
-            path: path.clone(),
-            enabled: true,
-        })
-        .collect();
-
     // Merge with existing settings
     let settings_path = claude_dir.join("settings.local.json");
-    let final_config = merge_with_existing(&settings_path, plugins)?;
+    let final_config = merge_with_existing(&settings_path, enabled_plugins)?;
 
     // Write the file
     let content = serde_json::to_string_pretty(&final_config)
@@ -95,19 +87,22 @@ pub async fn write_session_plugin_config(
         .await
         .map_err(|e| format!("Failed to write settings.local.json: {}", e))?;
 
+    let enabled_count = enabled_plugins.values().filter(|v| **v).count();
+    let disabled_count = enabled_plugins.len() - enabled_count;
     log::debug!(
-        "Wrote session plugin config to {:?} with {} plugins",
+        "Wrote session plugin config to {:?} ({} enabled, {} disabled)",
         settings_path,
-        enabled_plugin_paths.len()
+        enabled_count,
+        disabled_count,
     );
 
     Ok(())
 }
 
-/// Removes the plugins array from the session's .claude/settings.local.json.
+/// Removes session plugin config from the session's .claude/settings.local.json.
 ///
-/// This should be called when a session is killed to clean up the plugin config.
-/// The function preserves other settings in the file.
+/// Removes both `enabledPlugins` (current format) and legacy `plugins` array.
+/// Preserves other settings in the file. Deletes the file if it becomes empty.
 ///
 /// # Arguments
 ///
@@ -125,10 +120,12 @@ pub async fn remove_session_plugin_config(working_dir: &Path) -> Result<(), Stri
     let mut config: Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse settings.local.json: {}", e))?;
 
-    // Remove the plugins array
+    // Remove both enabledPlugins and legacy plugins array
     if let Some(obj) = config.as_object_mut() {
-        if obj.remove("plugins").is_some() {
-            log::debug!("Removed plugins config from {:?}", settings_path);
+        let removed_enabled = obj.remove("enabledPlugins").is_some();
+        let removed_legacy = obj.remove("plugins").is_some();
+        if removed_enabled || removed_legacy {
+            log::debug!("Removed plugin config from {:?}", settings_path);
         }
     }
 
@@ -159,10 +156,9 @@ mod tests {
     #[tokio::test]
     async fn test_write_session_plugin_config_creates_directory_and_file() {
         let dir = tempdir().unwrap();
-        let plugins = vec![
-            "/Users/test/.claude/plugins/plugin-a".to_string(),
-            "/Users/test/.claude/plugins/plugin-b".to_string(),
-        ];
+        let mut plugins = HashMap::new();
+        plugins.insert("plugin-a@official".to_string(), true);
+        plugins.insert("plugin-b@official".to_string(), false);
 
         let result = write_session_plugin_config(dir.path(), &plugins).await;
         assert!(result.is_ok());
@@ -173,22 +169,19 @@ mod tests {
         let content = std::fs::read_to_string(&settings_path).unwrap();
         let config: Value = serde_json::from_str(&content).unwrap();
 
-        let plugins_array = config["plugins"].as_array().unwrap();
-        assert_eq!(plugins_array.len(), 2);
-        assert_eq!(
-            plugins_array[0]["path"],
-            "/Users/test/.claude/plugins/plugin-a"
-        );
-        assert_eq!(plugins_array[0]["enabled"], true);
+        let enabled_plugins = config["enabledPlugins"].as_object().unwrap();
+        assert_eq!(enabled_plugins.len(), 2);
+        assert_eq!(enabled_plugins["plugin-a@official"], true);
+        assert_eq!(enabled_plugins["plugin-b@official"], false);
     }
 
     #[tokio::test]
-    async fn test_write_preserves_other_settings() {
+    async fn test_write_preserves_other_settings_and_removes_legacy() {
         let dir = tempdir().unwrap();
         let claude_dir = dir.path().join(".claude");
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        // Write existing settings
+        // Write existing settings with legacy plugins array
         let existing = json!({
             "someOtherSetting": "value",
             "plugins": [
@@ -201,8 +194,9 @@ mod tests {
         )
         .unwrap();
 
-        // Write new plugins
-        let plugins = vec!["/new/plugin".to_string()];
+        // Write new enabledPlugins
+        let mut plugins = HashMap::new();
+        plugins.insert("new-plugin@official".to_string(), true);
         write_session_plugin_config(dir.path(), &plugins)
             .await
             .unwrap();
@@ -213,10 +207,13 @@ mod tests {
         // Other settings should be preserved
         assert_eq!(config["someOtherSetting"], "value");
 
-        // Plugins should be replaced
-        let plugins_array = config["plugins"].as_array().unwrap();
-        assert_eq!(plugins_array.len(), 1);
-        assert_eq!(plugins_array[0]["path"], "/new/plugin");
+        // Legacy plugins array should be removed
+        assert!(config.get("plugins").is_none());
+
+        // enabledPlugins should be set
+        let enabled_plugins = config["enabledPlugins"].as_object().unwrap();
+        assert_eq!(enabled_plugins.len(), 1);
+        assert_eq!(enabled_plugins["new-plugin@official"], true);
     }
 
     #[tokio::test]
@@ -225,12 +222,12 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        // Write settings with plugins and other settings
+        // Write settings with enabledPlugins and other settings
         let existing = json!({
             "someOtherSetting": "value",
-            "plugins": [
-                {"path": "/test/plugin", "enabled": true}
-            ]
+            "enabledPlugins": {
+                "test-plugin@official": true
+            }
         });
         std::fs::write(
             claude_dir.join("settings.local.json"),
@@ -243,9 +240,37 @@ mod tests {
         let content = std::fs::read_to_string(claude_dir.join("settings.local.json")).unwrap();
         let config: Value = serde_json::from_str(&content).unwrap();
 
-        // Plugins should be removed
-        assert!(config.get("plugins").is_none());
+        // enabledPlugins should be removed
+        assert!(config.get("enabledPlugins").is_none());
         // Other settings should be preserved
+        assert_eq!(config["someOtherSetting"], "value");
+    }
+
+    #[tokio::test]
+    async fn test_remove_cleans_up_legacy_plugins_too() {
+        let dir = tempdir().unwrap();
+        let claude_dir = dir.path().join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+
+        // Write settings with both enabledPlugins and legacy plugins
+        let existing = json!({
+            "someOtherSetting": "value",
+            "enabledPlugins": { "test@official": true },
+            "plugins": [{"path": "/old", "enabled": true}]
+        });
+        std::fs::write(
+            claude_dir.join("settings.local.json"),
+            serde_json::to_string(&existing).unwrap(),
+        )
+        .unwrap();
+
+        remove_session_plugin_config(dir.path()).await.unwrap();
+
+        let content = std::fs::read_to_string(claude_dir.join("settings.local.json")).unwrap();
+        let config: Value = serde_json::from_str(&content).unwrap();
+
+        assert!(config.get("enabledPlugins").is_none());
+        assert!(config.get("plugins").is_none());
         assert_eq!(config["someOtherSetting"], "value");
     }
 
@@ -255,11 +280,11 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        // Write settings with only plugins
+        // Write settings with only enabledPlugins
         let existing = json!({
-            "plugins": [
-                {"path": "/test/plugin", "enabled": true}
-            ]
+            "enabledPlugins": {
+                "test-plugin@official": true
+            }
         });
         std::fs::write(
             claude_dir.join("settings.local.json"),

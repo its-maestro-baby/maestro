@@ -6,6 +6,7 @@
 //! - Personal skills: `~/.claude/skills/*/SKILL.md`
 //! - Personal commands: `~/.claude/commands/*.md`
 //! - Installed plugins: `~/.claude/plugins/*/`
+//! - CLI-installed plugins: `~/.claude/plugins/installed_plugins.json`
 //! - Legacy `.plugins.json` files at project roots
 //!
 //! It also tracks which skills/plugins are enabled per session.
@@ -91,10 +92,13 @@ pub enum PluginSource {
     Builtin,
     /// Defined in the project's .plugins.json (legacy).
     Project,
-    /// User-installed plugin from ~/.claude/plugins/.
+    /// User-installed plugin from ~/.claude/plugins/ (with manifest).
     Installed,
     /// Installed from marketplace.
     Marketplace { url: String },
+    /// Installed via Claude CLI (from installed_plugins.json / cache directory).
+    #[serde(rename = "cli_installed")]
+    CliInstalled,
 }
 
 /// Hook configuration (simplified for now).
@@ -125,6 +129,9 @@ pub struct PluginConfig {
     /// Source of the plugin.
     #[serde(flatten)]
     pub plugin_source: PluginSource,
+    /// Claude CLI plugin ID (e.g. "name@marketplace") for enabledPlugins config.
+    /// None for legacy or builtin plugins.
+    pub cli_id: Option<String>,
     /// IDs of skills this plugin provides.
     pub skills: Vec<String>,
     /// Names of MCP servers this plugin references.
@@ -225,6 +232,32 @@ struct PluginManifest {
     description: Option<String>,
     #[serde(default)]
     icon: Option<String>,
+    /// Marketplace ID (e.g. "official-anthropic-claude-code").
+    #[serde(default)]
+    marketplace_id: Option<String>,
+    /// Plugin ID within the marketplace.
+    #[serde(default)]
+    plugin_id: Option<String>,
+}
+
+/// Structure of ~/.claude/plugins/installed_plugins.json.
+#[derive(Debug, Deserialize)]
+struct InstalledPluginsJson {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    plugins: HashMap<String, Vec<InstalledPluginEntry>>,
+}
+
+/// An entry in installed_plugins.json for a specific scope.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledPluginEntry {
+    #[serde(default)]
+    scope: String,
+    install_path: String,
+    #[serde(default)]
+    version: Option<String>,
 }
 
 /// Parsed YAML frontmatter from a skill/command markdown file.
@@ -452,9 +485,9 @@ fn scan_plugins_directory(dir: &Path) -> Vec<(PluginConfig, Vec<SkillConfig>)> {
             .and_then(|content| serde_json::from_str(&content).ok());
 
         // Skip directories without a valid plugin.json manifest
-        if manifest.is_none() {
+        let Some(manifest) = manifest else {
             continue;
-        }
+        };
 
         let source = SkillSource::Plugin {
             name: plugin_name.clone(),
@@ -477,22 +510,17 @@ fn scan_plugins_directory(dir: &Path) -> Vec<(PluginConfig, Vec<SkillConfig>)> {
 
         let skill_ids: Vec<String> = plugin_skills.iter().map(|s| s.id.clone()).collect();
 
+        // Derive CLI ID from manifest marketplace_id + plugin_id/name
+        let cli_id = derive_cli_id_from_manifest(&manifest, &plugin_name);
+
         let plugin = PluginConfig {
             id: format!("plugin:{}", plugin_name),
-            name: manifest
-                .as_ref()
-                .map(|m| m.name.clone())
-                .unwrap_or_else(|| plugin_name.clone()),
-            version: manifest
-                .as_ref()
-                .and_then(|m| m.version.clone())
-                .unwrap_or_else(|| "0.0.0".to_string()),
-            description: manifest
-                .as_ref()
-                .and_then(|m| m.description.clone())
-                .unwrap_or_default(),
-            icon: manifest.as_ref().and_then(|m| m.icon.clone()),
+            name: manifest.name.clone(),
+            version: manifest.version.unwrap_or_else(|| "0.0.0".to_string()),
+            description: manifest.description.unwrap_or_default(),
+            icon: manifest.icon,
             plugin_source: PluginSource::Installed,
+            cli_id,
             skills: skill_ids,
             mcp_servers: Vec::new(), // TODO: parse .mcp.json if present
             hooks: Vec::new(),       // TODO: parse hooks.json if present
@@ -504,6 +532,132 @@ fn scan_plugins_directory(dir: &Path) -> Vec<(PluginConfig, Vec<SkillConfig>)> {
     }
 
     results
+}
+
+/// Derives a Claude CLI plugin ID from a plugin manifest.
+///
+/// If the manifest has marketplace_id, constructs "name@marketplace-short-name".
+/// Otherwise returns None.
+fn derive_cli_id_from_manifest(manifest: &PluginManifest, dir_name: &str) -> Option<String> {
+    let marketplace_id = manifest.marketplace_id.as_deref()?;
+    let plugin_id = manifest
+        .plugin_id
+        .as_deref()
+        .unwrap_or(dir_name);
+
+    // Convert marketplace ID to short form used by CLI
+    // e.g. "official-anthropic-claude-code" -> "claude-plugins-official"
+    // For now, use the marketplace ID as-is since the mapping varies
+    let marketplace_short = marketplace_id_to_short(marketplace_id);
+    Some(format!("{}@{}", plugin_id, marketplace_short))
+}
+
+/// Converts a marketplace ID to the short form used by Claude CLI.
+///
+/// Known mappings:
+/// - "official-anthropic-claude-code" -> "claude-plugins-official"
+fn marketplace_id_to_short(marketplace_id: &str) -> &str {
+    match marketplace_id {
+        "official-anthropic-claude-code" => "claude-plugins-official",
+        other => other,
+    }
+}
+
+/// Parses ~/.claude/plugins/installed_plugins.json to discover CLI-installed plugins.
+///
+/// Returns tuples of (cli_id, install_path, version).
+fn parse_installed_plugins_json(plugins_dir: &Path) -> Vec<(String, String, String)> {
+    let json_path = plugins_dir.join("installed_plugins.json");
+    let content = match fs::read_to_string(&json_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let parsed: InstalledPluginsJson = match serde_json::from_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("Failed to parse installed_plugins.json: {}", e);
+            return Vec::new();
+        }
+    };
+
+    let mut results = Vec::new();
+    for (cli_id, entries) in parsed.plugins {
+        // Use the first user-scope entry (or any entry)
+        if let Some(entry) = entries.into_iter().find(|e| e.scope == "user").or_else(|| None) {
+            let version = entry.version.unwrap_or_else(|| "0.0.0".to_string());
+            results.push((cli_id, entry.install_path, version));
+        }
+    }
+
+    results
+}
+
+/// Scans a CLI-installed plugin at the given install path.
+///
+/// CLI-installed plugins live in cache directories and may have a different structure
+/// than manually installed plugins.
+fn scan_cli_installed_plugin(
+    cli_id: &str,
+    install_path: &str,
+    version: &str,
+) -> Option<(PluginConfig, Vec<SkillConfig>)> {
+    let plugin_dir = Path::new(install_path);
+    if !plugin_dir.exists() {
+        return None;
+    }
+
+    // Extract plugin name from CLI ID (part before @)
+    let plugin_name = cli_id.split('@').next().unwrap_or(cli_id);
+
+    let source = SkillSource::Plugin {
+        name: plugin_name.to_string(),
+    };
+
+    let mut plugin_skills = Vec::new();
+
+    // Scan skills/ subdirectory
+    let skills_dir = plugin_dir.join("skills");
+    if skills_dir.exists() {
+        plugin_skills.extend(scan_skills_directory(&skills_dir, source.clone()));
+    }
+
+    // Scan commands/ subdirectory
+    let commands_dir = plugin_dir.join("commands");
+    if commands_dir.exists() {
+        plugin_skills.extend(scan_commands_directory(&commands_dir, source.clone()));
+    }
+
+    // Try to read the manifest for description
+    let manifest_path = plugin_dir.join(".claude-plugin").join("plugin.json");
+    let manifest: Option<PluginManifest> = fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok());
+
+    let skill_ids: Vec<String> = plugin_skills.iter().map(|s| s.id.clone()).collect();
+
+    let plugin = PluginConfig {
+        id: format!("plugin:{}", plugin_name),
+        name: manifest
+            .as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| plugin_name.to_string()),
+        version: version.to_string(),
+        description: manifest
+            .as_ref()
+            .and_then(|m| m.description.clone())
+            .unwrap_or_default(),
+        icon: manifest.as_ref().and_then(|m| m.icon.clone()),
+        plugin_source: PluginSource::CliInstalled,
+        cli_id: Some(cli_id.to_string()),
+        skills: skill_ids,
+        mcp_servers: Vec::new(),
+        hooks: Vec::new(),
+        enabled_by_default: true,
+        path: Some(install_path.to_string()),
+    };
+
+    Some((plugin, plugin_skills))
 }
 
 /// Returns a prefix string for skill IDs based on source.
@@ -644,6 +798,7 @@ impl PluginManager {
                     description: entry.description.unwrap_or_default(),
                     icon: entry.icon,
                     plugin_source,
+                    cli_id: None,
                     skills: entry.skills,
                     mcp_servers: entry.mcp_servers,
                     hooks: entry.hooks,
@@ -663,7 +818,8 @@ impl PluginManager {
     /// 2. Project commands: `<project>/.claude/commands/*.md`
     /// 3. Personal skills: `~/.claude/skills/*/SKILL.md`
     /// 4. Personal commands: `~/.claude/commands/*.md`
-    /// 5. Installed plugins: `~/.claude/plugins/*/`
+    /// 5. Installed plugins: `~/.claude/plugins/*/` (with .claude-plugin/plugin.json)
+    /// 5b. CLI-installed plugins: `~/.claude/plugins/installed_plugins.json`
     /// 6. Legacy .plugins.json
     ///
     /// Skills are deduplicated, with earlier sources taking priority.
@@ -717,9 +873,38 @@ impl PluginManager {
             // 5. Installed plugins: ~/.claude/plugins/*/
             let plugins_dir = claude_dir.join("plugins");
             if plugins_dir.exists() {
+                // Track which plugin names we've already seen from manual installs
+                let mut seen_plugin_names: HashSet<String> = HashSet::new();
+
                 for (plugin, plugin_skills) in scan_plugins_directory(&plugins_dir) {
+                    seen_plugin_names.insert(plugin.name.clone());
                     all_plugins.push(plugin);
                     all_skills.extend(plugin_skills);
+                }
+
+                // 5b. CLI-installed plugins from installed_plugins.json
+                // These live in cache/ subdirectories and aren't found by scan_plugins_directory
+                for (cli_id, install_path, version) in parse_installed_plugins_json(&plugins_dir) {
+                    let plugin_name = cli_id.split('@').next().unwrap_or(&cli_id);
+
+                    // Skip if already discovered via manual install
+                    if seen_plugin_names.contains(plugin_name) {
+                        // But update the existing plugin's cli_id if it doesn't have one
+                        if let Some(existing) = all_plugins.iter_mut().find(|p| p.name == plugin_name) {
+                            if existing.cli_id.is_none() {
+                                existing.cli_id = Some(cli_id.clone());
+                            }
+                        }
+                        continue;
+                    }
+
+                    if let Some((plugin, plugin_skills)) =
+                        scan_cli_installed_plugin(&cli_id, &install_path, &version)
+                    {
+                        seen_plugin_names.insert(plugin_name.to_string());
+                        all_plugins.push(plugin);
+                        all_skills.extend(plugin_skills);
+                    }
                 }
             }
         }
@@ -758,6 +943,30 @@ impl PluginManager {
         self.project_plugins
             .insert(project_path.to_string(), plugins.clone());
         plugins
+    }
+
+    /// Resolves Maestro internal plugin IDs to Claude CLI `enabledPlugins` map.
+    ///
+    /// Takes the list of enabled Maestro plugin IDs and returns a HashMap
+    /// mapping CLI plugin IDs to their enabled state (true/false).
+    /// Only plugins with a `cli_id` are included (standalone/legacy plugins are excluded).
+    pub fn resolve_enabled_plugins_map(
+        &self,
+        project_path: &str,
+        enabled_plugin_ids: &[String],
+    ) -> HashMap<String, bool> {
+        let project_plugins = self.get_project_plugins(project_path);
+        let enabled_set: HashSet<&str> = enabled_plugin_ids.iter().map(|s| s.as_str()).collect();
+
+        let mut result = HashMap::new();
+        for plugin in &project_plugins.plugins {
+            if let Some(cli_id) = &plugin.cli_id {
+                let is_enabled = enabled_set.contains(plugin.id.as_str());
+                result.insert(cli_id.clone(), is_enabled);
+            }
+        }
+
+        result
     }
 
     /// Gets the enabled skill IDs for a session.
@@ -843,5 +1052,74 @@ mod tests {
         let plugins = manager.get_project_plugins("/nonexistent/path");
         assert!(plugins.skills.is_empty());
         assert!(plugins.plugins.is_empty());
+    }
+
+    #[test]
+    fn test_marketplace_id_to_short() {
+        assert_eq!(
+            marketplace_id_to_short("official-anthropic-claude-code"),
+            "claude-plugins-official"
+        );
+        assert_eq!(
+            marketplace_id_to_short("custom-marketplace"),
+            "custom-marketplace"
+        );
+    }
+
+    #[test]
+    fn test_resolve_enabled_plugins_map() {
+        let manager = PluginManager::new();
+
+        // Manually insert some test plugins
+        let plugins = ProjectPlugins {
+            skills: Vec::new(),
+            plugins: vec![
+                PluginConfig {
+                    id: "plugin:frontend-design".to_string(),
+                    name: "frontend-design".to_string(),
+                    version: "1.0.0".to_string(),
+                    description: "Test".to_string(),
+                    icon: None,
+                    plugin_source: PluginSource::Installed,
+                    cli_id: Some("frontend-design@claude-plugins-official".to_string()),
+                    skills: Vec::new(),
+                    mcp_servers: Vec::new(),
+                    hooks: Vec::new(),
+                    enabled_by_default: true,
+                    path: None,
+                },
+                PluginConfig {
+                    id: "plugin:stripe".to_string(),
+                    name: "stripe".to_string(),
+                    version: "0.1.0".to_string(),
+                    description: "Test".to_string(),
+                    icon: None,
+                    plugin_source: PluginSource::Installed,
+                    cli_id: None, // No CLI ID (manually installed, no marketplace)
+                    skills: Vec::new(),
+                    mcp_servers: Vec::new(),
+                    hooks: Vec::new(),
+                    enabled_by_default: true,
+                    path: None,
+                },
+            ],
+        };
+
+        manager
+            .project_plugins
+            .insert("/test/path".to_string(), plugins);
+
+        // Enable only frontend-design
+        let enabled = vec!["plugin:frontend-design".to_string()];
+        let result = manager.resolve_enabled_plugins_map("/test/path", &enabled);
+
+        // Only plugins with cli_id should be in the result
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.get("frontend-design@claude-plugins-official"),
+            Some(&true)
+        );
+        // stripe has no cli_id, so it's not in the result
+        assert!(result.get("stripe").is_none());
     }
 }

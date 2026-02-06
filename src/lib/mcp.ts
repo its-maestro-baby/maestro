@@ -32,6 +32,9 @@ export interface McpCustomServer {
   createdAt: string;
 }
 
+/** Source of an MCP server discovery. */
+export type McpServerSource = "project" | "user" | "local" | "custom";
+
 /**
  * Stdio MCP server config (flattened from backend).
  * The backend uses `#[serde(flatten)]` so type fields are at the root level.
@@ -42,6 +45,7 @@ export interface McpStdioServerConfig {
   command: string;
   args: string[];
   env: McpEnv;
+  source?: McpServerSource;
 }
 
 /**
@@ -52,6 +56,7 @@ export interface McpHttpServerConfig {
   name: string;
   type: "http";
   url: string;
+  source?: McpServerSource;
 }
 
 /** Union of all MCP server config types. */

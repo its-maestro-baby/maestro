@@ -1,12 +1,30 @@
 //! MCP (Model Context Protocol) server discovery and session state management.
 //!
-//! This module parses `.mcp.json` files at project roots to discover configured
-//! MCP servers, and tracks which servers are enabled per session.
+//! This module discovers MCP servers from multiple sources:
+//! - Project `.mcp.json` files
+//! - User/local scope servers from `~/.claude.json`
+//!
+//! It also tracks which servers are enabled per session.
 
 use dashmap::DashMap;
+use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+
+/// The source/origin of an MCP server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum McpServerSource {
+    /// From the project's .mcp.json file.
+    Project,
+    /// From ~/.claude.json top-level mcpServers (user scope).
+    User,
+    /// From ~/.claude.json projects[path].mcpServers (local scope).
+    Local,
+    /// Custom server defined in Maestro.
+    Custom,
+}
 
 /// Configuration for an MCP server as read from `.mcp.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +50,13 @@ pub struct McpServerConfig {
     /// Server type and connection details.
     #[serde(flatten)]
     pub server_type: McpServerType,
+    /// Where this server was discovered from.
+    #[serde(default = "default_project_source")]
+    pub source: McpServerSource,
+}
+
+fn default_project_source() -> McpServerSource {
+    McpServerSource::Project
 }
 
 /// Raw structure of `.mcp.json` file.
@@ -69,6 +94,42 @@ pub struct McpManager {
     session_enabled: DashMap<SessionKey, Vec<String>>,
 }
 
+/// Parses MCP server entries from a HashMap into McpServerConfig structs.
+fn parse_mcp_entries(
+    entries: HashMap<String, McpServerEntry>,
+    source: McpServerSource,
+) -> Vec<McpServerConfig> {
+    entries
+        .into_iter()
+        .filter_map(|(name, entry)| {
+            let server_type = match entry.server_type.as_str() {
+                "stdio" => {
+                    let command = entry.command?;
+                    McpServerType::Stdio {
+                        command,
+                        args: entry.args.unwrap_or_default(),
+                        env: entry.env.unwrap_or_default(),
+                    }
+                }
+                "http" => {
+                    let url = entry.url?;
+                    McpServerType::Http { url }
+                }
+                other => {
+                    log::warn!("Unknown MCP server type '{}' for server '{}'", other, name);
+                    return None;
+                }
+            };
+
+            Some(McpServerConfig {
+                name,
+                server_type,
+                source: source.clone(),
+            })
+        })
+        .collect()
+}
+
 impl McpManager {
     /// Creates a new MCP manager with empty caches.
     pub fn new() -> Self {
@@ -81,7 +142,7 @@ impl McpManager {
     /// Parses the `.mcp.json` file at the given project path.
     ///
     /// Returns an empty vec if the file doesn't exist or can't be parsed.
-    fn parse_mcp_config(project_path: &str) -> Vec<McpServerConfig> {
+    fn parse_project_mcp_config(project_path: &str) -> Vec<McpServerConfig> {
         let mcp_path = Path::new(project_path).join(".mcp.json");
 
         let content = match std::fs::read_to_string(&mcp_path) {
@@ -97,35 +158,95 @@ impl McpManager {
             }
         };
 
-        parsed
-            .mcp_servers
-            .into_iter()
-            .filter_map(|(name, entry)| {
-                let server_type = match entry.server_type.as_str() {
-                    "stdio" => {
-                        let command = entry.command?;
-                        McpServerType::Stdio {
-                            command,
-                            args: entry.args.unwrap_or_default(),
-                            env: entry.env.unwrap_or_default(),
-                        }
-                    }
-                    "http" => {
-                        let url = entry.url?;
-                        McpServerType::Http { url }
-                    }
-                    other => {
-                        log::warn!("Unknown MCP server type '{}' for server '{}'", other, name);
-                        return None;
-                    }
-                };
-
-                Some(McpServerConfig { name, server_type })
-            })
-            .collect()
+        parse_mcp_entries(parsed.mcp_servers, McpServerSource::Project)
     }
 
-    /// Gets the MCP servers for a project, parsing `.mcp.json` if not cached.
+    /// Parses MCP servers from ~/.claude.json for a given project.
+    ///
+    /// Discovers:
+    /// - User-scope servers: top-level `mcpServers` object
+    /// - Local-scope servers: `projects[project_path].mcpServers`
+    fn parse_claude_json_servers(project_path: &str) -> Vec<McpServerConfig> {
+        let Some(base_dirs) = BaseDirs::new() else {
+            return Vec::new();
+        };
+
+        let claude_json_path = base_dirs.home_dir().join(".claude.json");
+        let content = match std::fs::read_to_string(&claude_json_path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("Failed to parse ~/.claude.json: {}", e);
+                return Vec::new();
+            }
+        };
+
+        let mut servers = Vec::new();
+
+        // 1. User-scope servers: top-level "mcpServers" object
+        if let Some(mcp_servers) = parsed.get("mcpServers").and_then(|v| v.as_object()) {
+            for (name, config) in mcp_servers {
+                if let Some(server) = parse_mcp_value_entry(name, config, McpServerSource::User) {
+                    servers.push(server);
+                }
+            }
+        }
+
+        // 2. Local-scope servers: projects[project_path].mcpServers
+        if let Some(projects) = parsed.get("projects").and_then(|v| v.as_object()) {
+            if let Some(project) = projects.get(project_path).and_then(|v| v.as_object()) {
+                if let Some(mcp_servers) = project.get("mcpServers").and_then(|v| v.as_object()) {
+                    for (name, config) in mcp_servers {
+                        if let Some(server) =
+                            parse_mcp_value_entry(name, config, McpServerSource::Local)
+                        {
+                            servers.push(server);
+                        }
+                    }
+                }
+            }
+        }
+
+        servers
+    }
+
+    /// Discovers all MCP servers from all sources, deduplicated.
+    ///
+    /// Priority: local scope > project scope > user scope (earlier sources win).
+    fn discover_all_servers(project_path: &str) -> Vec<McpServerConfig> {
+        let mut all_servers = Vec::new();
+        let mut seen_names = HashSet::new();
+
+        // 1. Local scope from ~/.claude.json (highest priority)
+        let claude_json_servers = Self::parse_claude_json_servers(project_path);
+        for server in &claude_json_servers {
+            if server.source == McpServerSource::Local && seen_names.insert(server.name.clone()) {
+                all_servers.push(server.clone());
+            }
+        }
+
+        // 2. Project scope from .mcp.json
+        for server in Self::parse_project_mcp_config(project_path) {
+            if seen_names.insert(server.name.clone()) {
+                all_servers.push(server);
+            }
+        }
+
+        // 3. User scope from ~/.claude.json (lowest priority)
+        for server in claude_json_servers {
+            if server.source == McpServerSource::User && seen_names.insert(server.name.clone()) {
+                all_servers.push(server);
+            }
+        }
+
+        all_servers
+    }
+
+    /// Gets the MCP servers for a project, discovering from all sources if not cached.
     ///
     /// The project_path should be canonicalized for consistent caching.
     pub fn get_project_servers(&self, project_path: &str) -> Vec<McpServerConfig> {
@@ -134,16 +255,18 @@ impl McpManager {
             return servers.clone();
         }
 
-        // Parse and cache
-        let servers = Self::parse_mcp_config(project_path);
-        self.project_servers.insert(project_path.to_string(), servers.clone());
+        // Discover from all sources and cache
+        let servers = Self::discover_all_servers(project_path);
+        self.project_servers
+            .insert(project_path.to_string(), servers.clone());
         servers
     }
 
-    /// Refreshes the cached servers for a project by re-parsing `.mcp.json`.
+    /// Refreshes the cached servers for a project by re-discovering from all sources.
     pub fn refresh_project_servers(&self, project_path: &str) -> Vec<McpServerConfig> {
-        let servers = Self::parse_mcp_config(project_path);
-        self.project_servers.insert(project_path.to_string(), servers.clone());
+        let servers = Self::discover_all_servers(project_path);
+        self.project_servers
+            .insert(project_path.to_string(), servers.clone());
         servers
     }
 
@@ -182,6 +305,59 @@ impl McpManager {
     }
 }
 
+/// Parses a single MCP server entry from a serde_json::Value.
+fn parse_mcp_value_entry(
+    name: &str,
+    config: &serde_json::Value,
+    source: McpServerSource,
+) -> Option<McpServerConfig> {
+    let server_type_str = config.get("type")?.as_str()?;
+
+    let server_type = match server_type_str {
+        "stdio" => {
+            let command = config.get("command")?.as_str()?.to_string();
+            let args = config
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let env = config
+                .get("env")
+                .and_then(|v| v.as_object())
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            McpServerType::Stdio { command, args, env }
+        }
+        "http" => {
+            let url = config.get("url")?.as_str()?.to_string();
+            McpServerType::Http { url }
+        }
+        other => {
+            log::warn!(
+                "Unknown MCP server type '{}' for server '{}' in ~/.claude.json",
+                other,
+                name
+            );
+            return None;
+        }
+    };
+
+    Some(McpServerConfig {
+        name: name.to_string(),
+        server_type,
+        source,
+    })
+}
+
 impl Default for McpManager {
     fn default() -> Self {
         Self::new()
@@ -197,5 +373,25 @@ mod tests {
         let manager = McpManager::new();
         let servers = manager.get_project_servers("/nonexistent/path");
         assert!(servers.is_empty());
+    }
+
+    #[test]
+    fn test_parse_mcp_entries() {
+        let mut entries = HashMap::new();
+        entries.insert(
+            "test-server".to_string(),
+            McpServerEntry {
+                server_type: "stdio".to_string(),
+                command: Some("/usr/bin/test".to_string()),
+                args: Some(vec!["--arg1".to_string()]),
+                env: None,
+                url: None,
+            },
+        );
+
+        let servers = parse_mcp_entries(entries, McpServerSource::Project);
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "test-server");
+        assert_eq!(servers[0].source, McpServerSource::Project);
     }
 }

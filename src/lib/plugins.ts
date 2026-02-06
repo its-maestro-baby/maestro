@@ -89,6 +89,8 @@ interface BasePluginConfig {
   version: string;
   description: string;
   icon: string | null;
+  /** Claude CLI plugin ID (e.g. "name@marketplace") for enabledPlugins config. */
+  cli_id: string | null;
   skills: string[];
   mcp_servers: string[];
   hooks: HookConfig[];
@@ -126,12 +128,20 @@ export interface MarketplacePluginConfig extends BasePluginConfig {
   url: string;
 }
 
+/**
+ * Plugin config installed via Claude CLI (from installed_plugins.json / cache).
+ */
+export interface CliInstalledPluginConfig extends BasePluginConfig {
+  plugin_source: "cli_installed";
+}
+
 /** Union of all plugin config types. */
 export type PluginConfig =
   | BuiltinPluginConfig
   | ProjectPluginConfig
   | InstalledPluginConfig
-  | MarketplacePluginConfig;
+  | MarketplacePluginConfig
+  | CliInstalledPluginConfig;
 
 /** Combined result of plugin discovery for a project. */
 export interface ProjectPlugins {
@@ -261,16 +271,17 @@ export async function loadProjectPluginDefaults(
 }
 
 /**
- * Writes enabled plugins to the session's .claude/settings.local.json.
+ * Writes plugin enabled/disabled state to the session's .claude/settings.local.json.
  *
- * This registers plugins with Claude CLI so it can discover all their
- * components (skills, commands, agents, hooks, MCP servers).
+ * Uses Claude CLI's `enabledPlugins` format to control which plugins are active.
+ * Resolves Maestro internal plugin IDs to CLI plugin IDs (e.g. "name@marketplace").
  */
 export async function writeSessionPluginConfig(
   workingDir: string,
-  enabledPluginPaths: string[]
+  projectPath: string,
+  enabledPluginIds: string[]
 ): Promise<void> {
-  return invoke("write_session_plugin_config", { workingDir, enabledPluginPaths });
+  return invoke("write_session_plugin_config", { workingDir, projectPath, enabledPluginIds });
 }
 
 /**

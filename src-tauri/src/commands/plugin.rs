@@ -262,16 +262,26 @@ pub async fn load_project_plugin_defaults(
     Ok(result)
 }
 
-/// Writes enabled plugins to the session's .claude/settings.local.json.
+/// Writes plugin enabled/disabled state to the session's .claude/settings.local.json.
 ///
-/// This registers plugins with Claude CLI so it can discover all their
-/// components (skills, commands, agents, hooks, MCP servers).
+/// Uses Claude CLI's `enabledPlugins` format to control which plugins are active.
+/// Resolves Maestro internal plugin IDs to CLI plugin IDs (e.g. "name@marketplace").
 #[tauri::command]
 pub async fn write_session_plugin_config(
+    state: State<'_, PluginManager>,
     working_dir: String,
-    enabled_plugin_paths: Vec<String>,
+    project_path: String,
+    enabled_plugin_ids: Vec<String>,
 ) -> Result<(), String> {
-    plugin_config_writer::write_session_plugin_config(Path::new(&working_dir), &enabled_plugin_paths)
+    let canonical = std::fs::canonicalize(&project_path)
+        .map_err(|e| format!("Invalid project path '{}': {}", project_path, e))?
+        .to_string_lossy()
+        .into_owned();
+
+    // Resolve Maestro plugin IDs to CLI enabledPlugins map
+    let enabled_plugins_map = state.resolve_enabled_plugins_map(&canonical, &enabled_plugin_ids);
+
+    plugin_config_writer::write_session_plugin_config(Path::new(&working_dir), &enabled_plugins_map)
         .await
 }
 
