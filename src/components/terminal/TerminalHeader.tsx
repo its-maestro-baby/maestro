@@ -81,84 +81,84 @@ export function TerminalHeader({
   // Calculate adaptive styling based on terminal count
   const getAdaptiveClasses = () => {
     if (isZoomed) {
-      // When zoomed, use normal/larger sizes
+      // When zoomed, use extra large sizes
       return {
-        headerHeight: "h-8",
-        providerIconSize: 18,
-        sessionLabelSize: "text-[11px]",
-        badgeSize: "text-[9px]",
-        badgePadding: "px-1.5 py-px",
-        branchMaxWidth: "max-w-[80px]",
-        statusSize: "text-[10px]",
+        headerHeight: "h-14",
+        providerIconSize: 32,
+        sessionLabelSize: "text-lg",
+        badgeSize: "text-sm",
+        badgePadding: "px-3 py-1",
+        branchMaxWidth: "max-w-[160px]",
+        statusSize: "text-sm",
         showAllElements: true,
-        gapSize: "gap-1",
+        gapSize: "gap-2.5",
       };
     }
 
     if (terminalCount <= 2) {
-      // 1-2 terminals: normal size
+      // 1-2 terminals: large size
+      return {
+        headerHeight: "h-12",
+        providerIconSize: 28,
+        sessionLabelSize: "text-base",
+        badgeSize: "text-xs",
+        badgePadding: "px-2.5 py-1",
+        branchMaxWidth: "max-w-[140px]",
+        statusSize: "text-sm",
+        showAllElements: true,
+        gapSize: "gap-2",
+      };
+    } else if (terminalCount <= 3) {
+      // 3 terminals: comfortable
+      return {
+        headerHeight: "h-10",
+        providerIconSize: 24,
+        sessionLabelSize: "text-sm",
+        badgeSize: "text-xs",
+        badgePadding: "px-2 py-0.5",
+        branchMaxWidth: "max-w-[120px]",
+        statusSize: "text-xs",
+        showAllElements: true,
+        gapSize: "gap-2",
+      };
+    } else if (terminalCount === 4) {
+      // 4 terminals: moderate
+      return {
+        headerHeight: "h-9",
+        providerIconSize: 20,
+        sessionLabelSize: "text-[13px]",
+        badgeSize: "text-[11px]",
+        badgePadding: "px-2 py-0.5",
+        branchMaxWidth: "max-w-[100px]",
+        statusSize: "text-xs",
+        showAllElements: true,
+        gapSize: "gap-1.5",
+      };
+    } else if (terminalCount <= 6) {
+      // 5-6 terminals: compact
+      return {
+        headerHeight: "h-8",
+        providerIconSize: 18,
+        sessionLabelSize: "text-xs",
+        badgeSize: "text-[10px]",
+        badgePadding: "px-1.5 py-0.5",
+        branchMaxWidth: "max-w-[80px]",
+        statusSize: "text-[11px]",
+        showAllElements: true,
+        gapSize: "gap-1",
+      };
+    } else {
+      // 7+ terminals: moderately compact
       return {
         headerHeight: "h-7",
-        providerIconSize: 18,
+        providerIconSize: 16,
         sessionLabelSize: "text-[11px]",
         badgeSize: "text-[9px]",
         badgePadding: "px-1.5 py-px",
-        branchMaxWidth: "max-w-[80px]",
+        branchMaxWidth: "max-w-[60px]",
         statusSize: "text-[10px]",
-        showAllElements: true,
-        gapSize: "gap-1",
-      };
-    } else if (terminalCount <= 3) {
-      // 3 terminals: slightly smaller
-      return {
-        headerHeight: "h-6",
-        providerIconSize: 16,
-        sessionLabelSize: "text-[10px]",
-        badgeSize: "text-[8px]",
-        badgePadding: "px-1.5 py-px",
-        branchMaxWidth: "max-w-[70px]",
-        statusSize: "text-[9px]",
-        showAllElements: true,
-        gapSize: "gap-1",
-      };
-    } else if (terminalCount === 4) {
-      // 4 terminals: more compact to fit on one line
-      return {
-        headerHeight: "h-5",
-        providerIconSize: 14,
-        sessionLabelSize: "text-[9px]",
-        badgeSize: "text-[7px]",
-        badgePadding: "px-1 py-px",
-        branchMaxWidth: "max-w-[55px]",
-        statusSize: "text-[8px]",
-        showAllElements: true,
-        gapSize: "gap-0.5",
-      };
-    } else if (terminalCount <= 6) {
-      // 5-6 terminals: very compact
-      return {
-        headerHeight: "h-5",
-        providerIconSize: 14,
-        sessionLabelSize: "text-[8px]",
-        badgeSize: "text-[7px]",
-        badgePadding: "px-0.5 py-px",
-        branchMaxWidth: "max-w-[45px]",
-        statusSize: "text-[7px]",
-        showAllElements: true,
-        gapSize: "gap-0.5",
-      };
-    } else {
-      // 7+ terminals: ultra compact, hide some elements
-      return {
-        headerHeight: "h-4",
-        providerIconSize: 12,
-        sessionLabelSize: "text-[7px]",
-        badgeSize: "text-[6px]",
-        badgePadding: "px-0.5 py-0",
-        branchMaxWidth: "max-w-[40px]",
-        statusSize: "text-[7px]",
         showAllElements: false,
-        gapSize: "gap-0.5",
+        gapSize: "gap-1",
       };
     }
   };
