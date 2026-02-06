@@ -54,6 +54,15 @@ function App() {
     localStorage.setItem("maestro-theme", theme);
   }, [theme]);
 
+  // Tag the document with platform class so CSS can disable expensive effects
+  // (e.g. box-shadow animations) that aren't GPU-accelerated on WebKitGTK/Linux.
+  useEffect(() => {
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes("linux")) {
+      document.documentElement.classList.add("platform-linux");
+    }
+  }, []);
+
   // Clean up orphaned PTY sessions on mount (e.g., after page reload)
   // This ensures no stale processes remain from the previous frontend state
   useEffect(() => {

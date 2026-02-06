@@ -317,6 +317,7 @@ impl ProcessManager {
         // dramatically reducing frontend overhead while remaining imperceptible for typing.
         let event_name = format!("pty-output-{id}");
         let app = app_handle.clone();
+        #[cfg(windows)]
         let inner_ref = self.inner.clone();
         tokio::spawn(async move {
             let mut decoder = Utf8Decoder::new();
