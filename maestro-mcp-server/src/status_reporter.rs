@@ -119,10 +119,18 @@ impl StatusReporter {
                         "[maestro-mcp-server] Status response: {}",
                         status
                     );
-                    if status.is_success() {
+                    if status.is_success() || status.as_u16() == 202 {
                         return Ok(());
                     }
-                    // Non-2xx — retry
+                    // 4xx = client error (e.g. 403 wrong instance) — don't retry
+                    if status.is_client_error() {
+                        eprintln!(
+                            "[maestro-mcp-server] Client error {} — not retrying",
+                            status
+                        );
+                        return Ok(());
+                    }
+                    // 5xx = server error — retry
                     last_error = Some(StatusError::HttpStatus(status.as_u16()));
                 }
                 Err(e) => {
@@ -171,6 +179,44 @@ mod tests {
         let result = reporter.report_status("idle", "Ready", None).await;
         // Should return Ok due to graceful degradation (not crash)
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_no_retry_on_client_error() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        let attempt_count = Arc::new(AtomicU32::new(0));
+        let count_clone = attempt_count.clone();
+
+        // Server always returns 403 Forbidden (wrong instance_id)
+        let app = axum::Router::new().route(
+            "/status",
+            axum::routing::post(move |_body: axum::body::Bytes| {
+                let count = count_clone.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::FORBIDDEN
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let reporter = StatusReporter::new(
+            Some(format!("http://{}/status", addr)),
+            Some(1),
+            Some("test".to_string()),
+        );
+
+        let result = reporter.report_status("idle", "Ready", None).await;
+        assert!(result.is_ok());
+        // Should only make 1 attempt — 403 is not retryable
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
