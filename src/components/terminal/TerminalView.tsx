@@ -316,6 +316,24 @@ export const TerminalView = memo(function TerminalView({
           return false; // Don't send to PTY
         }
 
+        // Cmd+Left/Right (Mac): jump to beginning/end of line
+        // Cmd+Delete (Mac): delete from cursor to beginning of line
+        // WebView intercepts Cmd+key by default, so we manually send the escape sequences
+        if (event.metaKey && event.type === "keydown") {
+          if (event.key === "ArrowLeft") {
+            writeStdin(sessionId, "\x01").catch(console.error); // Ctrl+A: beginning of line
+            return false;
+          }
+          if (event.key === "ArrowRight") {
+            writeStdin(sessionId, "\x05").catch(console.error); // Ctrl+E: end of line
+            return false;
+          }
+          if (event.key === "Backspace") {
+            writeStdin(sessionId, "\x15").catch(console.error); // Ctrl+U: delete to beginning of line
+            return false;
+          }
+        }
+
         return true; // Let xterm handle all other keys
       });
 
