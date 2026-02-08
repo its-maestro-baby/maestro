@@ -1,3 +1,4 @@
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -290,15 +291,22 @@ export function TerminalView({ sessionId, status = "idle", isFocused = false, on
       term.loadAddon(webLinksAddon);
       term.open(container);
 
-      // WebGL addon for faster rendering (must be loaded after open())
+      // GPU-accelerated rendering (must be loaded after open())
+      // Try WebGL first, fall back to Canvas2D (much faster than DOM on Linux)
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
           webglAddon.dispose();
+          try {
+            term?.loadAddon(new CanvasAddon());
+          } catch { /* DOM renderer as final fallback */ }
         });
         term.loadAddon(webglAddon);
       } catch {
-        // WebGL not available, fall back to canvas renderer (default)
+        // WebGL not available — use Canvas2D renderer
+        try {
+          term.loadAddon(new CanvasAddon());
+        } catch { /* DOM renderer as final fallback */ }
       }
 
       termRef.current = term;
