@@ -215,7 +215,10 @@ function App() {
               onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
               gitPanelOpen={gitPanelOpen}
               hideWindowControls
-              onBranchChanged={(newBranch) => setCurrentBranch(newBranch)}
+              onBranchChanged={(newBranch) => {
+                setCurrentBranch(newBranch);
+                multiProjectRef.current?.refreshBranchesInActiveProject();
+              }}
             />
 
             {/* Git panel header - inline at same level as TopBar */}

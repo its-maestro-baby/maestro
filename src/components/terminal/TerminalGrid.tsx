@@ -122,6 +122,7 @@ function createEmptySlot(
 export interface TerminalGridHandle {
   addSession: () => void;
   launchAll: () => Promise<void>;
+  refreshBranches: () => void;
 }
 
 /**
@@ -264,12 +265,10 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSessionCountChange?.(slots.length, launchedCount);
   }, [slots, onSessionCountChange]);
 
-  // Fetch branches when effectiveRepoPath is available
-  useEffect(() => {
-    // Lazy Load: Only fetch project metadata if the tab is active.
-    // This prevents background projects from triggering macOS permission prompts on boot.
-    if (!effectiveRepoPath || !isActive) {
-      if (!effectiveRepoPath) setIsGitRepo(false);
+  // Refresh branches callback (used by useEffect and exposed via handle)
+  const refreshBranches = useCallback(() => {
+    if (!effectiveRepoPath) {
+      setIsGitRepo(false);
       return;
     }
 
@@ -286,6 +285,14 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         setIsLoadingBranches(false);
       });
   }, [effectiveRepoPath]);
+
+  // Fetch branches when effectiveRepoPath is available
+  // Lazy Load: Only fetch project metadata if the tab is active.
+  // This prevents background projects from triggering macOS permission prompts on boot.
+  useEffect(() => {
+    if (!isActive) return;
+    refreshBranches();
+  }, [refreshBranches, isActive]);
 
   // Fetch MCP servers and plugins when projectPath is available
   useEffect(() => {
@@ -669,9 +676,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     // Clean up worktree if one was created (fire-and-forget)
     // Use effectiveRepoPath for worktree cleanup since worktrees are git-repo specific
     if (effectiveRepoPath && worktreePath) {
-      cleanupSessionWorktree(effectiveRepoPath, worktreePath).catch(console.error);
+      cleanupSessionWorktree(effectiveRepoPath, worktreePath)
+        .then(() => refreshBranches())
+        .catch(console.error);
     }
-  }, [tabId, effectiveRepoPath, projectPath, removeSessionFromProject]);
+  }, [tabId, effectiveRepoPath, projectPath, removeSessionFromProject, refreshBranches]);
 
   /**
    * Removes a pre-launch slot (before it's launched).
@@ -876,9 +885,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       if (prev.length >= MAX_SESSIONS) return prev;
       return [...prev, createEmptySlot(mcpServers, skills, plugins)];
     });
-  }, [mcpServers, skills, plugins]);
+    // Refresh branch list so new slots see the latest branches
+    refreshBranches();
+  }, [mcpServers, skills, plugins, refreshBranches]);
 
-  useImperativeHandle(ref, () => ({ addSession, launchAll }), [addSession, launchAll]);
+  useImperativeHandle(ref, () => ({ addSession, launchAll, refreshBranches }), [addSession, launchAll, refreshBranches]);
 
   if (error) {
     return (
