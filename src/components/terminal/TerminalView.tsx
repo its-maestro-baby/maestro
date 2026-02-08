@@ -378,6 +378,12 @@ export const TerminalView = memo(function TerminalView({
           return false; // Don't send to PTY
         }
 
+        // Cmd/Ctrl+T: add new session — block xterm so 't' isn't sent to PTY.
+        // The DOM event still bubbles to window where useAppKeyboard handles it.
+        if (event.key === "t" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.type === "keydown") {
+          return false;
+        }
+
         // Cmd+Left/Right (Mac): jump to beginning/end of line
         // Cmd+Delete (Mac): delete from cursor to beginning of line
         // WebView intercepts Cmd+key by default, so we manually send the escape sequences
