@@ -148,6 +148,7 @@ interface TerminalGridProps {
   preserveOnHide?: boolean;
   isActive?: boolean;
   onSessionCountChange?: (slotCount: number, launchedCount: number) => void;
+  onAllSessionsClosed?: () => void;
 }
 
 /**
@@ -164,7 +165,7 @@ interface TerminalGridProps {
  *   a fresh slot so the user is never left with an empty grid.
  */
 export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(function TerminalGrid(
-  { projectPath, repoPath, repositories, workspaceType, onRepoChange, tabId, preserveOnHide = false, isActive = true, onSessionCountChange },
+  { projectPath, repoPath, repositories, workspaceType, onRepoChange, tabId, preserveOnHide = false, isActive = true, onSessionCountChange, onAllSessionsClosed },
   ref,
 ) {
   // Use repoPath for git operations, falling back to projectPath
@@ -364,12 +365,16 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     };
   }, [preserveOnHide]);
 
-  // Auto-respawn a slot when all slots are removed (not on initial mount)
+  // When all slots are removed: either return to idle landing view or respawn a slot
   useEffect(() => {
     if (slots.length === 0 && mounted.current && !error) {
-      setSlots([createEmptySlot(mcpServers, skills, plugins)]);
+      if (onAllSessionsClosed) {
+        onAllSessionsClosed();
+      } else {
+        setSlots([createEmptySlot(mcpServers, skills, plugins)]);
+      }
     }
-  }, [slots.length, error, mcpServers, skills, plugins]);
+  }, [slots.length, error, mcpServers, skills, plugins, onAllSessionsClosed]);
 
   /**
    * Saves branch config with debouncing.
@@ -891,6 +896,23 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
   useImperativeHandle(ref, () => ({ addSession, launchAll, refreshBranches }), [addSession, launchAll, refreshBranches]);
 
+  // Handle zoom toggle for a slot
+  const handleToggleZoom = useCallback((slotId: string) => {
+    setZoomedSlotId(prev => prev === slotId ? null : slotId);
+  }, []);
+
+  // Handle Escape key to exit zoom mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && zoomedSlotId) {
+        handleToggleZoom(zoomedSlotId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomedSlotId, handleToggleZoom]);
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-maestro-muted">
@@ -916,23 +938,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       </div>
     );
   }
-
-  // Handle zoom toggle for a slot
-  const handleToggleZoom = useCallback((slotId: string) => {
-    setZoomedSlotId(prev => prev === slotId ? null : slotId);
-  }, []);
-
-  // Handle Escape key to exit zoom mode
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && zoomedSlotId) {
-        handleToggleZoom(zoomedSlotId);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [zoomedSlotId, handleToggleZoom]);
 
   // If a terminal is zoomed, show only that one at full screen with navigation bar
   if (zoomedSlotId) {
