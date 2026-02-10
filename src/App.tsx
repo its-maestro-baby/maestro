@@ -8,6 +8,7 @@ import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
+import { useAppKeyboard } from "./hooks/useAppKeyboard";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useUpdateStore } from "./stores/useUpdateStore";
 import { UpdateNotification } from "./components/update/UpdateNotification";
@@ -191,6 +192,16 @@ function App() {
   const activeTabCounts = activeTab ? sessionCounts.get(activeTab.id) : undefined;
   const activeTabSlotCount = activeTabCounts?.slotCount ?? 0;
   const activeTabLaunchedCount = activeTabCounts?.launchedCount ?? 0;
+
+  // Cmd/Ctrl+T: add a new session slot in grid view
+  const handleAddSessionShortcut = useCallback(() => {
+    multiProjectRef.current?.addSessionToActiveProject();
+  }, []);
+
+  useAppKeyboard({
+    onAddSession: handleAddSessionShortcut,
+    canAddSession: activeTabSessionsLaunched,
+  });
 
   // Handler to enter grid view for the active project
   const handleEnterGridView = () => {
