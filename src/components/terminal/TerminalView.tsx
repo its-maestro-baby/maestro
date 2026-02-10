@@ -1,6 +1,7 @@
 import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -320,8 +321,11 @@ export const TerminalView = memo(function TerminalView({
       fitAddon = new FitAddon();
       const webLinksAddon = new WebLinksAddon();
 
+      const unicode11Addon = new Unicode11Addon();
       term.loadAddon(fitAddon);
       term.loadAddon(webLinksAddon);
+      term.loadAddon(unicode11Addon);
+      term.unicode.activeVersion = "11";
       term.open(container);
 
       // GPU-accelerated rendering (must be loaded after open())
@@ -353,7 +357,30 @@ export const TerminalView = memo(function TerminalView({
         }
       });
 
+      // Workaround for xterm.js CompositionHelper bug on WebKit (Tauri/WKWebView):
+      // The hidden textarea accumulates text across compositions, but CompositionHelper
+      // uses textarea.value.length at compositionstart as the extraction offset. When
+      // prior text remains in the textarea, it extracts the wrong substring — e.g.
+      // sending "測試" instead of "這是". We capture the correct text from the
+      // compositionend event and replace whatever xterm sends via onData.
+      const textarea = term.textarea!;
+      let pendingCompositionData: string | null = null;
+
+      textarea.addEventListener("compositionend", (e) => {
+        pendingCompositionData = (e as CompositionEvent).data;
+      });
+
       dataDisposable = term.onData((data) => {
+        if (pendingCompositionData !== null) {
+          const correctData = pendingCompositionData;
+          pendingCompositionData = null;
+          // Clear textarea to prevent accumulation that corrupts future compositions
+          textarea.value = "";
+          if (correctData.length > 0) {
+            writeStdin(sessionId, correctData).catch(console.error);
+          }
+          return;
+        }
         writeStdin(sessionId, data).catch(console.error);
       });
 
