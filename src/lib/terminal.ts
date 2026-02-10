@@ -214,6 +214,8 @@ export function waitForTerminalReady(sessionId: number, timeoutMs = 5000): Promi
  */
 export type CliFlags = {
   skipPermissions: boolean;
+  autoUpdate: boolean;
+  lastUpdateCheck: number;
   customFlags: string;
   endpoint?: string;
   host?: string;
@@ -227,16 +229,6 @@ export type CliFlags = {
  * @param mode - The AI mode to build the command for
  * @param flags - The CLI flags configuration for this mode
  * @returns The full CLI command string, or null for Plain mode
- *
- * @example
- * buildCliCommand("Claude", { skipPermissions: true, customFlags: "--verbose" })
- * // Returns: "claude --dangerously-skip-permissions --verbose"
- *
- * buildCliCommand("Gemini", { skipPermissions: true, customFlags: "" })
- * // Returns: "gemini --yolo"
- *
- * buildCliCommand("Codex", { skipPermissions: true, customFlags: "" })
- * // Returns: "codex --dangerously-bypass-approvals-and-sandbox"
  */
 export function buildCliCommand(mode: AiMode, flags?: CliFlags): string | null {
   const config = AI_CLI_CONFIG[mode];
@@ -245,6 +237,7 @@ export function buildCliCommand(mode: AiMode, flags?: CliFlags): string | null {
   const parts: string[] = [config.command];
 
   if (flags) {
+    // Standard flags
     if (flags.skipPermissions && config.skipPermissionsFlag) {
       parts.push(config.skipPermissionsFlag);
     }

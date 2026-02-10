@@ -49,8 +49,9 @@ export function CliSettingsModal({ onClose }: CliSettingsModalProps) {
   const ollamaDropdownRef = useRef<HTMLDivElement>(null);
 
   const {
-    flags,
+    getFlags,
     setSkipPermissions,
+    setAutoUpdate,
     setCustomFlags,
     setHost,
     setPort,
@@ -94,7 +95,7 @@ export function CliSettingsModal({ onClose }: CliSettingsModalProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const currentFlags = flags[activeMode];
+  const currentFlags = getFlags(activeMode);
   const previewCommand = buildCliCommand(activeMode, currentFlags);
 
   return (
@@ -281,6 +282,31 @@ export function CliSettingsModal({ onClose }: CliSettingsModalProps) {
               </div>
             </section>
           )}
+
+          {/* Auto-Update Toggle */}
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-maestro-muted">
+              Updates
+            </h3>
+            <div className="rounded-lg border border-maestro-border bg-maestro-card p-3">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={currentFlags.autoUpdate}
+                  onChange={(e) => setAutoUpdate(activeMode, e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-maestro-border accent-maestro-accent"
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-maestro-text">
+                    Auto-Update Agents
+                  </span>
+                  <p className="mt-0.5 text-xs text-maestro-muted">
+                    Automatically check for and install updates before starting the {activeMode} CLI.
+                  </p>
+                </div>
+              </label>
+            </div>
+          </section>
 
           {/* Custom Flags */}
           <section>

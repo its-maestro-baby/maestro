@@ -9,6 +9,10 @@ import type { AiMode } from "@/lib/terminal";
 export type AiModeCliFlags = {
   /** Whether to include --dangerously-skip-permissions flag. */
   skipPermissions: boolean;
+  /** Whether to automatically check and apply updates. */
+  autoUpdate: boolean;
+  /** Timestamp of the last successful update check. */
+  lastUpdateCheck: number;
   /** Space-separated additional custom flags. */
   customFlags: string;
   /** Optional host (for Ollama). */
@@ -31,6 +35,8 @@ type CliSettingsState = {
 type CliSettingsActions = {
   /** Update the skipPermissions flag for a mode. */
   setSkipPermissions: (mode: Exclude<AiMode, "Plain">, value: boolean) => void;
+  /** Update the autoUpdate flag for a mode. */
+  setAutoUpdate: (mode: Exclude<AiMode, "Plain">, value: boolean) => void;
   /** Update the custom flags for a mode. */
   setCustomFlags: (mode: Exclude<AiMode, "Plain">, value: string) => void;
   /** Update the host for a mode. */
@@ -43,6 +49,8 @@ type CliSettingsActions = {
   resetModeToDefaults: (mode: Exclude<AiMode, "Plain">) => void;
   /** Reset all settings to defaults. */
   resetAllToDefaults: () => void;
+  /** Update the last update check timestamp. */
+  setLastUpdateCheck: (mode: Exclude<AiMode, "Plain">, value: number) => void;
   /** Get the effective flags for a mode. */
   getFlags: (mode: Exclude<AiMode, "Plain">) => AiModeCliFlags;
 };
@@ -51,6 +59,8 @@ type CliSettingsActions = {
 
 const DEFAULT_MODE_FLAGS: AiModeCliFlags = {
   skipPermissions: false,
+  autoUpdate: true,
+  lastUpdateCheck: 0,
   customFlags: "",
   host: "",
   port: "",
@@ -63,6 +73,39 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
   Codex: { ...DEFAULT_MODE_FLAGS },
   Ollama: { ...DEFAULT_MODE_FLAGS },
 };
+
+function normalizeModeFlags(flags?: Partial<AiModeCliFlags> & {
+  autoUpdateEnabled?: boolean;
+  autoApplyUpdates?: boolean;
+}): AiModeCliFlags {
+  const migratedAutoUpdate =
+    flags?.autoUpdate ??
+    flags?.autoApplyUpdates ??
+    flags?.autoUpdateEnabled ??
+    DEFAULT_MODE_FLAGS.autoUpdate;
+
+  return {
+    skipPermissions: flags?.skipPermissions ?? DEFAULT_MODE_FLAGS.skipPermissions,
+    autoUpdate: migratedAutoUpdate,
+    lastUpdateCheck: flags?.lastUpdateCheck ?? DEFAULT_MODE_FLAGS.lastUpdateCheck,
+    customFlags: flags?.customFlags ?? DEFAULT_MODE_FLAGS.customFlags,
+    host: flags?.host ?? DEFAULT_MODE_FLAGS.host,
+    port: flags?.port ?? DEFAULT_MODE_FLAGS.port,
+    model: flags?.model ?? DEFAULT_MODE_FLAGS.model,
+  };
+}
+
+function normalizeFlagsConfig(flags?: Partial<Record<Exclude<AiMode, "Plain">, Partial<AiModeCliFlags> & {
+  autoUpdateEnabled?: boolean;
+  autoApplyUpdates?: boolean;
+}>>): CliFlagsConfig {
+  return {
+    Claude: normalizeModeFlags(flags?.Claude),
+    Gemini: normalizeModeFlags(flags?.Gemini),
+    Codex: normalizeModeFlags(flags?.Codex),
+    Ollama: normalizeModeFlags(flags?.Ollama),
+  };
+}
 
 // --- Tauri LazyStore-backed StateStorage adapter ---
 
@@ -130,6 +173,18 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
         });
       },
 
+      setAutoUpdate: (mode, value) => {
+        set({
+          flags: {
+            ...get().flags,
+            [mode]: {
+              ...get().flags[mode],
+              autoUpdate: value,
+            },
+          },
+        });
+      },
+
       setCustomFlags: (mode, value) => {
         set({
           flags: {
@@ -178,6 +233,18 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
         });
       },
 
+      setLastUpdateCheck: (mode, value) => {
+        set({
+          flags: {
+            ...get().flags,
+            [mode]: {
+              ...get().flags[mode],
+              lastUpdateCheck: value,
+            },
+          },
+        });
+      },
+
       resetModeToDefaults: (mode) => {
         set({
           flags: {
@@ -199,14 +266,20 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
       },
 
       getFlags: (mode) => {
-        return get().flags[mode] ?? DEFAULT_MODE_FLAGS;
+        return normalizeModeFlags(get().flags[mode]);
       },
     }),
     {
       name: "maestro-cli-settings",
       storage: createJSONStorage(() => tauriStorage),
       partialize: (state) => ({ flags: state.flags }),
-      version: 1,
+      version: 2,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<CliSettingsState> | undefined;
+        return {
+          flags: normalizeFlagsConfig(state?.flags as any),
+        };
+      },
     }
   )
 );
