@@ -12,7 +12,7 @@ interface BranchDropdownProps {
   repoPath: string;
   currentBranch: string;
   onSelect: (branch: string) => void;
-  onCreateBranch: (name: string) => void;
+  onCreateBranch: (name: string, andCheckout: boolean) => void;
   onClose: () => void;
 }
 
@@ -157,7 +157,7 @@ export function BranchDropdown({
     }
   }, [showCreateInput]);
 
-  const handleCreateBranch = async () => {
+  const handleCreateBranch = async (andCheckout: boolean) => {
     const trimmedName = newBranchName.trim();
     if (!trimmedName || isCreating) return;
 
@@ -169,7 +169,7 @@ export function BranchDropdown({
 
     setIsCreating(true);
     try {
-      await onCreateBranch(trimmedName);
+      await onCreateBranch(trimmedName, andCheckout);
       setNewBranchName("");
       setShowCreateInput(false);
       // Refresh branches
@@ -211,7 +211,7 @@ export function BranchDropdown({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleCreateBranch();
+                  handleCreateBranch(true);
                 } else if (e.key === "Escape") {
                   e.preventDefault();
                   setShowCreateInput(false);
@@ -224,11 +224,21 @@ export function BranchDropdown({
             />
             <button
               type="button"
-              onClick={handleCreateBranch}
+              onClick={() => handleCreateBranch(false)}
               disabled={!newBranchName.trim() || isCreating}
-              className="rounded bg-maestro-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded border border-maestro-border bg-maestro-surface px-2 py-1 text-sm font-medium text-maestro-text disabled:opacity-50 hover:bg-maestro-border/40"
+              title="Create branch without switching"
             >
               {isCreating ? "..." : "Create"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCreateBranch(true)}
+              disabled={!newBranchName.trim() || isCreating}
+              className="rounded bg-maestro-accent px-2 py-1 text-sm font-medium text-white disabled:opacity-50"
+              title="Create branch and switch to it"
+            >
+              {isCreating ? "..." : "Create & Switch"}
             </button>
           </div>
         </div>

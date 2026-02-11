@@ -882,6 +882,29 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   }, [plugins, skills]);
 
   /**
+   * Creates a new branch and optionally checks it out.
+   * Passed to PreLaunchCard for inline branch creation.
+   */
+  const handleCreateBranch = useCallback(
+    async (name: string, andCheckout: boolean) => {
+      if (!effectiveRepoPath) return;
+      await invoke("git_create_branch", {
+        repoPath: effectiveRepoPath,
+        branchName: name,
+        startPoint: null,
+      });
+      if (andCheckout) {
+        await invoke("git_checkout_branch", {
+          repoPath: effectiveRepoPath,
+          branchName: name,
+        });
+      }
+      refreshBranches();
+    },
+    [effectiveRepoPath, refreshBranches],
+  );
+
+  /**
    * Adds a new pre-launch slot to the grid.
    */
   const addSession = useCallback(() => {
@@ -1017,6 +1040,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 mcpServers={mcpServers}
                 skills={skills}
                 plugins={plugins}
+                onCreateBranch={handleCreateBranch}
                 onModeChange={(mode) => updateSlotMode(zoomedSlot.id, mode)}
                 onBranchChange={(branch) => updateSlotBranch(zoomedSlot.id, branch)}
                 onMcpToggle={(serverName) => toggleSlotMcp(zoomedSlot.id, serverName)}
@@ -1069,6 +1093,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             mcpServers={mcpServers}
             skills={skills}
             plugins={plugins}
+            onCreateBranch={handleCreateBranch}
             onModeChange={(mode) => updateSlotMode(slot.id, mode)}
             onBranchChange={(branch) => updateSlotBranch(slot.id, branch)}
             onMcpToggle={(serverName) => toggleSlotMcp(slot.id, serverName)}
