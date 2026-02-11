@@ -45,7 +45,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../target/release/maestro-mcp-server*"
+      "../target/*/maestro-mcp-server*"
     ],
     "linux": {
       "deb": {
