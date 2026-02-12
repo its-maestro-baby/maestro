@@ -252,6 +252,15 @@ pub async fn is_git_repository(path: String) -> Result<bool, GitError> {
     Ok(git_path.exists())
 }
 
+/// Checks if a path is a git worktree (not the main working tree).
+/// Returns true if the path is a linked worktree created by `git worktree add`.
+#[tauri::command]
+pub async fn is_git_worktree(repo_path: String) -> Result<bool, GitError> {
+    validate_repo_path(&repo_path)?;
+    let git = Git::new(&repo_path);
+    git.is_worktree().await
+}
+
 /// Recursively scans a directory for nested git repositories.
 /// Skips common non-project directories (node_modules, .git, etc.) and
 /// limits depth to avoid performance issues.

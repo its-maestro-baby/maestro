@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
+import { isGitWorktree } from "@/lib/git";
 import { useSessionBranch } from "@/hooks/useSessionBranch";
 import { buildFontFamily, waitForFont } from "@/lib/fonts";
 import { getBackendInfo, killSession, onPtyOutput, resizePty, signalTerminalReady, writeStdin, type BackendInfo } from "@/lib/terminal";
@@ -133,10 +134,25 @@ export const TerminalView = memo(function TerminalView({
   );
   const effectiveStatus = sessionData ? mapStatus(sessionData.status) : status;
   const effectiveProvider = sessionData ? mapAiMode(sessionData.mode) : "claude";
-  const isWorktree = Boolean(sessionData?.worktreePath);
+  const hasSessionWorktree = Boolean(sessionData?.worktreePath);
   const projectPath = sessionData?.projectPath ?? "";
-  const liveBranch = useSessionBranch(projectPath, isWorktree, sessionData?.branch ?? null, isActive);
+
+  // Detect if the project path itself is a git worktree (not the main working tree).
+  // This handles the case where the user opens a worktree directory as their project.
+  const [isProjectWorktree, setIsProjectWorktree] = useState(false);
+  useEffect(() => {
+    if (hasSessionWorktree || !projectPath) return;
+    isGitWorktree(projectPath)
+      .then((result) => setIsProjectWorktree(result))
+      .catch(() => setIsProjectWorktree(false));
+  }, [projectPath, hasSessionWorktree]);
+
+  // For useSessionBranch: only Maestro-created worktrees have a locked branch.
+  // Project-level worktrees still need polling to discover their branch.
+  const liveBranch = useSessionBranch(projectPath, hasSessionWorktree, sessionData?.branch ?? null, isActive);
   const effectiveBranch = liveBranch ?? "...";
+  // For the UI badge: show "worktree" if either Maestro created one or the project itself is a worktree.
+  const isWorktree = hasSessionWorktree || isProjectWorktree;
 
   // Get terminal settings from store (select individual primitives for granular updates)
   const fontSize = useTerminalSettingsStore((s) => s.settings.fontSize);
