@@ -216,14 +216,42 @@ jobs:
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
-      - name: List bundle artifacts
+      - name: Create updater archives and sign
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          echo "=== Bundle directory contents ==="
           if [ "${{ matrix.platform }}" = "macos-latest" ]; then
-            find target/universal-apple-darwin/release/bundle -type f 2>/dev/null || echo "No macOS bundle dir"
-          else
-            find target/release/bundle -type f 2>/dev/null || echo "No bundle dir"
+            BUNDLE_DIR="target/universal-apple-darwin/release/bundle"
+            # .app.tar.gz already created by tauri-action
+            echo "Signing macOS updater bundle..."
+            npx tauri signer sign "$BUNDLE_DIR/macos/Maestro.app.tar.gz"
+            ls -la "$BUNDLE_DIR/macos/"
+          fi
+
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            BUNDLE_DIR="target/release/bundle"
+            EXE_FILE=$(find "$BUNDLE_DIR/nsis" -name "*-setup.exe" -type f | head -1)
+            ZIP_FILE="${EXE_FILE%.exe}.nsis.zip"
+            echo "Creating Windows updater archive: $(basename $ZIP_FILE)"
+            # Use PowerShell for zip on Windows
+            powershell -Command "Compress-Archive -Path '$EXE_FILE' -DestinationPath '$ZIP_FILE'"
+            echo "Signing Windows updater bundle..."
+            npx tauri signer sign "$ZIP_FILE"
+            ls -la "$BUNDLE_DIR/nsis/"
+          fi
+
+          if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
+            BUNDLE_DIR="target/release/bundle"
+            APPIMAGE_FILE=$(find "$BUNDLE_DIR/appimage" -name "*.AppImage" -type f | head -1)
+            TGZ_FILE="$APPIMAGE_FILE.tar.gz"
+            APPIMAGE_NAME=$(basename "$APPIMAGE_FILE")
+            echo "Creating Linux updater archive: $(basename $TGZ_FILE)"
+            tar czf "$TGZ_FILE" -C "$(dirname $APPIMAGE_FILE)" "$APPIMAGE_NAME"
+            echo "Signing Linux updater bundle..."
+            npx tauri signer sign "$TGZ_FILE"
+            ls -la "$BUNDLE_DIR/appimage/"
           fi
 
       - name: Upload release assets
@@ -242,7 +270,7 @@ jobs:
               ? 'target/universal-apple-darwin/release/bundle'
               : 'target/release/bundle';
 
-            // Only upload actual distributable artifacts, not internal packaging files
+            // Only upload actual distributable artifacts
             const artifactPatterns = [
               /\.dmg$/,
               /\.exe$/,
@@ -262,7 +290,7 @@ jobs:
               return artifactPatterns.some(p => p.test(filename));
             }
 
-            // Collect files from known bundle subdirectories
+            // Collect files from known bundle subdirectories (one level deep)
             function findArtifacts(dir) {
               const results = [];
               if (!fs.existsSync(dir)) return results;
@@ -270,7 +298,6 @@ jobs:
               for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                  // Only recurse one level into known subdirs (dmg, macos, nsis, msi, deb, appimage, rpm)
                   const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
                   for (const sub of subEntries) {
                     if (!sub.isDirectory() && isArtifact(sub.name)) {
