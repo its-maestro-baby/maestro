@@ -108,5 +108,8 @@ fn copy_mcp_server_binary() {
     }
 
     // Tell Cargo to rerun this script if the MCP server binary changes
-    println!("cargo:rerun-if-changed={}", mcp_source.display());
+    // Only track existing files to avoid glob pattern errors
+    if mcp_source.exists() {
+        println!("cargo:rerun-if-changed={}", mcp_source.display());
+    }
 }
