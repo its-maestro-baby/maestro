@@ -436,6 +436,12 @@ export const TerminalView = memo(function TerminalView({
           return false;
         }
 
+        // Cmd/Ctrl+D (with or without Shift): split pane — block xterm so 'd' isn't sent to PTY.
+        // The DOM event bubbles to window where useTerminalKeyboard handles it.
+        if (event.key === "d" && (event.metaKey || event.ctrlKey) && !event.altKey && event.type === "keydown") {
+          return false;
+        }
+
         // Cmd+K (Mac) or Ctrl+K (Linux/Windows): clear terminal scrollback + viewport
         if (event.key === "k" && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.type === "keydown") {
           term?.clear();
