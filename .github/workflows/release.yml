@@ -242,29 +242,58 @@ jobs:
               ? 'target/universal-apple-darwin/release/bundle'
               : 'target/release/bundle';
 
-            // Recursively find all files, skipping .app directories (macOS bundles)
-            function findFiles(dir) {
+            // Only upload actual distributable artifacts, not internal packaging files
+            const artifactPatterns = [
+              /\.dmg$/,
+              /\.exe$/,
+              /\.msi$/,
+              /\.deb$/,
+              /\.rpm$/,
+              /\.AppImage$/,
+              /\.app\.tar\.gz$/,
+              /\.app\.tar\.gz\.sig$/,
+              /\.nsis\.zip$/,
+              /\.nsis\.zip\.sig$/,
+              /\.AppImage\.tar\.gz$/,
+              /\.AppImage\.tar\.gz\.sig$/,
+            ];
+
+            function isArtifact(filename) {
+              return artifactPatterns.some(p => p.test(filename));
+            }
+
+            // Collect files from known bundle subdirectories
+            function findArtifacts(dir) {
               const results = [];
               if (!fs.existsSync(dir)) return results;
               const entries = fs.readdirSync(dir, { withFileTypes: true });
               for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                  if (!entry.name.endsWith('.app')) {
-                    results.push(...findFiles(fullPath));
+                  // Only recurse one level into known subdirs (dmg, macos, nsis, msi, deb, appimage, rpm)
+                  const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+                  for (const sub of subEntries) {
+                    if (!sub.isDirectory() && isArtifact(sub.name)) {
+                      results.push(path.join(fullPath, sub.name));
+                    }
                   }
-                } else {
+                } else if (isArtifact(entry.name)) {
                   results.push(fullPath);
                 }
               }
               return results;
             }
 
-            const files = findFiles(bundleDir);
-            core.info(`Found ${files.length} artifacts in ${bundleDir}:`);
+            const files = findArtifacts(bundleDir);
+            core.info(`Found ${files.length} artifacts to upload:`);
             for (const f of files) {
               const stats = fs.statSync(f);
               core.info(`  ${path.basename(f)} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
+            }
+
+            if (files.length === 0) {
+              core.setFailed('No artifacts found in ' + bundleDir);
+              return;
             }
 
             for (const filePath of files) {
