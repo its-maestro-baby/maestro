@@ -43,21 +43,22 @@ fn copy_mcp_server_binary() {
         return;
     };
 
-    // Source: target/{profile}/maestro-mcp-server (workspace builds to root target dir)
-    let mcp_source = project_root
-        .join("target")
-        .join(&profile)
-        .join(binary_name);
+    // Source: try multiple locations where the binary may have been built.
+    // 1. target/{profile}/maestro-mcp-server (normal workspace build)
+    // 2. target/release/maestro-mcp-server (explicit release build)
+    // 3. target/{target}/{profile}/maestro-mcp-server (cross-compilation)
+    // 4. target/{target}/release/maestro-mcp-server (cross-compilation release)
+    let candidates = [
+        project_root.join("target").join(&profile).join(binary_name),
+        project_root.join("target").join("release").join(binary_name),
+        project_root.join("target").join(&target).join(&profile).join(binary_name),
+        project_root.join("target").join(&target).join("release").join(binary_name),
+    ];
 
-    // Also try release build if debug doesn't exist
-    let mcp_source = if mcp_source.exists() {
-        mcp_source
-    } else {
-        project_root
-            .join("target")
-            .join("release")
-            .join(binary_name)
-    };
+    let mcp_source = candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| project_root.join("target").join("release").join(binary_name));
 
     if !mcp_source.exists() {
         println!(

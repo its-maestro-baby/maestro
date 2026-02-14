@@ -9,9 +9,11 @@ import {
   Cpu,
   Edit2,
   FileText,
+  FolderGit2,
   GitBranch,
   Globe,
   Home,
+  Info,
   Loader2,
   Moon,
   Package,
@@ -32,6 +34,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { useGitStore } from "@/stores/useGitStore";
 import { useMcpStore } from "@/stores/useMcpStore";
@@ -47,6 +50,7 @@ import { McpServerEditorModal } from "@/components/mcp";
 import { ClaudeMdEditorModal } from "@/components/claudemd";
 import { CliSettingsModal } from "@/components/terminal/CliSettingsModal";
 import { TerminalSettingsModal } from "@/components/terminal/TerminalSettingsModal";
+import { MaestroSettingsModal } from "@/components/settings";
 import { Tamagotchi } from "@/components/tamagotchi";
 import type { McpCustomServer } from "@/lib/mcp";
 import { checkClaudeMd, type ClaudeMdStatus } from "@/lib/claudemd";
@@ -62,7 +66,7 @@ interface SidebarProps {
 
 /* ── Shared card class ── */
 const cardClass =
-  "sidebar-card-link rounded-lg border border-maestro-border/60 bg-maestro-card p-3 shadow-[0_1px_4px_rgb(0_0_0/0.15),0_0_0_1px_rgb(255_255_255/0.03)_inset] transition-shadow hover:shadow-[0_2px_8px_rgb(0_0_0/0.25),0_0_0_1px_rgb(255_255_255/0.05)_inset]";
+  "sidebar-card-link rounded-lg border border-maestro-border/60 bg-maestro-card p-3 overflow-hidden shadow-[0_1px_4px_rgb(0_0_0/0.15),0_0_0_1px_rgb(255_255_255/0.03)_inset] transition-shadow hover:shadow-[0_2px_8px_rgb(0_0_0/0.25),0_0_0_1px_rgb(255_255_255/0.05)_inset]";
 
 const divider = <div className="h-px bg-maestro-border/30 my-1" />;
 
@@ -316,14 +320,28 @@ function ConfigTab({
 
 /* ── 1. Git Repository ── */
 
+/** Shortens a filesystem path for display by keeping the last 2-3 segments. */
+function shortenPath(path: string): string {
+  const segments = path.replace(/[\\/]+$/, "").split(/[\\/]/);
+  if (segments.length <= 3) return path;
+  return `.../${segments.slice(-3).join("/")}`;
+}
+
 function GitRepositorySection() {
   const [showSettings, setShowSettings] = useState(false);
+  const [defaultWorktreeBase, setDefaultWorktreeBase] = useState<string | null>(null);
   const tabs = useWorkspaceStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.active);
   const repoPath = activeTab?.projectPath ?? "";
+  const worktreeBasePath = activeTab?.worktreeBasePath ?? null;
 
   const { userConfig, remotes, remoteStatuses, fetchUserConfig, fetchRemotes, testAllRemotes } =
     useGitStore();
+
+  // Fetch default worktree base dir on mount
+  useEffect(() => {
+    invoke<string>("get_default_worktree_base_dir").then(setDefaultWorktreeBase).catch(() => {});
+  }, []);
 
   // Fetch data on mount and when repoPath changes
   useEffect(() => {
@@ -418,6 +436,25 @@ function GitRepositorySection() {
               </div>
             </div>
           ))
+        )}
+
+        {/* Worktree base path */}
+        {(worktreeBasePath || defaultWorktreeBase) && (
+          <div className="mt-2 border-t border-maestro-border/30 pt-2 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-2 px-1 py-1 min-w-0">
+              <FolderGit2 size={12} className="text-maestro-accent shrink-0" />
+              <span className="text-xs font-semibold text-maestro-text truncate min-w-0">Worktrees</span>
+              {!worktreeBasePath && (
+                <span className="text-[10px] text-maestro-muted/60 shrink-0">(default)</span>
+              )}
+            </div>
+            <div
+              className="pl-5 text-[11px] text-maestro-muted truncate min-w-0 overflow-hidden"
+              title={worktreeBasePath ?? defaultWorktreeBase ?? ""}
+            >
+              {shortenPath(worktreeBasePath ?? defaultWorktreeBase ?? "")}
+            </div>
+          </div>
         )}
       </div>
 
@@ -1341,7 +1378,7 @@ function QuickActionsSection() {
   );
 }
 
-/* ── 9. Appearance ── */
+/* ── 9. Settings ── */
 
 function AppearanceSection({
   theme,
@@ -1353,6 +1390,7 @@ function AppearanceSection({
   const isDark = theme !== "light";
   const [showTerminalSettings, setShowTerminalSettings] = useState(false);
   const [showCliSettings, setShowCliSettings] = useState(false);
+  const [showMaestroSettings, setShowMaestroSettings] = useState(false);
   const { showCharacter, toggleCharacter } = useUsageStore();
 
   return (
@@ -1360,7 +1398,7 @@ function AppearanceSection({
       <div className={cardClass}>
         <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
           <Settings size={13} />
-          Appearance
+          Settings
         </div>
         <button
           type="button"
@@ -1398,6 +1436,14 @@ function AppearanceSection({
           <Zap size={14} className="text-maestro-accent" />
           <span>CLI Settings</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setShowMaestroSettings(true)}
+          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs text-maestro-text transition-colors hover:bg-maestro-border/40"
+        >
+          <Info size={14} className="text-maestro-accent" />
+          <span>Maestro Settings</span>
+        </button>
       </div>
 
       {showTerminalSettings && (
@@ -1405,6 +1451,9 @@ function AppearanceSection({
       )}
       {showCliSettings && (
         <CliSettingsModal onClose={() => setShowCliSettings(false)} />
+      )}
+      {showMaestroSettings && (
+        <MaestroSettingsModal onClose={() => setShowMaestroSettings(false)} />
       )}
     </>
   );
