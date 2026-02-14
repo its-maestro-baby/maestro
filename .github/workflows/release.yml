@@ -208,6 +208,11 @@ jobs:
             lipo -create -output src-tauri/binaries/maestro-mcp-server-universal-apple-darwin \
               target/aarch64-apple-darwin/release/maestro-mcp-server \
               target/x86_64-apple-darwin/release/maestro-mcp-server
+            # Per-arch copies needed by Tauri's externalBin validation during universal build
+            cp target/aarch64-apple-darwin/release/maestro-mcp-server \
+              src-tauri/binaries/maestro-mcp-server-aarch64-apple-darwin
+            cp target/x86_64-apple-darwin/release/maestro-mcp-server \
+              src-tauri/binaries/maestro-mcp-server-x86_64-apple-darwin
           elif [ "${{ matrix.platform }}" = "windows-latest" ]; then
             cargo build --release -p maestro-mcp-server
             cp target/release/maestro-mcp-server.exe \
