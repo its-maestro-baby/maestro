@@ -108,9 +108,12 @@ jobs:
       - name: Create draft release
         id: create-release
         uses: actions/github-script@v7
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          RELEASE_NOTES: ${{ needs.preflight.outputs.release_notes }}
         with:
           script: |
-            const version = '${{ needs.preflight.outputs.version }}';
+            const version = process.env.VERSION;
             const tag = `v${version}`;
 
             // Check if tag already exists
@@ -128,7 +131,7 @@ jobs:
             }
 
             const notes = decodeURIComponent(
-              '${{ needs.preflight.outputs.release_notes }}'
+              (process.env.RELEASE_NOTES || '')
                 .replace(/%0A/g, '\n')
                 .replace(/%0D/g, '\r')
                 .replace(/%25/g, '%')
