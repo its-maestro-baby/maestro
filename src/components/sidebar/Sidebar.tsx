@@ -13,6 +13,7 @@ import {
   GitBranch,
   Globe,
   Home,
+  Info,
   Loader2,
   Moon,
   Package,
@@ -49,6 +50,7 @@ import { McpServerEditorModal } from "@/components/mcp";
 import { ClaudeMdEditorModal } from "@/components/claudemd";
 import { CliSettingsModal } from "@/components/terminal/CliSettingsModal";
 import { TerminalSettingsModal } from "@/components/terminal/TerminalSettingsModal";
+import { MaestroSettingsModal } from "@/components/settings";
 import { Tamagotchi } from "@/components/tamagotchi";
 import type { McpCustomServer } from "@/lib/mcp";
 import { checkClaudeMd, type ClaudeMdStatus } from "@/lib/claudemd";
@@ -64,7 +66,7 @@ interface SidebarProps {
 
 /* ── Shared card class ── */
 const cardClass =
-  "sidebar-card-link rounded-lg border border-maestro-border/60 bg-maestro-card p-3 shadow-[0_1px_4px_rgb(0_0_0/0.15),0_0_0_1px_rgb(255_255_255/0.03)_inset] transition-shadow hover:shadow-[0_2px_8px_rgb(0_0_0/0.25),0_0_0_1px_rgb(255_255_255/0.05)_inset]";
+  "sidebar-card-link rounded-lg border border-maestro-border/60 bg-maestro-card p-3 overflow-hidden shadow-[0_1px_4px_rgb(0_0_0/0.15),0_0_0_1px_rgb(255_255_255/0.03)_inset] transition-shadow hover:shadow-[0_2px_8px_rgb(0_0_0/0.25),0_0_0_1px_rgb(255_255_255/0.05)_inset]";
 
 const divider = <div className="h-px bg-maestro-border/30 my-1" />;
 
@@ -1376,7 +1378,7 @@ function QuickActionsSection() {
   );
 }
 
-/* ── 9. Appearance ── */
+/* ── 9. Settings ── */
 
 function AppearanceSection({
   theme,
@@ -1388,6 +1390,7 @@ function AppearanceSection({
   const isDark = theme !== "light";
   const [showTerminalSettings, setShowTerminalSettings] = useState(false);
   const [showCliSettings, setShowCliSettings] = useState(false);
+  const [showMaestroSettings, setShowMaestroSettings] = useState(false);
   const { showCharacter, toggleCharacter } = useUsageStore();
 
   return (
@@ -1395,7 +1398,7 @@ function AppearanceSection({
       <div className={cardClass}>
         <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
           <Settings size={13} />
-          Appearance
+          Settings
         </div>
         <button
           type="button"
@@ -1433,6 +1436,14 @@ function AppearanceSection({
           <Zap size={14} className="text-maestro-accent" />
           <span>CLI Settings</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setShowMaestroSettings(true)}
+          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs text-maestro-text transition-colors hover:bg-maestro-border/40"
+        >
+          <Info size={14} className="text-maestro-accent" />
+          <span>Maestro Settings</span>
+        </button>
       </div>
 
       {showTerminalSettings && (
@@ -1440,6 +1451,9 @@ function AppearanceSection({
       )}
       {showCliSettings && (
         <CliSettingsModal onClose={() => setShowCliSettings(false)} />
+      )}
+      {showMaestroSettings && (
+        <MaestroSettingsModal onClose={() => setShowMaestroSettings(false)} />
       )}
     </>
   );
