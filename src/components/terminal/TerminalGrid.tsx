@@ -34,6 +34,8 @@ import { useSessionStore } from "@/stores/useSessionStore";
 import type { AiMode } from "@/stores/useSessionStore";
 import { useWorkspaceStore, type RepositoryInfo, type WorkspaceType } from "@/stores/useWorkspaceStore";
 import { PreLaunchCard, type SessionSlot } from "./PreLaunchCard";
+import { SplitPaneView } from "./SplitPaneView";
+import { createLeaf, splitLeaf, removeLeaf, updateRatio, collectSlotIds, findSiblingSlotId, type TreeNode, type SplitDirection } from "./splitTree";
 import { TerminalView } from "./TerminalView";
 
 /** Stable empty arrays to avoid infinite re-render loops in Zustand selectors. */
@@ -74,21 +76,6 @@ async function withProjectLock<T>(projectPath: string, fn: () => Promise<T>): Pr
       projectLaunchLocks.delete(projectPath);
     }
   }
-}
-
-/**
- * Returns Tailwind grid-cols/grid-rows classes that produce a compact layout
- * for the given session count (1x1, 2x1, 3x1, 2x2, 3x2, etc.).
- */
-function gridClass(count: number): string {
-  if (count <= 1) return "grid-cols-1 grid-rows-1";
-  if (count === 2) return "grid-cols-2 grid-rows-1";
-  if (count === 3) return "grid-cols-3 grid-rows-1";
-  if (count === 4) return "grid-cols-2 grid-rows-2";
-  if (count <= 6) return "grid-cols-3 grid-rows-2";
-  if (count <= 9) return "grid-cols-3 grid-rows-3";
-  if (count <= 12) return "grid-cols-4 grid-rows-3";
-  return "grid-cols-4";
 }
 
 /** Generates a unique ID for a new session slot. */
@@ -199,6 +186,12 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   // Track which terminal slot is zoomed (takes full screen)
   const [zoomedSlotId, setZoomedSlotId] = useState<string | null>(null);
 
+  // Binary split tree layout (drives pane arrangement)
+  const [layoutTree, setLayoutTree] = useState<TreeNode>(() => createLeaf(slots[0].id));
+
+  // Track whether a divider is being dragged (disables xterm pointer events)
+  const [isDragging, setIsDragging] = useState(false);
+
   // Git branch data
   const [branches, setBranches] = useState<BranchWithWorktreeStatus[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
@@ -222,11 +215,16 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     return cb;
   }, []);
 
-  // Compute launched slots for keyboard navigation
-  const launchedSlots = useMemo(
-    () => slots.filter((s) => s.sessionId !== null),
-    [slots]
-  );
+  // Ordered slot IDs from the split tree (defines Cmd+1-9 ordering)
+  const orderedSlotIds = useMemo(() => collectSlotIds(layoutTree), [layoutTree]);
+
+  // Compute launched slots in tree order for keyboard navigation
+  const launchedSlots = useMemo(() => {
+    const slotMap = new Map(slots.map((s) => [s.id, s]));
+    return orderedSlotIds
+      .map((id) => slotMap.get(id))
+      .filter((s): s is SessionSlot => s != null && s.sessionId !== null);
+  }, [slots, orderedSlotIds]);
 
   // Map focusedSlotId to an index in launchedSlots
   const focusedIndex = useMemo(() => {
@@ -234,6 +232,30 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     const idx = launchedSlots.findIndex((s) => s.id === focusedSlotId);
     return idx >= 0 ? idx : null;
   }, [focusedSlotId, launchedSlots]);
+
+  // Ref-based close callback to avoid forward-reference issues with handleKill/removeSlot
+  const closePaneRef = useRef<() => void>(() => {});
+
+  /**
+   * Splits the focused terminal pane in the given direction.
+   * Creates a new pre-launch slot and inserts it as a sibling.
+   * Debounced to prevent double-fire from duplicate keyboard events.
+   */
+  const lastSplitRef = useRef(0);
+  const handleSplit = useCallback((direction: SplitDirection) => {
+    const now = Date.now();
+    if (now - lastSplitRef.current < 200) return; // debounce
+    lastSplitRef.current = now;
+
+    if (slotsRef.current.length >= MAX_SESSIONS) return;
+    // Default to first slot if nothing is focused
+    const targetSlotId = focusedSlotId ?? slotsRef.current[0]?.id;
+    if (!targetSlotId) return;
+    const newSlot = createEmptySlot(mcpServers, skills, plugins);
+    setSlots((prev) => [...prev, newSlot]);
+    setLayoutTree((prev) => splitLeaf(prev, targetSlotId, newSlot.id, direction));
+    setFocusedSlotId(newSlot.id);
+  }, [focusedSlotId, mcpServers, skills, plugins]);
 
   // Terminal keyboard navigation hook
   useTerminalKeyboard({
@@ -257,6 +279,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       const prevIdx = (currentIdx - 1 + launchedSlots.length) % launchedSlots.length;
       setFocusedSlotId(launchedSlots[prevIdx].id);
     }, [launchedSlots, focusedIndex]),
+    onSplitVertical: useCallback(() => handleSplit("vertical"), [handleSplit]),
+    onSplitHorizontal: useCallback(() => handleSplit("horizontal"), [handleSplit]),
+    onClosePane: closePaneRef.current,
   });
 
   // Sync refs with state and report counts to parent
@@ -371,7 +396,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       if (onAllSessionsClosed) {
         onAllSessionsClosed();
       } else {
-        setSlots([createEmptySlot(mcpServers, skills, plugins)]);
+        const freshSlot = createEmptySlot(mcpServers, skills, plugins);
+        setSlots([freshSlot]);
+        setLayoutTree(createLeaf(freshSlot.id));
       }
     }
   }, [slots.length, error, mcpServers, skills, plugins, onAllSessionsClosed]);
@@ -656,6 +683,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     // Clean up cached focus callback for this slot
     if (slot) {
       focusCallbacksRef.current.delete(slot.id);
+
+      // If the closed pane was focused, focus its sibling
+      if (focusedSlotId === slot.id) {
+        const sibling = findSiblingSlotId(layoutTree, slot.id);
+        setFocusedSlotId(sibling);
+      }
+
+      // Remove leaf from split tree
+      setLayoutTree((prev) => {
+        const result = removeLeaf(prev, slot.id);
+        return result ?? prev; // shouldn't be null since we respawn below
+      });
     }
 
     setSlots((prev) => prev.filter((s) => s.sessionId !== sessionId));
@@ -685,15 +724,42 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         .then(() => refreshBranches())
         .catch(console.error);
     }
-  }, [tabId, effectiveRepoPath, projectPath, removeSessionFromProject, refreshBranches]);
+  }, [tabId, effectiveRepoPath, projectPath, removeSessionFromProject, refreshBranches, focusedSlotId, layoutTree]);
 
   /**
    * Removes a pre-launch slot (before it's launched).
    */
   const removeSlot = useCallback((slotId: string) => {
     focusCallbacksRef.current.delete(slotId);
+
+    // If the removed pane was focused, focus its sibling
+    if (focusedSlotId === slotId) {
+      const sibling = findSiblingSlotId(layoutTree, slotId);
+      setFocusedSlotId(sibling);
+    }
+
+    // Remove leaf from split tree
+    setLayoutTree((prev) => {
+      const result = removeLeaf(prev, slotId);
+      return result ?? prev;
+    });
+
     setSlots((prev) => prev.filter((s) => s.id !== slotId));
-  }, []);
+  }, [focusedSlotId, layoutTree]);
+
+  // Keep closePaneRef in sync with latest handleKill/removeSlot
+  closePaneRef.current = () => {
+    const targetId = focusedSlotId ?? slotsRef.current[0]?.id;
+    if (!targetId) return;
+    if (slotsRef.current.length <= 1) return; // don't close the last pane
+    const slot = slotsRef.current.find((s) => s.id === targetId);
+    if (!slot) return;
+    if (slot.sessionId !== null) {
+      handleKill(slot.sessionId);
+    } else {
+      removeSlot(slot.id);
+    }
+  };
 
   /**
    * Updates the AI mode for a slot.
@@ -910,13 +976,29 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
    */
   const addSession = useCallback(() => {
     if (slotsRef.current.length >= MAX_SESSIONS) return;
+    const newSlot = createEmptySlot(mcpServers, skills, plugins);
     setSlots((prev) => {
       if (prev.length >= MAX_SESSIONS) return prev;
-      return [...prev, createEmptySlot(mcpServers, skills, plugins)];
+      return [...prev, newSlot];
     });
+    // Add to split tree — split the focused pane vertically, or add to root
+    setLayoutTree((prev) => {
+      if (focusedSlotId) {
+        return splitLeaf(prev, focusedSlotId, newSlot.id, "vertical");
+      }
+      // No focused pane: wrap root in a vertical split
+      return {
+        type: "split",
+        id: `node-${Date.now()}-addSession`,
+        direction: "vertical" as const,
+        children: [prev, createLeaf(newSlot.id)],
+        ratio: prev.type === "leaf" ? 0.5 : orderedSlotIds.length / (orderedSlotIds.length + 1),
+      };
+    });
+    setFocusedSlotId(newSlot.id);
     // Refresh branch list so new slots see the latest branches
     refreshBranches();
-  }, [mcpServers, skills, plugins, refreshBranches]);
+  }, [mcpServers, skills, plugins, refreshBranches, focusedSlotId, orderedSlotIds.length]);
 
   useImperativeHandle(ref, () => ({ addSession, launchAll, refreshBranches }), [addSession, launchAll, refreshBranches]);
 
@@ -945,7 +1027,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
           type="button"
           onClick={() => {
             setError(null);
-            setSlots([createEmptySlot()]);
+            const freshSlot = createEmptySlot();
+            setSlots([freshSlot]);
+            setLayoutTree(createLeaf(freshSlot.id));
           }}
           className="rounded bg-maestro-border px-3 py-1.5 text-xs text-maestro-text hover:bg-maestro-muted/20"
         >
@@ -969,18 +1053,19 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     if (!zoomedSlot) {
       setZoomedSlotId(null);
     } else {
-      const zoomedIndex = slots.findIndex(s => s.id === zoomedSlotId);
+      const orderedSlots = orderedSlotIds.map((id) => slots.find((s) => s.id === id)).filter(Boolean) as SessionSlot[];
+      const zoomedIndex = orderedSlots.findIndex(s => s.id === zoomedSlotId);
 
       return (
         <div className="relative flex h-full flex-col bg-maestro-bg">
           {/* Top Navigation Bar */}
           <div className="flex h-8 shrink-0 items-center gap-2 border-b border-maestro-border bg-maestro-surface px-3">
             <span className="text-[11px] font-medium uppercase tracking-wider text-maestro-muted">
-              Terminal {zoomedIndex + 1}/{slots.length}
+              Terminal {zoomedIndex + 1}/{orderedSlots.length}
             </span>
             <div className="h-3.5 w-px bg-maestro-border" />
             <div className="flex gap-0.5">
-              {slots.map((slot, index) => {
+              {orderedSlots.map((slot, index) => {
                 const isActive = slot.id === zoomedSlotId;
                 const hasSession = slot.sessionId !== null;
 
@@ -1063,54 +1148,73 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     }
   }
 
+  const renderLeaf = useCallback((slotId: string) => {
+    const slot = slots.find((s) => s.id === slotId);
+    if (!slot) return null;
+
+    if (slot.sessionId !== null) {
+      return (
+        <TerminalView
+          key={slot.id}
+          sessionId={slot.sessionId}
+          isFocused={focusedSlotId === slot.id}
+          isActive={isActive}
+          onFocus={getFocusCallback(slot.id)}
+          onKill={handleKill}
+          terminalCount={slots.length}
+          isZoomed={false}
+          onToggleZoom={() => handleToggleZoom(slot.id)}
+        />
+      );
+    }
+
+    return (
+      <PreLaunchCard
+        key={slot.id}
+        slot={slot}
+        projectPath={projectPath ?? ""}
+        branches={branches}
+        isLoadingBranches={isLoadingBranches}
+        isGitRepo={isGitRepo}
+        repositories={repositories}
+        workspaceType={workspaceType}
+        selectedRepoPath={effectiveRepoPath}
+        onRepoChange={onRepoChange}
+        fetchBranchesForRepo={getBranchesWithWorktreeStatus}
+        mcpServers={mcpServers}
+        skills={skills}
+        plugins={plugins}
+        onCreateBranch={handleCreateBranch}
+        onModeChange={(mode) => updateSlotMode(slot.id, mode)}
+        onBranchChange={(branch) => updateSlotBranch(slot.id, branch)}
+        onMcpToggle={(serverName) => toggleSlotMcp(slot.id, serverName)}
+        onSkillToggle={(skillId) => toggleSlotSkill(slot.id, skillId)}
+        onPluginToggle={(pluginId) => toggleSlotPlugin(slot.id, pluginId)}
+        onMcpSelectAll={() => selectAllMcp(slot.id)}
+        onMcpUnselectAll={() => unselectAllMcp(slot.id)}
+        onPluginsSelectAll={() => selectAllPlugins(slot.id)}
+        onPluginsUnselectAll={() => unselectAllPlugins(slot.id)}
+        onLaunch={() => launchSlot(slot.id)}
+        onRemove={() => removeSlot(slot.id)}
+        isZoomed={false}
+        onToggleZoom={() => handleToggleZoom(slot.id)}
+      />
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deps cover all render-affecting state
+  }, [slots, focusedSlotId, isActive, getFocusCallback, handleKill, handleToggleZoom, projectPath, branches, isLoadingBranches, isGitRepo, repositories, workspaceType, effectiveRepoPath, onRepoChange, mcpServers, skills, plugins, handleCreateBranch, updateSlotMode, updateSlotBranch, toggleSlotMcp, toggleSlotSkill, toggleSlotPlugin, selectAllMcp, unselectAllMcp, selectAllPlugins, unselectAllPlugins, launchSlot, removeSlot]);
+
+  const handleRatioChange = useCallback((nodeId: string, ratio: number) => {
+    setLayoutTree((prev) => updateRatio(prev, nodeId, ratio));
+  }, []);
+
   return (
-    <div className={`grid h-full ${gridClass(slots.length)} gap-2 bg-maestro-bg p-2`}>
-      {slots.map((slot) =>
-        slot.sessionId !== null ? (
-          <TerminalView
-            key={slot.id}
-            sessionId={slot.sessionId}
-            isFocused={focusedSlotId === slot.id}
-            isActive={isActive}
-            onFocus={getFocusCallback(slot.id)}
-            onKill={handleKill}
-            terminalCount={slots.length}
-            isZoomed={false}
-            onToggleZoom={() => handleToggleZoom(slot.id)}
-          />
-        ) : (
-          <PreLaunchCard
-            key={slot.id}
-            slot={slot}
-            projectPath={projectPath ?? ""}
-            branches={branches}
-            isLoadingBranches={isLoadingBranches}
-            isGitRepo={isGitRepo}
-            repositories={repositories}
-            workspaceType={workspaceType}
-            selectedRepoPath={effectiveRepoPath}
-            onRepoChange={onRepoChange}
-            fetchBranchesForRepo={getBranchesWithWorktreeStatus}
-            mcpServers={mcpServers}
-            skills={skills}
-            plugins={plugins}
-            onCreateBranch={handleCreateBranch}
-            onModeChange={(mode) => updateSlotMode(slot.id, mode)}
-            onBranchChange={(branch) => updateSlotBranch(slot.id, branch)}
-            onMcpToggle={(serverName) => toggleSlotMcp(slot.id, serverName)}
-            onSkillToggle={(skillId) => toggleSlotSkill(slot.id, skillId)}
-            onPluginToggle={(pluginId) => toggleSlotPlugin(slot.id, pluginId)}
-            onMcpSelectAll={() => selectAllMcp(slot.id)}
-            onMcpUnselectAll={() => unselectAllMcp(slot.id)}
-            onPluginsSelectAll={() => selectAllPlugins(slot.id)}
-            onPluginsUnselectAll={() => unselectAllPlugins(slot.id)}
-            onLaunch={() => launchSlot(slot.id)}
-            onRemove={() => removeSlot(slot.id)}
-            isZoomed={false}
-            onToggleZoom={() => handleToggleZoom(slot.id)}
-          />
-        )
-      )}
+    <div className={`flex h-full bg-maestro-bg p-2 ${isDragging ? "split-dragging" : ""}`}>
+      <SplitPaneView
+        node={layoutTree}
+        renderLeaf={renderLeaf}
+        onRatioChange={handleRatioChange}
+        onDragStateChange={setIsDragging}
+      />
     </div>
   );
 });

@@ -26,6 +26,7 @@ A cross-platform desktop application that lets you run 1-6 Claude Code (or other
 
 - [Why Maestro?](#why-maestro)
 - [Features](#features)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -62,6 +63,7 @@ A cross-platform desktop application that lets you run 1-6 Claude Code (or other
 
 ### Multi-Terminal Session Grid
 - Dynamic grid layout (1x1 to 2x3) that adapts to your session count
+- iTerm2-style split panes within each session (Cmd+D vertical, Cmd+Shift+D horizontal)
 - Real-time status indicators: idle, working, waiting for input, done, error
 - Per-session mode selection (Claude Code, Gemini CLI, OpenAI Codex, Plain Terminal)
 
@@ -70,6 +72,7 @@ A cross-platform desktop application that lets you run 1-6 Claude Code (or other
 - Each session works on its own branch without conflicts
 - Worktrees are pruned on session close
 - Visual branch assignment in the sidebar
+- "Worktree" badge in the terminal header when a session is running in a worktree
 
 ### MCP Server Integration
 - Built-in MCP server for agent status reporting
@@ -108,6 +111,29 @@ A cross-platform desktop application that lets you run 1-6 Claude Code (or other
 - Per-session plugin configuration
 - Automatic symlink management for commands and skills
 - Extend Maestro's capabilities with community plugins
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| **Cmd+T** | Add new terminal session |
+| **Cmd+D** | Split pane vertically |
+| **Cmd+Shift+D** | Split pane horizontally |
+| **Cmd+W** | Close focused pane |
+| **Cmd+1-9** | Jump to terminal 1-9 |
+| **Cmd+[** / **Cmd+]** | Cycle previous / next terminal |
+| **Cmd+K** | Clear terminal scrollback |
+| **Cmd+C** | Copy selection (SIGINT if no selection) |
+| **Cmd+=** / **Cmd+-** | Zoom in / out |
+| **Cmd+0** | Reset zoom |
+| **Shift+Enter** | Newline without executing |
+| **Cmd+Left** / **Cmd+Right** | Jump to line start / end |
+| **Cmd+Backspace** | Delete to line start |
+| **Escape** | Exit zoom mode |
+
+> **Note:** Cmd = Ctrl on Windows/Linux
 
 ---
 

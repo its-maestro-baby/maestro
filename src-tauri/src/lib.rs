@@ -173,6 +173,7 @@ pub fn run() {
             commands::git::git_get_default_branch,
             commands::git::git_set_default_branch,
             commands::git::is_git_repository,
+            commands::git::is_git_worktree,
             commands::git::detect_repositories,
             // Session commands (new)
             commands::session::get_sessions,

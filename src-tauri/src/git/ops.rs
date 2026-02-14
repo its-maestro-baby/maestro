@@ -619,6 +619,26 @@ impl Git {
         self.run(&["checkout", "--detach"]).await?;
         Ok(())
     }
+
+    /// Checks whether the repository path is a git worktree (not the main working tree).
+    ///
+    /// Compares `git rev-parse --git-dir` with `git rev-parse --git-common-dir`.
+    /// In the main working tree these are equal (both `.git`); in a linked worktree
+    /// `--git-dir` points to `.git/worktrees/<name>` while `--git-common-dir` points
+    /// to the shared `.git` directory.
+    pub async fn is_worktree(&self) -> Result<bool, GitError> {
+        let git_dir = self.run(&["rev-parse", "--git-dir"]).await?;
+        let common_dir = self.run(&["rev-parse", "--git-common-dir"]).await?;
+
+        let git_dir = std::path::Path::new(git_dir.trimmed());
+        let common_dir = std::path::Path::new(common_dir.trimmed());
+
+        // Canonicalize both for reliable comparison (handles relative paths)
+        let git_dir_canon = std::fs::canonicalize(git_dir).unwrap_or_else(|_| git_dir.to_path_buf());
+        let common_dir_canon = std::fs::canonicalize(common_dir).unwrap_or_else(|_| common_dir.to_path_buf());
+
+        Ok(git_dir_canon != common_dir_canon)
+    }
 }
 
 #[cfg(test)]
