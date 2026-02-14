@@ -173,6 +173,7 @@ pub fn run() {
             commands::git::git_get_default_branch,
             commands::git::git_set_default_branch,
             commands::git::is_git_repository,
+            commands::git::is_git_worktree,
             commands::git::detect_repositories,
             // Session commands (new)
             commands::session::get_sessions,
@@ -185,6 +186,7 @@ pub fn run() {
             // Worktree commands
             commands::worktree::prepare_session_worktree,
             commands::worktree::cleanup_session_worktree,
+            commands::worktree::get_default_worktree_base_dir,
             // MCP commands
             commands::mcp::get_project_mcp_servers,
             commands::mcp::refresh_project_mcp_servers,

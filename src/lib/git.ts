@@ -68,6 +68,15 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
 }
 
 /**
+ * Checks if a path is a git worktree (not the main working tree).
+ * @param repoPath - Path to check
+ * @returns true if the path is a linked worktree
+ */
+export async function isGitWorktree(repoPath: string): Promise<boolean> {
+  return invoke<boolean>("is_git_worktree", { repoPath });
+}
+
+/**
  * Gets the current branch name, deduplicating simultaneous requests for the same path.
  * Useful when multiple sessions or components need the branch status at once.
  *

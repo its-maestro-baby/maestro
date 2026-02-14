@@ -245,6 +245,38 @@
   }
 }
 
+/* ── Split Pane Dividers ── */
+
+.split-divider {
+  flex-shrink: 0;
+  background: rgb(var(--maestro-border));
+  transition: background-color 150ms ease;
+  z-index: 1;
+}
+
+.split-divider:hover {
+  background: rgb(var(--maestro-accent));
+}
+
+.split-divider-vertical {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.split-divider-horizontal {
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* While dragging a divider, disable pointer events on xterm so mouse isn't captured */
+.split-dragging .xterm {
+  pointer-events: none;
+}
+
+.split-dragging .split-divider {
+  background: rgb(var(--maestro-accent));
+}
+
 /* ── Terminal Cell Styling ── */
 
 .terminal-cell {

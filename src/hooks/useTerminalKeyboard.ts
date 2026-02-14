@@ -11,6 +11,12 @@ interface UseTerminalKeyboardOptions {
   onCycleNext: () => void;
   /** Callback to cycle to the previous terminal */
   onCyclePrevious: () => void;
+  /** Callback to split the focused terminal vertically (Cmd+D) */
+  onSplitVertical?: () => void;
+  /** Callback to split the focused terminal horizontally (Cmd+Shift+D) */
+  onSplitHorizontal?: () => void;
+  /** Callback to close the focused pane (Cmd+W) */
+  onClosePane?: () => void;
 }
 
 /**
@@ -34,13 +40,38 @@ export function useTerminalKeyboard({
   onFocusTerminal,
   onCycleNext,
   onCyclePrevious,
+  onSplitVertical,
+  onSplitHorizontal,
+  onClosePane,
 }: UseTerminalKeyboardOptions): void {
   useEffect(() => {
-    if (terminalCount === 0) return;
-
     function handleKeyDown(event: KeyboardEvent) {
       const modifierKey = isMac() ? event.metaKey : event.ctrlKey;
       if (!modifierKey) return;
+
+      // Cmd/Ctrl+D: split pane (Shift = horizontal, no Shift = vertical)
+      // Works even with 0 launched terminals (splits pre-launch cards too)
+      if (event.key === "d" && !event.altKey) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.shiftKey) {
+          onSplitHorizontal?.();
+        } else {
+          onSplitVertical?.();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl+W: close the focused pane
+      if (event.key === "w" && !event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onClosePane?.();
+        return;
+      }
+
+      // Navigation shortcuts only apply when terminals exist
+      if (terminalCount === 0) return;
 
       // Don't interfere with other modifier combinations
       if (event.altKey || event.shiftKey) return;
@@ -81,5 +112,5 @@ export function useTerminalKeyboard({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [terminalCount, focusedIndex, onFocusTerminal, onCycleNext, onCyclePrevious]);
+  }, [terminalCount, focusedIndex, onFocusTerminal, onCycleNext, onCyclePrevious, onSplitVertical, onSplitHorizontal, onClosePane]);
 }
