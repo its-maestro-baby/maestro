@@ -99,6 +99,8 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
 └─────────────────────────────────────┘
 ```
 
+**Note:** OpenCode tab uses the custom `OpenCodeIcon` component instead of Lucide icons.
+
 ## Resources
 - **OpenCode Configuration:** https://opencode.ai/docs/config/
 - **Flag Documentation:** Check OpenCode docs for available flags

@@ -154,7 +154,7 @@ export type AIProvider = "claude" | "gemini" | "codex" | "opencode" | "plain";
 
 const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit; label: string }> = {
   // ... existing providers
-  opencode: { icon: Code2, label: "OpenCode" },  // Or custom icon
+  opencode: { icon: OpenCodeIcon, label: "OpenCode" },  // Custom OpenCode icon
   // ...
 };
 ```
@@ -165,7 +165,7 @@ const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit; label: str
 ```typescript
 const AI_MODES: { mode: AiMode; icon: typeof BrainCircuit; label: string; color: string }[] = [
   // ... existing modes
-  { mode: "OpenCode", icon: Code2, label: "OpenCode", color: "text-purple-500" },
+  { mode: "OpenCode", icon: OpenCodeIcon, label: "OpenCode", color: "text-purple-500" },
   // ...
 ];
 ```
@@ -197,10 +197,10 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
 ```
 
 ### 5.3 Icon Requirements
-- Design or select appropriate icon for OpenCode mode
-- Should be distinct from existing AI mode icons
-- Consistent with Maestro's Lucide icon library usage
-- Suggested: Custom SVG or `Code2` icon with purple/violet color scheme
+- Use the official OpenCode icon from https://dashboardicons.com/icons/opencode
+- Download SVG and create `OpenCodeIcon` component at `src/components/icons/OpenCodeIcon.tsx`
+- Component should accept same props as Lucide icons (size, className, etc.)
+- Use OpenCode brand colors or purple/violet scheme for consistency
 
 ---
 
@@ -301,7 +301,7 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
 ## 8. UI/UX Requirements
 
 ### 8.1 Visual Design
-- **Icon:** Use `Code2` Lucide icon or custom OpenCode icon
+- **Icon:** Use custom `OpenCodeIcon` component (from https://dashboardicons.com/icons/opencode)
 - **Color:** Purple/violet color scheme (`text-purple-500`, `bg-purple-500/20`)
 - **Label:** "OpenCode" (not "Open Code")
 - **Consistency:** Match existing AI mode styling
@@ -398,7 +398,7 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
 
 | ID | Test Case | Expected Result | Priority |
 |----|-----------|----------------|----------|
-| TC-1 | Select OpenCode mode | OpenCode appears selected, icon shows | P0 |
+| TC-1 | Select OpenCode mode | OpenCode appears selected, OpenCodeIcon shows | P0 |
 | TC-2 | Launch without OpenCode installed | Error message with install hint | P0 |
 | TC-3 | Launch with OpenCode installed | Session starts successfully | P0 |
 | TC-4 | Configure skip permissions flag | Flag appears in command preview | P1 |
@@ -416,7 +416,7 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
 | OpenCode CLI changes | Medium | Medium | Monitor OpenCode releases, maintain compatibility layer |
 | OpenCode doesn't support MCP | Medium | Low | Implement without MCP, add later if supported |
 | Different CLI flag patterns | Low | Medium | Research OpenCode flags thoroughly before implementation |
-| Icon/licensing issues | Low | Low | Use generic code icon, avoid trademark issues |
+| Icon/licensing issues | Low | Low | Use official OpenCode icon from dashboardicons.com |
 | User confusion with similar tools | Medium | Low | Clear documentation, distinct branding |
 
 ---
