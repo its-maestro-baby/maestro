@@ -58,3 +58,9 @@ website/.jekyll-metadata
 
 # Oh My ClaudeCode
 .omc/
+
+# dora code context index
+.dora/
+
+# roam code context index
+.roam/
