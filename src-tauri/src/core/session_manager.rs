@@ -11,6 +11,7 @@ pub enum AiMode {
     Claude,
     Gemini,
     Codex,
+    OpenCode,
     Plain,
 }
 

@@ -37,7 +37,7 @@ export async function killSession(sessionId: number): Promise<void> {
 }
 
 /** AI mode variants matching the backend enum. */
-export type AiMode = "Claude" | "Gemini" | "Codex" | "Plain";
+export type AiMode = "Claude" | "Gemini" | "Codex" | "OpenCode" | "Plain";
 
 /** CLI modes that support flags (excludes Plain). */
 export type CliAiMode = Exclude<AiMode, "Plain">;
@@ -62,6 +62,11 @@ export const AI_CLI_CONFIG: Record<AiMode, {
     command: "codex",
     installHint: "npm install -g codex",
     skipPermissionsFlag: "--dangerously-bypass-approvals-and-sandbox",
+  },
+  OpenCode: {
+    command: "opencode",
+    installHint: "npm install -g opencode-ai",
+    skipPermissionsFlag: "--dangerously-skip-permissions",
   },
   Plain: {
     command: null,

@@ -23,6 +23,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
 import type { McpServerConfig } from "@/lib/mcp";
@@ -83,10 +84,21 @@ interface PreLaunchCardProps {
   onToggleZoom?: () => void;
 }
 
-const AI_MODES: { mode: AiMode; icon: typeof BrainCircuit; label: string; color: string }[] = [
+const AI_MODES: {
+  mode: AiMode;
+  icon: typeof BrainCircuit | typeof OpenCodeIcon;
+  label: string;
+  color: string;
+}[] = [
   { mode: "Claude", icon: BrainCircuit, label: "Claude Code", color: "text-violet-500" },
   { mode: "Gemini", icon: Sparkles, label: "Gemini CLI", color: "text-blue-400" },
   { mode: "Codex", icon: Code2, label: "Codex", color: "text-green-400" },
+  {
+    mode: "OpenCode",
+    icon: OpenCodeIcon as unknown as typeof BrainCircuit,
+    label: "OpenCode",
+    color: "text-purple-500",
+  },
   { mode: "Plain", icon: Terminal, label: "Terminal", color: "text-maestro-muted" },
 ];
 
