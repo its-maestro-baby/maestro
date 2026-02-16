@@ -31,6 +31,13 @@ import type { PluginConfig, SkillConfig } from "@/lib/plugins";
 import type { AiMode } from "@/stores/useSessionStore";
 import type { RepositoryInfo, WorkspaceType } from "@/stores/useWorkspaceStore";
 
+/** Icon component type for AI mode icons - supports both Lucide and custom icons */
+type IconComponent = React.ComponentType<{
+  size?: number | string;
+  className?: string;
+  strokeWidth?: number | string;
+}>;
+
 /** Pre-launch session slot configuration. */
 export interface SessionSlot {
   id: string;
@@ -86,19 +93,14 @@ interface PreLaunchCardProps {
 
 const AI_MODES: {
   mode: AiMode;
-  icon: typeof BrainCircuit | typeof OpenCodeIcon;
+  icon: IconComponent;
   label: string;
   color: string;
 }[] = [
   { mode: "Claude", icon: BrainCircuit, label: "Claude Code", color: "text-violet-500" },
   { mode: "Gemini", icon: Sparkles, label: "Gemini CLI", color: "text-blue-400" },
   { mode: "Codex", icon: Code2, label: "Codex", color: "text-green-400" },
-  {
-    mode: "OpenCode",
-    icon: OpenCodeIcon as unknown as typeof BrainCircuit,
-    label: "OpenCode",
-    color: "text-purple-500",
-  },
+  { mode: "OpenCode", icon: OpenCodeIcon, label: "OpenCode", color: "text-purple-500" },
   { mode: "Plain", icon: Terminal, label: "Terminal", color: "text-maestro-muted" },
 ];
 

@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 interface OpenCodeIconProps extends SVGProps<SVGSVGElement> {
-  size?: number;
+  size?: number | string;
 }
 
 /**

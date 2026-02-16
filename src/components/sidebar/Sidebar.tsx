@@ -659,11 +659,12 @@ const SESSION_STATUSES: BackendSessionStatus[] = [
   "Error",
 ];
 
+/** Icon component type for AI mode icons - supports both Lucide and custom icons */
 const MODE_ICON: Record<AiMode, React.ElementType> = {
   Claude: Bot,
   Gemini: Sparkles,
   Codex: Cpu,
-  OpenCode: OpenCodeIcon as unknown as React.ElementType,
+  OpenCode: OpenCodeIcon,
   Plain: Globe,
 };
 

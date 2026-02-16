@@ -19,6 +19,13 @@ export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "d
 
 export type AIProvider = "claude" | "gemini" | "codex" | "opencode" | "plain";
 
+/** Icon component type for AI provider icons - supports both Lucide and custom icons */
+type IconComponent = React.ComponentType<{
+  size?: number | string;
+  className?: string;
+  strokeWidth?: number | string;
+}>;
+
 interface TerminalHeaderProps {
   sessionId: number;
   provider?: AIProvider;
@@ -58,11 +65,11 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   timeout: "Startup Timeout",
 };
 
-const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit | typeof OpenCodeIcon; label: string }> = {
+const providerConfig: Record<AIProvider, { icon: IconComponent; label: string }> = {
   claude: { icon: BrainCircuit, label: "Claude Code" },
   gemini: { icon: Sparkles, label: "Gemini CLI" },
   codex: { icon: Code2, label: "Codex" },
-  opencode: { icon: OpenCodeIcon as unknown as typeof BrainCircuit, label: "OpenCode" },
+  opencode: { icon: OpenCodeIcon, label: "OpenCode" },
   plain: { icon: Terminal, label: "Terminal" },
 };
 

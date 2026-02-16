@@ -66,9 +66,7 @@ cargo fmt -- src-tauri/src/file.rs  # Format specific file
 Never apply styling and formatting to existing code.
 
 ### TypeScript/React
-- **Formatter**: Biome with 100 char line width, 2-space indent
-- **Quotes**: Double quotes for strings
-- **Trailing commas**: Always use trailing commas
+- **Formatting**: 100 char line width, 2-space indent
 - **Imports**: Group by 1) React/libraries 2) Tauri APIs 3) Local components 4) Relative paths
 - **Types**: Use explicit types for function parameters and return types
 - **Components**: PascalCase, one component per file, use functional components with hooks
