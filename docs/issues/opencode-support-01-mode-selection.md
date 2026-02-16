@@ -1,6 +1,6 @@
 # Story: OpenCode Mode Selection
 **ID:** opencode-support-01  
-**Status:** Ready for Development  
+**Status:** Completed
 **Priority:** P0  
 **Estimate:** 2 days
 
@@ -8,13 +8,13 @@
 As a Maestro user, I want to select OpenCode as an AI mode when configuring a session, so that I can use OpenCode alongside other AI assistants.
 
 ## Acceptance Criteria
-- [ ] OpenCode appears in the AI mode dropdown in PreLaunchCard
-- [ ] OpenCode uses purple/violet color scheme (`text-purple-500`, `bg-purple-500/20`)
-- [ ] OpenCode uses custom `OpenCodeIcon` component (from https://dashboardicons.com/icons/opencode)
-- [ ] Selecting OpenCode persists as the mode for that session
-- [ ] Mode is displayed correctly in TerminalHeader with OpenCode branding
-- [ ] CLI availability check works for `opencode` command
-- [ ] If OpenCode is not installed, display install hint: `npm install -g opencode-ai`
+- [✅] OpenCode appears in the AI mode dropdown in PreLaunchCard
+- [✅] OpenCode uses purple/violet color scheme (`text-purple-500`, `bg-purple-500/20`)
+- [✅] OpenCode uses custom `OpenCodeIcon` component (from https://dashboardicons.com/icons/opencode)
+- [✅] Selecting OpenCode persists as the mode for that session
+- [✅] Mode is displayed correctly in TerminalHeader with OpenCode branding
+- [✅] CLI availability check works for `opencode` command
+- [✅] If OpenCode is not installed, display install hint: `npm install -g opencode-ai`
 
 ## Technical Implementation
 
@@ -143,12 +143,12 @@ function mapAiMode(mode: AiMode): AIProvider {
 ```
 
 ## Definition of Done
-- [ ] OpenCodeIcon.tsx component created with SVG from dashboardicons.com
-- [ ] User can select OpenCode from mode dropdown
-- [ ] OpenCode icon (OpenCodeIcon component) and label display correctly in all UI components
-- [ ] Install hint shown when OpenCode CLI not found
-- [ ] Mode persists across session operations
-- [ ] Unit tests for mode selection and mapping
+- [✅] OpenCodeIcon.tsx component created with SVG from dashboardicons.com
+- [✅] User can select OpenCode from mode dropdown
+- [✅] OpenCode icon (OpenCodeIcon component) and label display correctly in all UI components
+- [✅] Install hint shown when OpenCode CLI not found
+- [✅] Mode persists across session operations
+- [✅] Unit tests for mode selection and mapping
 - [ ] Manual testing on macOS, Windows, Linux
 
 ## Dependencies
