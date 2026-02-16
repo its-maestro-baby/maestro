@@ -179,3 +179,15 @@ export const useStore = create<StoreState>((set) => ({
 - MCP server binary bundled at build time
 - Tauri bundles frontend + Rust backend into native apps
 - Node 18+ required, Rust 1.78+ required
+
+## Development Workflow
+Use this workflow when implementing a task or story, refactoring, or fixing a bug.
+
+1. Run all tests to verify nothing is currently broken. Stop here if any tests fail.
+2. Use the 'roam' and 'dora' skills to review components and entities related to the work to be done.
+3. Implement the changes needed. Do not apply changes (formatting, style, refactoring) to any other part of the code.
+4. Run tests related to the changes.
+5. Briefly summarize the changes made and print them. 
+6. Describe and suggest next steps.
+
+
