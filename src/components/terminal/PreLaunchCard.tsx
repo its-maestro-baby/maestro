@@ -23,20 +23,13 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
+import { OpenCodeIcon, type IconComponent } from "@/components/icons";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
 import type { McpServerConfig } from "@/lib/mcp";
 import type { PluginConfig, SkillConfig } from "@/lib/plugins";
 import type { AiMode } from "@/stores/useSessionStore";
 import type { RepositoryInfo, WorkspaceType } from "@/stores/useWorkspaceStore";
-
-/** Icon component type for AI mode icons - supports both Lucide and custom icons */
-type IconComponent = React.ComponentType<{
-  size?: number | string;
-  className?: string;
-  strokeWidth?: number | string;
-}>;
 
 /** Pre-launch session slot configuration. */
 export interface SessionSlot {

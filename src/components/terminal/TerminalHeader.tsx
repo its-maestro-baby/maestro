@@ -13,18 +13,11 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
-import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
+import { OpenCodeIcon, type IconComponent } from "@/components/icons";
 
 export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "done" | "error" | "timeout";
 
 export type AIProvider = "claude" | "gemini" | "codex" | "opencode" | "plain";
-
-/** Icon component type for AI provider icons - supports both Lucide and custom icons */
-type IconComponent = React.ComponentType<{
-  size?: number | string;
-  className?: string;
-  strokeWidth?: number | string;
-}>;
 
 interface TerminalHeaderProps {
   sessionId: number;
