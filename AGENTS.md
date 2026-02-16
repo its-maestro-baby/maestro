@@ -50,8 +50,6 @@ npx vitest run --changed
 ```bash
 npx @biomejs/biome check .                    # Check linting
 npx @biomejs/biome format .                   # Check formatting
-npx @biomejs/biome check --write .            # Fix linting and format
-npx @biomejs/biome check --write src/file.tsx # Fix specific file
 ```
 
 ### Rust (Clippy & rustfmt)
@@ -63,6 +61,9 @@ cargo fmt -- src-tauri/src/file.rs  # Format specific file
 ```
 
 ## Code Style Guidelines
+
+**VERY IMPORTANT:** Only apply styling and formatting to lines of code that are new or changed.
+Never apply styling and formatting to existing code.
 
 ### TypeScript/React
 - **Formatter**: Biome with 100 char line width, 2-space indent
