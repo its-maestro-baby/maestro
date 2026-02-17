@@ -1,6 +1,6 @@
 # Story: OpenCode CLI Settings
 **ID:** opencode-support-03  
-**Status:** Ready for Development  
+**Status:** Completed  
 **Priority:** P1  
 **Estimate:** 2 days
 
@@ -8,13 +8,13 @@
 As a Maestro user, I want to configure OpenCode-specific CLI flags (like --dangerously-skip-permissions), so that I can customize how OpenCode behaves without typing flags manually.
 
 ## Acceptance Criteria
-- [ ] OpenCode appears as a tab in CLI Settings modal
-- [ ] "Skip Permissions" toggle works for OpenCode (`--dangerously-skip-permissions`)
-- [ ] Custom flags input field accepts user-defined flags
-- [ ] Command preview updates in real-time showing the full opencode command
-- [ ] Settings persist across app restarts
-- [ ] Reset to defaults button works for OpenCode
-- [ ] Visual styling matches other AI modes (purple color scheme)
+- [x] OpenCode appears as a tab in CLI Settings modal
+- [x] "Skip Permissions" toggle works for OpenCode (`--dangerously-skip-permissions`)
+- [x] Custom flags input field accepts user-defined flags
+- [x] Command preview updates in real-time showing the full opencode command
+- [x] Settings persist across app restarts
+- [x] Reset to defaults button works for OpenCode
+- [x] Visual styling matches other AI modes (purple color scheme)
 
 ## Technical Implementation
 
