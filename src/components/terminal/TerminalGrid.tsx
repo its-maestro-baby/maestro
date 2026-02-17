@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { invoke } from "@tauri-apps/api/core";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
-import { removeSessionMcpConfig, setSessionMcpServers, writeSessionMcpConfig, type McpServerConfig } from "@/lib/mcp";
+import { removeSessionMcpConfig, removeOpenCodeMcpConfig, setSessionMcpServers, writeSessionMcpConfig, writeOpenCodeMcpConfig, type McpServerConfig } from "@/lib/mcp";
 import {
   loadBranchConfig,
   removeSessionPluginConfig,
@@ -606,6 +606,31 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 console.error("Failed to write plugin config:", err);
                 // Non-fatal - continue with CLI launch
               }
+            } else if (workingDirectory && slot.mode === "OpenCode") {
+              // Write OpenCode MCP config (opencode.json format)
+              try {
+                await writeOpenCodeMcpConfig(
+                  workingDirectory,
+                  sessionId,
+                  projectPath ?? workingDirectory,
+                  slot.enabledMcpServers
+                );
+              } catch (err) {
+                console.error("Failed to write OpenCode MCP config:", err);
+                // Non-fatal - continue with CLI launch
+              }
+
+              // Write plugin enabled/disabled state to settings.local.json
+              try {
+                await writeSessionPluginConfig(
+                  workingDirectory,
+                  projectPath ?? workingDirectory,
+                  slot.enabledPlugins
+                );
+              } catch (err) {
+                console.error("Failed to write plugin config:", err);
+                // Non-fatal - continue with CLI launch
+              }
             }
 
             // Wait for xterm.js to mount and start listening for PTY output
@@ -712,7 +737,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
     // Clean up session-specific MCP config (fire-and-forget)
     if (workingDir) {
-      removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+      if (slot?.mode === "OpenCode") {
+        removeOpenCodeMcpConfig(workingDir, sessionId).catch(console.error);
+      } else {
+        removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+      }
     }
 
     // Clean up session-specific plugin config (fire-and-forget)

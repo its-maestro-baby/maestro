@@ -377,6 +377,213 @@ pub async fn write_session_mcp_config(
     Ok(())
 }
 
+/// Converts an McpServerConfig to the JSON format expected by OpenCode's `opencode.json`.
+///
+/// OpenCode uses a different format than Claude:
+/// - Uses `mcp` key instead of `mcpServers`
+/// - Uses `type: "local"` instead of `type: "stdio"`
+/// - Uses `command` as an array instead of a string
+fn server_config_to_opencode_json(config: &McpServerConfig) -> Value {
+    match &config.server_type {
+        McpServerType::Stdio { command, args, env } => {
+            let mut cmd_array = vec![command.clone()];
+            cmd_array.extend(args.iter().cloned());
+            let mut obj = json!({
+                "type": "local",
+                "command": cmd_array,
+            });
+            if !env.is_empty() {
+                obj["environment"] = json!(env);
+            }
+            obj
+        }
+        McpServerType::Http { url } => {
+            json!({
+                "type": "remote",
+                "url": url
+            })
+        }
+    }
+}
+
+/// Converts a custom MCP server to the JSON format expected by OpenCode's `opencode.json`
+fn custom_server_to_opencode_json(server: &McpCustomServer) -> Value {
+    let mut cmd_array = vec![server.command.clone()];
+    cmd_array.extend(server.args.iter().cloned());
+    let mut obj = json!({
+        "type": "local",
+        "command": cmd_array,
+    });
+    if !server.env.is_empty() {
+        obj["environment"] = json!(server.env);
+    }
+    obj
+}
+
+/// Writes a session-specific `opencode.json` to the working directory for OpenCode CLI.
+///
+/// This function:
+/// 1. Creates the Maestro MCP server entry with HTTP-based status reporting
+/// 2. Adds enabled discovered servers (translated to OpenCode format)
+/// 3. Adds enabled custom servers (user-defined, global)
+/// 4. Merges with any existing `opencode.json` (preserving user servers)
+/// 5. Writes the final config to the working directory
+///
+/// OpenCode uses a different config format:
+/// - File: `opencode.json` instead of `.mcp.json`
+/// - Key: `mcp` instead of `mcpServers`
+/// - Type: `local` instead of `stdio`, `remote` instead of `http`
+/// - Command: array instead of string
+pub async fn write_opencode_mcp_config(
+    working_dir: &Path,
+    session_id: u32,
+    status_url: &str,
+    instance_id: &str,
+    enabled_servers: &[McpServerConfig],
+    custom_servers: &[McpCustomServer],
+) -> Result<(), String> {
+    let mut mcp_servers: HashMap<String, Value> = HashMap::new();
+
+    // Add Maestro MCP server with HTTP-based status reporting.
+    if let Some(mcp_path) = find_maestro_mcp_path() {
+        log::info!(
+            "Found maestro-mcp-server at {:?}, adding maestro-status entry for OpenCode session {} with status_url={}",
+            mcp_path,
+            session_id,
+            status_url
+        );
+
+        mcp_servers.insert(
+            "maestro-status".to_string(),
+            json!({
+                "type": "local",
+                "command": [mcp_path.to_string_lossy().to_string()],
+                "enabled": true,
+                "environment": {
+                    "MAESTRO_SESSION_ID": session_id.to_string(),
+                    "MAESTRO_STATUS_URL": status_url,
+                    "MAESTRO_INSTANCE_ID": instance_id
+                }
+            }),
+        );
+    } else {
+        log::warn!(
+            "maestro-mcp-server binary not found, maestro_status tool will not be available for OpenCode"
+        );
+    }
+
+    // Add enabled discovered servers (translated to OpenCode format)
+    for server in enabled_servers {
+        mcp_servers.insert(server.name.clone(), server_config_to_opencode_json(server));
+    }
+
+    // Add enabled custom servers (translated to OpenCode format)
+    for server in custom_servers {
+        mcp_servers.insert(server.name.clone(), custom_server_to_opencode_json(server));
+    }
+
+    // Acquire per-directory lock to serialize concurrent read-modify-write
+    let lock = dir_lock(working_dir);
+    let _guard = lock.lock().await;
+
+    // Merge with existing opencode.json if present
+    let opencode_path = working_dir.join("opencode.json");
+    let final_config = merge_with_opencode_existing(&opencode_path, mcp_servers, session_id)?;
+
+    // Write the file atomically
+    let content = serde_json::to_string_pretty(&final_config)
+        .map_err(|e| format!("Failed to serialize OpenCode MCP config: {}", e))?;
+
+    atomic_write(&opencode_path, &content).await?;
+
+    log::debug!(
+        "Wrote session {} OpenCode MCP config to {:?}",
+        session_id,
+        opencode_path
+    );
+
+    Ok(())
+}
+
+/// Merges new MCP servers with an existing `opencode.json` file.
+fn merge_with_opencode_existing(
+    opencode_path: &Path,
+    new_servers: HashMap<String, Value>,
+    session_id: u32,
+) -> Result<Value, String> {
+    let mut final_servers = new_servers;
+
+    if opencode_path.exists() {
+        let content = std::fs::read_to_string(opencode_path)
+            .map_err(|e| format!("Failed to read existing opencode.json: {}", e))?;
+
+        match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(existing) => {
+                if let Some(existing_mcp) = existing.get("mcp").and_then(|m| m.as_object()) {
+                    log::debug!(
+                        "Merging with existing opencode.json, {} existing servers",
+                        existing_mcp.len()
+                    );
+
+                    for (name, config) in existing_mcp {
+                        if !name.starts_with("maestro-") {
+                            final_servers.insert(name.clone(), config.clone());
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse existing opencode.json: {}, will overwrite",
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(json!({ "mcp": final_servers }))
+}
+
+/// Removes Maestro server entries from `opencode.json`.
+///
+/// This should be called when a session is killed to clean up the config file.
+pub async fn remove_opencode_mcp_config(working_dir: &Path, session_id: u32) -> Result<(), String> {
+    let opencode_path = working_dir.join("opencode.json");
+    if !opencode_path.exists() {
+        return Ok(());
+    }
+
+    // Acquire per-directory lock
+    let lock = dir_lock(working_dir);
+    let _guard = lock.lock().await;
+
+    let content = tokio::fs::read_to_string(&opencode_path)
+        .await
+        .map_err(|e| format!("Failed to read opencode.json: {}", e))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse opencode.json: {}", e))?;
+
+    let mut mcp_obj = parsed.get("mcp").and_then(|m| m.as_object()).cloned().unwrap_or_default();
+
+    // Remove maestro-status entry
+    mcp_obj.remove("maestro-status");
+
+    // Write back
+    let output = if mcp_obj.is_empty() {
+        serde_json::to_string_pretty(&json!({}))
+    } else {
+        serde_json::to_string_pretty(&json!({ "mcp": mcp_obj }))
+    }
+    .map_err(|e| format!("Failed to serialize opencode.json: {}", e))?;
+
+    atomic_write(&opencode_path, &output).await?;
+
+    log::debug!("Removed session {} from opencode.json", session_id);
+
+    Ok(())
+}
+
 /// Removes Maestro server entries from `.mcp.json`.
 ///
 /// This should be called when a session is killed to clean up the config file.

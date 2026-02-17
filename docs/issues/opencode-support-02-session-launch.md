@@ -1,6 +1,6 @@
 # Story: OpenCode Session Launch
 **ID:** opencode-support-02  
-**Status:** Ready for Development  
+**Status:** Completed
 **Priority:** P0  
 **Estimate:** 2 days
 
@@ -8,14 +8,14 @@
 As a Maestro user, I want to launch OpenCode sessions in isolated git worktrees, so that I can work on multiple tasks simultaneously using OpenCode.
 
 ## Acceptance Criteria
-- [ ] OpenCode process spawns correctly with working directory set to worktree
-- [ ] Environment variables (including MAESTRO_SESSION_ID) passed correctly to OpenCode
-- [ ] Session registers with SessionManager with correct mode
-- [ ] PTY output streams display in terminal
-- [ ] User can interact with OpenCode normally (type commands, see output)
-- [ ] Session status updates are tracked (Starting → Idle → Working → etc.)
-- [ ] Error handling for launch failures (clear error messages)
-- [ ] User can kill OpenCode session via terminal header
+- [✅] OpenCode process spawns correctly with working directory set to worktree
+- [✅] Environment variables (including MAESTRO_SESSION_ID) passed correctly to OpenCode
+- [✅] Session registers with SessionManager with correct mode
+- [✅] PTY output streams display in terminal
+- [✅] User can interact with OpenCode normally (type commands, see output)
+- [✅] Session status updates are tracked (Starting → Idle → Working → etc.)
+- [✅] Error handling for launch failures (clear error messages)
+- [✅] User can kill OpenCode session via terminal header
 
 ## Technical Implementation
 
@@ -45,14 +45,14 @@ export type AiMode = "Claude" | "Gemini" | "Codex" | "OpenCode" | "Plain";
 - MCP status reporting (if OpenCode supports it)
 
 ## Definition of Done
-- [ ] OpenCode session launches successfully in worktree
-- [ ] User can type commands and see output
-- [ ] Session appears in sidebar with correct status
-- [ ] Kill session button works
-- [ ] Error messages displayed on launch failure
-- [ ] Status transitions tracked correctly
-- [ ] Integration tests for session lifecycle
-- [ ] Manual testing completed
+- [✅] OpenCode session launches successfully in worktree
+- [✅] User can type commands and see output
+- [✅] Session appears in sidebar with correct status
+- [✅] Kill session button works
+- [✅] Error messages displayed on launch failure
+- [✅] Status transitions tracked correctly
+- [✅] Integration tests for session lifecycle
+- [✅] Manual testing completed
 
 ## Test Scenarios
 1. **Happy Path:** Select OpenCode → Launch → Interact → Kill
