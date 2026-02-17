@@ -65,6 +65,7 @@ impl StatusReporter {
         message: &str,
         needs_input_prompt: Option<String>,
     ) -> Result<(), StatusError> {
+        log::info!("Reporting status: {} - {}", state, message);
         let status_url = match &self.status_url {
             Some(url) => url,
             None => return Ok(()), // Graceful degradation if not configured

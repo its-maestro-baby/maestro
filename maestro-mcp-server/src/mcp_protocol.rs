@@ -74,6 +74,7 @@ impl McpServer {
             if line.is_empty() {
                 continue;
             }
+            log::info!("Received status line {}", line);
 
             let request: JsonRpcRequest = match serde_json::from_str(&line) {
                 Ok(req) => req,
