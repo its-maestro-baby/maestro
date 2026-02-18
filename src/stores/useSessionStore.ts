@@ -41,6 +41,8 @@ export interface SessionConfig {
   project_path: string;
   statusMessage?: string;
   needsInputPrompt?: string;
+  /** Timestamp of the last MCP-driven status update (used by activity heuristic). */
+  lastMcpUpdateTime?: number;
 }
 
 /** Shape of the Tauri `session-status-changed` event payload. */
@@ -293,6 +295,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
                       status,
                       statusMessage: message,
                       needsInputPrompt: needs_input_prompt,
+                      lastMcpUpdateTime: Date.now(),
                     }
                   : s
               ),
