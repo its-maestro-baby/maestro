@@ -757,7 +757,13 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     if (slotsRef.current.length <= 1) return; // don't close the last pane
     const slot = slotsRef.current.find((s) => s.id === targetId);
     if (!slot) return;
+
     if (slot.sessionId !== null) {
+      // Confirm before closing a launched session
+      if (!window.confirm("Are you sure you want to close this session?")) return;
+
+      // Kill the backend PTY process (fire-and-forget)
+      killSession(slot.sessionId).catch(console.error);
       handleKill(slot.sessionId);
     } else {
       removeSlot(slot.id);
