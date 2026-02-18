@@ -77,6 +77,8 @@ pub fn run() {
                 .item(&zoom_out)
                 .separator()
                 .item(&zoom_reset)
+                .separator()
+                .fullscreen()
                 .build()?;
 
             // Window submenu (intentionally no Zoom/maximize item)
