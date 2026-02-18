@@ -281,6 +281,15 @@ export const TerminalView = memo(function TerminalView({
     let rafId: number | null = null;
     let fallbackTimerId: ReturnType<typeof setTimeout> | null = null;
 
+    // === Activity-based status detection ===
+    let activityWorkingTimer: ReturnType<typeof setTimeout> | null = null;
+    let activityIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastHeuristicStatus: string | null = null;
+
+    const MCP_GRACE_PERIOD_MS = 10_000; // Defer to MCP for 10s after last MCP update
+    const WORKING_DEBOUNCE_MS = 500;    // Sustained output before marking "Working"
+    const IDLE_TIMEOUT_MS = 5_000;      // No output before marking "Idle"
+
     const MAX_BUFFER_CHUNKS = 100;  // Force flush at ~400KB (100 × 4KB chunks)
     const FALLBACK_FLUSH_MS = 50;   // 20fps floor for backgrounded tabs
 
@@ -482,6 +491,36 @@ export const TerminalView = memo(function TerminalView({
         } else {
           scheduleFlush();
         }
+
+        // --- Activity-based status detection ---
+        const session = useSessionStore.getState().sessions.find(s => s.id === sessionId);
+        const lastMcp = session?.lastMcpUpdateTime ?? 0;
+        const mcpIsActive = (Date.now() - lastMcp) < MCP_GRACE_PERIOD_MS;
+
+        if (!mcpIsActive) {
+          // Debounce: set "Working" after sustained output
+          if (!activityWorkingTimer && lastHeuristicStatus !== "Working") {
+            activityWorkingTimer = setTimeout(() => {
+              activityWorkingTimer = null;
+              lastHeuristicStatus = "Working";
+              useSessionStore.getState().updateSession(sessionId, {
+                status: "Working" as BackendSessionStatus,
+              });
+            }, WORKING_DEBOUNCE_MS);
+          }
+
+          // Reset idle timer on every output chunk
+          if (activityIdleTimer) clearTimeout(activityIdleTimer);
+          activityIdleTimer = setTimeout(() => {
+            activityIdleTimer = null;
+            if (lastHeuristicStatus === "Working") {
+              lastHeuristicStatus = "Idle";
+              useSessionStore.getState().updateSession(sessionId, {
+                status: "Idle" as BackendSessionStatus,
+              });
+            }
+          }, IDLE_TIMEOUT_MS);
+        }
       });
       listenerReady
         .then((fn) => {
@@ -523,6 +562,8 @@ export const TerminalView = memo(function TerminalView({
     return () => {
       disposed = true;
       cancelPendingFlush();
+      if (activityWorkingTimer) clearTimeout(activityWorkingTimer);
+      if (activityIdleTimer) clearTimeout(activityIdleTimer);
       // Flush remaining buffered output before disposal
       if (term && writeBuffer.length > 0) {
         try { term.write(writeBuffer.join('')); } catch { /* ignore errors during cleanup */ }
