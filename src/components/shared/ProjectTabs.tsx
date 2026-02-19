@@ -1,6 +1,21 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
 import { Minus, PanelLeft, Plus, Square, X } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import { useProjectStatus, STATUS_COLORS } from "@/hooks/useProjectStatus";
 import { isMac } from "@/lib/platform";
 
@@ -17,6 +32,8 @@ interface ProjectTabsProps {
   onNewTab: () => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
+  onReorderTab: (activeId: string, overId: string) => void;
+  onMoveTab: (tabId: string, direction: "left" | "right") => void;
 }
 
 /**
@@ -27,20 +44,34 @@ function TabItem({
   onSelect,
   onClose,
   onKeyDown,
-  tabRef,
 }: {
   tab: ProjectTab;
   onSelect: () => void;
   onClose: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
-  tabRef: (el: HTMLDivElement | null) => void;
 }) {
   const { status, sessionCount } = useProjectStatus(tab.id);
   const shouldPulse = status === "working" || status === "needs-input";
 
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: tab.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   return (
     <div
-      ref={tabRef}
+      ref={setNodeRef}
+      style={style}
       role="tab"
       aria-selected={tab.active}
       tabIndex={tab.active ? 0 : -1}
@@ -51,17 +82,16 @@ function TabItem({
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
       }`}
+      {...attributes}
+      {...listeners}
     >
       <span className="flex items-center gap-1.5">
-        {/* Status indicator dot */}
         <span
           className={`h-2 w-2 rounded-full ${STATUS_COLORS[status]} ${
             shouldPulse ? "animate-pulse" : ""
           }`}
         />
         <span>{tab.name}</span>
-
-        {/* Session count badge */}
         {sessionCount > 0 && (
           <span
             className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
@@ -82,6 +112,7 @@ function TabItem({
           e.stopPropagation();
           onClose();
         }}
+        onPointerDown={(e) => e.stopPropagation()}
         className="ml-1 rounded p-0.5 hover:bg-maestro-border"
         aria-label={`Close ${tab.name}`}
       >
@@ -98,17 +129,57 @@ export function ProjectTabs({
   onNewTab,
   onToggleSidebar,
   sidebarOpen,
+  onReorderTab,
+  onMoveTab,
 }: ProjectTabsProps) {
   const appWindow = useMemo(() => getCurrentWindow(), []);
-  const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  const setTabRef = useCallback((id: string, el: HTMLDivElement | null) => {
-    if (el) {
-      tabRefs.current.set(id, el);
-    } else {
-      tabRefs.current.delete(id);
-    }
-  }, []);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (over && active.id !== over.id) {
+        onReorderTab(active.id as string, over.id as string);
+      }
+    },
+    [onReorderTab]
+  );
+
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent, tab: ProjectTab) => {
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      // Cmd/Ctrl+Shift+Arrow: move tab position
+      if (isMeta && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        const activeTab = tabs.find((t) => t.active);
+        if (activeTab) {
+          onMoveTab(activeTab.id, e.key === "ArrowLeft" ? "left" : "right");
+        }
+        return;
+      }
+
+      // Arrow keys: switch tab focus
+      if (e.key === "ArrowRight") {
+        const idx = tabs.findIndex((t) => t.id === tab.id);
+        const next = tabs[(idx + 1) % tabs.length];
+        if (next) onSelectTab(next.id);
+      } else if (e.key === "ArrowLeft") {
+        const idx = tabs.findIndex((t) => t.id === tab.id);
+        const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
+        if (prev) onSelectTab(prev.id);
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onSelectTab(tab.id);
+      }
+    },
+    [tabs, onSelectTab, onMoveTab]
+  );
 
   return (
     <div
@@ -135,41 +206,33 @@ export function ProjectTabs({
 
         <div className="mx-1 h-4 w-px bg-maestro-border" />
 
-        <div role="tablist" aria-label="Open projects" className="flex items-center gap-0.5">
-          {tabs.length === 0 ? (
-            <span className="px-2 text-xs text-maestro-muted">No projects</span>
-          ) : (
-            tabs.map((tab) => (
-              <TabItem
-                key={tab.id}
-                tab={tab}
-                onSelect={() => onSelectTab(tab.id)}
-                onClose={() => onCloseTab(tab.id)}
-                tabRef={(el) => setTabRef(tab.id, el)}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowRight") {
-                    const idx = tabs.findIndex((t) => t.id === tab.id);
-                    const next = tabs[(idx + 1) % tabs.length];
-                    if (next) {
-                      onSelectTab(next.id);
-                      tabRefs.current.get(next.id)?.focus();
-                    }
-                  } else if (e.key === "ArrowLeft") {
-                    const idx = tabs.findIndex((t) => t.id === tab.id);
-                    const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
-                    if (prev) {
-                      onSelectTab(prev.id);
-                      tabRefs.current.get(prev.id)?.focus();
-                    }
-                  } else if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelectTab(tab.id);
-                  }
-                }}
-              />
-            ))
-          )}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToHorizontalAxis]}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={tabs.map((t) => t.id)}
+            strategy={horizontalListSortingStrategy}
+          >
+            <div role="tablist" aria-label="Open projects" className="flex items-center gap-0.5">
+              {tabs.length === 0 ? (
+                <span className="px-2 text-xs text-maestro-muted">No projects</span>
+              ) : (
+                tabs.map((tab) => (
+                  <TabItem
+                    key={tab.id}
+                    tab={tab}
+                    onSelect={() => onSelectTab(tab.id)}
+                    onClose={() => onCloseTab(tab.id)}
+                    onKeyDown={(e) => handleTabKeyDown(e, tab)}
+                  />
+                ))
+              )}
+            </div>
+          </SortableContext>
+        </DndContext>
 
         <button
           type="button"
