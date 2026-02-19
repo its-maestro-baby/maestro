@@ -72,6 +72,8 @@ function TabItem({
     <div
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...listeners}
       role="tab"
       aria-selected={tab.active}
       tabIndex={tab.active ? 0 : -1}
@@ -82,8 +84,6 @@ function TabItem({
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
       }`}
-      {...attributes}
-      {...listeners}
     >
       <span className="flex items-center gap-1.5">
         <span
