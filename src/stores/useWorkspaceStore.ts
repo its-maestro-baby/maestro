@@ -2,6 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { arrayMove } from "@dnd-kit/sortable";
 import { killSession } from "@/lib/terminal";
 
 // --- Types ---
@@ -71,6 +72,10 @@ type WorkspaceActions = {
   updateRepositories: (tabId: string, repositories: RepositoryInfo[]) => void;
   /** Set or clear a custom worktree base path for a project tab. */
   setWorktreeBasePath: (tabId: string, path: string | null) => void;
+  /** Reorder tabs by moving activeId to overId's position. Used by drag-and-drop. */
+  reorderTabs: (activeId: string, overId: string) => void;
+  /** Move a tab one position left or right. Used by keyboard shortcut. */
+  moveTab: (tabId: string, direction: "left" | "right") => void;
 };
 
 // --- Tauri LazyStore-backed StateStorage adapter ---
@@ -309,6 +314,24 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
             t.id === tabId ? { ...t, worktreeBasePath: path } : t
           ),
         });
+      },
+
+      reorderTabs: (activeId: string, overId: string) => {
+        if (activeId === overId) return;
+        const { tabs } = get();
+        const oldIndex = tabs.findIndex((t) => t.id === activeId);
+        const newIndex = tabs.findIndex((t) => t.id === overId);
+        if (oldIndex === -1 || newIndex === -1) return;
+        set({ tabs: arrayMove(tabs, oldIndex, newIndex) });
+      },
+
+      moveTab: (tabId: string, direction: "left" | "right") => {
+        const { tabs } = get();
+        const index = tabs.findIndex((t) => t.id === tabId);
+        if (index === -1) return;
+        const newIndex = direction === "left" ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= tabs.length) return;
+        set({ tabs: arrayMove(tabs, index, newIndex) });
       },
     }),
     {
