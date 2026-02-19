@@ -87,6 +87,7 @@ const AI_MODES: { mode: AiMode; icon: typeof BrainCircuit; label: string; color:
   { mode: "Claude", icon: BrainCircuit, label: "Claude Code", color: "text-violet-500" },
   { mode: "Gemini", icon: Sparkles, label: "Gemini CLI", color: "text-blue-400" },
   { mode: "Codex", icon: Code2, label: "Codex", color: "text-green-400" },
+  { mode: "OpenCode", icon: Zap, label: "OpenCode", color: "text-amber-400" },
   { mode: "Plain", icon: Terminal, label: "Terminal", color: "text-maestro-muted" },
 ];
 

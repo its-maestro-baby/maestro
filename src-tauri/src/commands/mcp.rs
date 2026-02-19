@@ -11,6 +11,7 @@ use tauri_plugin_store::StoreExt;
 
 use crate::core::mcp_config_writer;
 use crate::core::mcp_manager::{McpManager, McpServerConfig};
+use crate::core::opencode_config_writer;
 use crate::core::status_server::StatusServer;
 
 /// Store filename for custom MCP servers (global, user-level).
@@ -353,6 +354,76 @@ fn get_custom_mcp_servers_internal(app: &AppHandle) -> Result<Vec<McpCustomServe
 pub async fn remove_session_mcp_config(working_dir: String, session_id: u32) -> Result<(), String> {
     let path = PathBuf::from(&working_dir);
     mcp_config_writer::remove_session_mcp_config(&path, session_id).await
+}
+
+/// Writes a session-specific `opencode.json` MCP config to the working directory.
+///
+/// OpenCode uses a different config format than Claude (opencode.json with
+/// mcp.servers and "local" type). This must be called BEFORE launching OpenCode.
+#[tauri::command]
+pub async fn write_opencode_mcp_config(
+    app: AppHandle,
+    mcp_state: State<'_, McpManager>,
+    status_server: State<'_, Arc<StatusServer>>,
+    working_dir: String,
+    session_id: u32,
+    project_path: String,
+    enabled_server_names: Vec<String>,
+) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(&project_path)
+        .map_err(|e| format!("Invalid project path '{}': {}", project_path, e))?
+        .to_string_lossy()
+        .into_owned();
+
+    // Register this session with the status server
+    status_server
+        .register_session(session_id, &canonical)
+        .await;
+
+    let status_url = status_server.status_url();
+    let instance_id = status_server.instance_id();
+
+    // Get full server configs for enabled discovered servers
+    let all_discovered = mcp_state.get_project_servers(&canonical);
+    let enabled_discovered: Vec<_> = all_discovered
+        .into_iter()
+        .filter(|s| enabled_server_names.contains(&s.name))
+        .collect();
+
+    // Get enabled custom servers
+    let custom_servers = get_custom_mcp_servers_internal(&app)?;
+    let enabled_custom: Vec<_> = custom_servers
+        .into_iter()
+        .filter(|s| s.is_enabled)
+        .collect();
+
+    log::info!(
+        "Writing OpenCode MCP config for session {} to {} ({} discovered + {} custom servers)",
+        session_id,
+        working_dir,
+        enabled_discovered.len(),
+        enabled_custom.len()
+    );
+
+    opencode_config_writer::write_opencode_mcp_config(
+        Path::new(&working_dir),
+        session_id,
+        &status_url,
+        instance_id,
+        &enabled_discovered,
+        &enabled_custom,
+    )
+    .await
+}
+
+/// Removes Maestro server entries from `opencode.json`.
+///
+/// This should be called when an OpenCode session is killed to clean up.
+/// The function is idempotent.
+#[tauri::command]
+pub async fn remove_opencode_mcp_config(working_dir: String, session_id: u32) -> Result<(), String> {
+    let path = PathBuf::from(&working_dir);
+    opencode_config_writer::remove_opencode_mcp_config(&path, session_id).await
 }
 
 /// Generates a project hash for the given path.

@@ -172,6 +172,39 @@ export async function removeSessionMcpConfig(
 }
 
 /**
+ * Writes a session-specific `opencode.json` MCP config to the working directory.
+ *
+ * OpenCode uses a different format than Claude (opencode.json with mcp.servers
+ * and "local" type). This MUST be called BEFORE launching OpenCode.
+ */
+export async function writeOpencodeMcpConfig(
+  workingDir: string,
+  sessionId: number,
+  projectPath: string,
+  enabledServerNames: string[]
+): Promise<void> {
+  return invoke("write_opencode_mcp_config", {
+    workingDir,
+    sessionId,
+    projectPath,
+    enabledServerNames,
+  });
+}
+
+/**
+ * Removes Maestro server entries from `opencode.json`.
+ *
+ * This should be called when an OpenCode session is killed to clean up.
+ * The function is idempotent.
+ */
+export async function removeOpencodeMcpConfig(
+  workingDir: string,
+  sessionId: number,
+): Promise<void> {
+  return invoke("remove_opencode_mcp_config", { workingDir, sessionId });
+}
+
+/**
  * Gets all custom MCP servers configured by the user.
  * Custom servers are stored globally and available across all projects.
  */

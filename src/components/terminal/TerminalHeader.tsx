@@ -11,12 +11,13 @@ import {
   Sparkles,
   Terminal,
   X,
+  Zap,
   ZoomIn,
 } from "lucide-react";
 
 export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "done" | "error" | "timeout";
 
-export type AIProvider = "claude" | "gemini" | "codex" | "plain";
+export type AIProvider = "claude" | "gemini" | "codex" | "opencode" | "plain";
 
 interface TerminalHeaderProps {
   sessionId: number;
@@ -61,6 +62,7 @@ const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit; label: str
   claude: { icon: BrainCircuit, label: "Claude Code" },
   gemini: { icon: Sparkles, label: "Gemini CLI" },
   codex: { icon: Code2, label: "Codex" },
+  opencode: { icon: Zap, label: "OpenCode" },
   plain: { icon: Terminal, label: "Terminal" },
 };
 

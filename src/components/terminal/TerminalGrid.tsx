@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { invoke } from "@tauri-apps/api/core";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
-import { removeSessionMcpConfig, setSessionMcpServers, writeSessionMcpConfig, type McpServerConfig } from "@/lib/mcp";
+import { removeOpencodeMcpConfig, removeSessionMcpConfig, setSessionMcpServers, writeOpencodeMcpConfig, writeSessionMcpConfig, type McpServerConfig } from "@/lib/mcp";
 import {
   loadBranchConfig,
   removeSessionPluginConfig,
@@ -608,6 +608,20 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
               }
             }
 
+            // Write OpenCode MCP config (opencode.json with different format)
+            if (workingDirectory && slot.mode === "OpenCode") {
+              try {
+                await writeOpencodeMcpConfig(
+                  workingDirectory,
+                  sessionId,
+                  projectPath ?? workingDirectory,
+                  slot.enabledMcpServers
+                );
+              } catch (err) {
+                console.error("Failed to write OpenCode MCP config:", err);
+              }
+            }
+
             // Wait for xterm.js to mount and start listening for PTY output
             // This ensures we don't send CLI commands before the terminal is ready
             // (which would cause output to be lost since Tauri events aren't buffered)
@@ -713,6 +727,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     // Clean up session-specific MCP config (fire-and-forget)
     if (workingDir) {
       removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+      // Also clean up OpenCode config (idempotent, safe to call for any mode)
+      removeOpencodeMcpConfig(workingDir, sessionId).catch(console.error);
     }
 
     // Clean up session-specific plugin config (fire-and-forget)

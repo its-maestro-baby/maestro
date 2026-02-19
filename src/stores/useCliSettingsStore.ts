@@ -46,6 +46,7 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
   Claude: { ...DEFAULT_MODE_FLAGS },
   Gemini: { ...DEFAULT_MODE_FLAGS },
   Codex: { ...DEFAULT_MODE_FLAGS },
+  OpenCode: { ...DEFAULT_MODE_FLAGS },
 };
 
 // --- Tauri LazyStore-backed StateStorage adapter ---
@@ -141,6 +142,7 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
             Claude: { ...DEFAULT_MODE_FLAGS },
             Gemini: { ...DEFAULT_MODE_FLAGS },
             Codex: { ...DEFAULT_MODE_FLAGS },
+            OpenCode: { ...DEFAULT_MODE_FLAGS },
           },
         });
       },
@@ -153,7 +155,14 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
       name: "maestro-cli-settings",
       storage: createJSONStorage(() => tauriStorage),
       partialize: (state) => ({ flags: state.flags }),
-      version: 1,
+      version: 2,
+      migrate: (persisted: unknown, version: number) => {
+        const state = persisted as { flags: CliFlagsConfig };
+        if (version < 2 && state?.flags && !state.flags.OpenCode) {
+          state.flags.OpenCode = { ...DEFAULT_MODE_FLAGS };
+        }
+        return state;
+      },
     }
   )
 );

@@ -5,6 +5,7 @@ pub mod marketplace_manager;
 pub mod marketplace_models;
 pub mod mcp_config_writer;
 pub mod mcp_manager;
+pub mod opencode_config_writer;
 pub mod plugin_config_writer;
 pub mod plugin_manager;
 pub mod process_manager;
