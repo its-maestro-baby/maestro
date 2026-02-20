@@ -13,10 +13,11 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
+import { OpenCodeIcon, type IconComponent } from "@/components/icons";
 
 export type SessionStatus = "idle" | "starting" | "working" | "needs-input" | "done" | "error" | "timeout";
 
-export type AIProvider = "claude" | "gemini" | "codex" | "plain";
+export type AIProvider = "claude" | "gemini" | "codex" | "opencode" | "plain";
 
 interface TerminalHeaderProps {
   sessionId: number;
@@ -57,10 +58,11 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   timeout: "Startup Timeout",
 };
 
-const providerConfig: Record<AIProvider, { icon: typeof BrainCircuit; label: string }> = {
+const providerConfig: Record<AIProvider, { icon: IconComponent; label: string }> = {
   claude: { icon: BrainCircuit, label: "Claude Code" },
   gemini: { icon: Sparkles, label: "Gemini CLI" },
   codex: { icon: Code2, label: "Codex" },
+  opencode: { icon: OpenCodeIcon, label: "OpenCode" },
   plain: { icon: Terminal, label: "Terminal" },
 };
 

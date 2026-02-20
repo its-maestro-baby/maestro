@@ -54,6 +54,7 @@ import { MaestroSettingsModal } from "@/components/settings";
 import { Tamagotchi } from "@/components/tamagotchi";
 import type { McpCustomServer } from "@/lib/mcp";
 import { checkClaudeMd, type ClaudeMdStatus } from "@/lib/claudemd";
+import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
 
 type SidebarTab = "config" | "processes";
 
@@ -648,7 +649,7 @@ function SessionsSection() {
 
 /* ── 4. Status ── */
 
-const AI_MODES: AiMode[] = ["Claude", "Gemini", "Codex", "Plain"];
+const AI_MODES: AiMode[] = ["Claude", "Gemini", "Codex", "OpenCode", "Plain"];
 const SESSION_STATUSES: BackendSessionStatus[] = [
   "Starting",
   "Idle",
@@ -658,10 +659,12 @@ const SESSION_STATUSES: BackendSessionStatus[] = [
   "Error",
 ];
 
+/** Icon component type for AI mode icons - supports both Lucide and custom icons */
 const MODE_ICON: Record<AiMode, React.ElementType> = {
   Claude: Bot,
   Gemini: Sparkles,
   Codex: Cpu,
+  OpenCode: OpenCodeIcon,
   Plain: Globe,
 };
 

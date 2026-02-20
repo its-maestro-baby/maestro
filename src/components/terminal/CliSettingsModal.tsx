@@ -8,7 +8,7 @@ interface CliSettingsModalProps {
 }
 
 /** The AI modes that support CLI flags. */
-const CLI_MODES: CliAiMode[] = ["Claude", "Gemini", "Codex"];
+const CLI_MODES: CliAiMode[] = ["Claude", "Gemini", "Codex", "OpenCode"];
 
 /** Mode display configuration */
 const MODE_CONFIG: Record<CliAiMode, { color: string; bgColor: string; skipFlagName: string }> = {
@@ -26,6 +26,11 @@ const MODE_CONFIG: Record<CliAiMode, { color: string; bgColor: string; skipFlagN
     color: "text-maestro-green",
     bgColor: "bg-maestro-green/20",
     skipFlagName: "--dangerously-bypass-approvals-and-sandbox",
+  },
+  OpenCode: {
+    color: "text-purple-500",
+    bgColor: "bg-purple-500/20",
+    skipFlagName: "--dangerously-skip-permissions",
   },
 };
 

@@ -46,6 +46,7 @@ const DEFAULT_FLAGS: CliFlagsConfig = {
   Claude: { ...DEFAULT_MODE_FLAGS },
   Gemini: { ...DEFAULT_MODE_FLAGS },
   Codex: { ...DEFAULT_MODE_FLAGS },
+  OpenCode: { ...DEFAULT_MODE_FLAGS },
 };
 
 // --- Tauri LazyStore-backed StateStorage adapter ---
@@ -141,6 +142,7 @@ export const useCliSettingsStore = create<CliSettingsState & CliSettingsActions>
             Claude: { ...DEFAULT_MODE_FLAGS },
             Gemini: { ...DEFAULT_MODE_FLAGS },
             Codex: { ...DEFAULT_MODE_FLAGS },
+            OpenCode: { ...DEFAULT_MODE_FLAGS },
           },
         });
       },
