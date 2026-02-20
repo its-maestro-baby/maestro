@@ -51,6 +51,9 @@ claude.md
 plan.md
 reddit-post.md
 
+# Planning documents
+docs/plans/
+
 # Jekyll docs site
 website/_site/
 website/.jekyll-cache/
