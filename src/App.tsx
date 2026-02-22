@@ -34,6 +34,8 @@ function App() {
   const tabs = useWorkspaceStore((s) => s.tabs);
   const selectTab = useWorkspaceStore((s) => s.selectTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const reorderTabs = useWorkspaceStore((s) => s.reorderTabs);
+  const moveTab = useWorkspaceStore((s) => s.moveTab);
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
@@ -237,6 +239,8 @@ function App() {
         onNewTab={handleOpenProject}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         sidebarOpen={sidebarOpen}
+        onReorderTab={reorderTabs}
+        onMoveTab={moveTab}
       />
 
       {/* Main area: sidebar + content */}
