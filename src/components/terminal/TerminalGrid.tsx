@@ -1,9 +1,10 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
-import { removeSessionMcpConfig, setSessionMcpServers, writeSessionMcpConfig, type McpServerConfig } from "@/lib/mcp";
+import { removeSessionMcpConfig, removeOpenCodeMcpConfig, setSessionMcpServers, writeSessionMcpConfig, writeOpenCodeMcpConfig, type McpServerConfig } from "@/lib/mcp";
 import {
   loadBranchConfig,
   removeSessionPluginConfig,
@@ -25,6 +26,8 @@ import {
   waitForTerminalReady,
   writeStdin,
 } from "@/lib/terminal";
+import { checkFullDiskAccess, pathRequiresFDA } from "@/lib/permissions";
+import { useFDAStore } from "@/stores/useFDAStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useTerminalKeyboard } from "@/hooks/useTerminalKeyboard";
@@ -606,6 +609,31 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 console.error("Failed to write plugin config:", err);
                 // Non-fatal - continue with CLI launch
               }
+            } else if (workingDirectory && slot.mode === "OpenCode") {
+              // Write OpenCode MCP config (opencode.json format)
+              try {
+                await writeOpenCodeMcpConfig(
+                  workingDirectory,
+                  sessionId,
+                  projectPath ?? workingDirectory,
+                  slot.enabledMcpServers
+                );
+              } catch (err) {
+                console.error("Failed to write OpenCode MCP config:", err);
+                // Non-fatal - continue with CLI launch
+              }
+
+              // Write plugin enabled/disabled state to settings.local.json
+              try {
+                await writeSessionPluginConfig(
+                  workingDirectory,
+                  projectPath ?? workingDirectory,
+                  slot.enabledPlugins
+                );
+              } catch (err) {
+                console.error("Failed to write plugin config:", err);
+                // Non-fatal - continue with CLI launch
+              }
             }
 
             // Wait for xterm.js to mount and start listening for PTY output
@@ -654,6 +682,16 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   const launchSlot = useCallback(async (slotId: string) => {
     const slot = slotsRef.current.find((s) => s.id === slotId);
     if (!slot || slot.sessionId !== null) return;
+
+    // Gate on FDA: if the project is in a TCC-protected directory, check
+    // Full Disk Access before any Rust-side filesystem operations.
+    if (projectPath && pathRequiresFDA(projectPath)) {
+      const hasAccess = await checkFullDiskAccess();
+      if (!hasAccess) {
+        useFDAStore.getState().requireAccess(projectPath, () => launchSlot(slotId));
+        return;
+      }
+    }
 
     // Serialize launches within the same project to prevent .mcp.json race conditions
     const lockPath = projectPath ?? "no-project";
@@ -712,7 +750,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
     // Clean up session-specific MCP config (fire-and-forget)
     if (workingDir) {
-      removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+      if (slot?.mode === "OpenCode") {
+        removeOpenCodeMcpConfig(workingDir, sessionId).catch(console.error);
+      } else {
+        removeSessionMcpConfig(workingDir, sessionId).catch(console.error);
+      }
     }
 
     // Clean up session-specific plugin config (fire-and-forget)
@@ -757,8 +799,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     if (slotsRef.current.length <= 1) return; // don't close the last pane
     const slot = slotsRef.current.find((s) => s.id === targetId);
     if (!slot) return;
+
     if (slot.sessionId !== null) {
-      handleKill(slot.sessionId);
+      // Confirm before closing a launched session (async native dialog)
+      ask("Are you sure you want to close this session?", {
+        title: "Close Session",
+        kind: "warning",
+      }).then((confirmed) => {
+        if (!confirmed) return;
+        // Kill the backend PTY process (fire-and-forget)
+        killSession(slot.sessionId!).catch(console.error);
+        handleKill(slot.sessionId!);
+      }).catch(console.error);
     } else {
       removeSlot(slot.id);
     }

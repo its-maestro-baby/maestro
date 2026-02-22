@@ -8,6 +8,7 @@ dist/
 # Rust build artifacts
 target/
 src-tauri/target/
+src-tauri/binaries/
 maestro-mcp-server/target/
 
 # Generated schemas (rebuilt by tauri build)
@@ -51,6 +52,9 @@ claude.md
 plan.md
 reddit-post.md
 
+# Planning documents
+docs/plans/
+
 # Jekyll docs site
 website/_site/
 website/.jekyll-cache/
@@ -58,3 +62,9 @@ website/.jekyll-metadata
 
 # Oh My ClaudeCode
 .omc/
+
+# dora code context index
+.dora/
+
+# roam code context index
+.roam/

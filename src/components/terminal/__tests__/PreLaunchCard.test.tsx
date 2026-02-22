@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { PreLaunchCard, type SessionSlot } from "../PreLaunchCard";
 
 describe("PreLaunchCard branch creation", () => {
@@ -152,5 +152,104 @@ describe("PreLaunchCard branch creation", () => {
 
     expect(screen.queryByPlaceholderText("feature/my-branch")).not.toBeInTheDocument();
     expect(screen.getByText("Create New Branch")).toBeInTheDocument();
+  });
+});
+
+describe("PreLaunchCard AI Mode Selection", () => {
+  const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
+    id: "slot-1",
+    mode: "Claude",
+    branch: null,
+    sessionId: null,
+    worktreePath: null,
+    worktreeWarning: null,
+    enabledMcpServers: [],
+    enabledSkills: [],
+    enabledPlugins: [],
+    ...overrides,
+  });
+
+  const defaultProps = {
+    slot: makeSlot(),
+    projectPath: "/tmp/test-repo",
+    branches: [
+      { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+      { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
+    ],
+    isLoadingBranches: false,
+    isGitRepo: true,
+    mcpServers: [],
+    skills: [],
+    plugins: [],
+    onModeChange: vi.fn(),
+    onBranchChange: vi.fn(),
+    onMcpToggle: vi.fn(),
+    onSkillToggle: vi.fn(),
+    onPluginToggle: vi.fn(),
+    onMcpSelectAll: vi.fn(),
+    onMcpUnselectAll: vi.fn(),
+    onPluginsSelectAll: vi.fn(),
+    onPluginsUnselectAll: vi.fn(),
+    onLaunch: vi.fn(),
+    onRemove: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** Helper to open the AI mode dropdown */
+  function openModeDropdown() {
+    // Find the AI Mode section and click its dropdown button
+    const aiModeLabel = screen.getByText("AI Mode");
+    const dropdownContainer = aiModeLabel.parentElement;
+    const modeButton = dropdownContainer?.querySelector("button");
+    if (modeButton) fireEvent.click(modeButton);
+  }
+
+  it("displays all AI providers in the mode dropdown", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    openModeDropdown();
+
+    // Verify all providers are shown in the dropdown
+    // Use getAllByText since provider names may appear in both button and dropdown
+    expect(screen.getAllByText("Claude Code").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Gemini CLI").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Codex").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("OpenCode").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Terminal").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("calls onModeChange with correct mode when each provider is selected", () => {
+    const providers = [
+      { label: "Claude Code", mode: "Claude" },
+      { label: "Gemini CLI", mode: "Gemini" },
+      { label: "Codex", mode: "Codex" },
+      { label: "OpenCode", mode: "OpenCode" },
+      { label: "Terminal", mode: "Plain" },
+    ];
+
+    for (const { label, mode } of providers) {
+      vi.clearAllMocks();
+
+      // Render fresh for each provider test
+      render(<PreLaunchCard {...defaultProps} />);
+
+      openModeDropdown();
+
+      // Click on the provider - use getAllByText and click the last one (in dropdown)
+      const providerButtons = screen.getAllByText(label);
+      // The last one should be in the dropdown
+      const providerButton = providerButtons[providerButtons.length - 1];
+      fireEvent.click(providerButton);
+
+      // Verify onModeChange was called with the correct mode
+      expect(defaultProps.onModeChange).toHaveBeenCalledWith(mode);
+      expect(defaultProps.onModeChange).toHaveBeenCalledTimes(1);
+
+      // Cleanup for next iteration
+      cleanup();
+    }
   });
 });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getDeduplicatedCurrentBranch } from "@/lib/git";
 import { killSession } from "@/lib/terminal";
 import { useOpenProject } from "@/lib/useOpenProject";
+import { useFDAStore } from "@/stores/useFDAStore";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useGitStore } from "./stores/useGitStore";
@@ -34,17 +35,17 @@ function App() {
   const tabs = useWorkspaceStore((s) => s.tabs);
   const selectTab = useWorkspaceStore((s) => s.selectTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const reorderTabs = useWorkspaceStore((s) => s.reorderTabs);
+  const moveTab = useWorkspaceStore((s) => s.moveTab);
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
-  const {
-    openProject: handleOpenProject,
-    showFDADialog,
-    fdaPath,
-    dismissFDADialog,
-    dismissFDADialogPermanently,
-    retryAfterFDAGrant,
-  } = useOpenProject();
+  const { openProject: handleOpenProject } = useOpenProject();
+  const showFDADialog = useFDAStore((s) => s.showDialog);
+  const fdaPath = useFDAStore((s) => s.pendingPath);
+  const dismissFDADialog = useFDAStore((s) => s.dismiss);
+  const dismissFDADialogPermanently = useFDAStore((s) => s.dismissPermanently);
+  const retryAfterFDAGrant = useFDAStore((s) => s.retryAfterGrant);
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
@@ -237,6 +238,8 @@ function App() {
         onNewTab={handleOpenProject}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         sidebarOpen={sidebarOpen}
+        onReorderTab={reorderTabs}
+        onMoveTab={moveTab}
       />
 
       {/* Main area: sidebar + content */}
