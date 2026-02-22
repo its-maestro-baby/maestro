@@ -26,6 +26,8 @@ import {
   waitForTerminalReady,
   writeStdin,
 } from "@/lib/terminal";
+import { checkFullDiskAccess, pathRequiresFDA } from "@/lib/permissions";
+import { useFDAStore } from "@/stores/useFDAStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useTerminalKeyboard } from "@/hooks/useTerminalKeyboard";
@@ -680,6 +682,16 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   const launchSlot = useCallback(async (slotId: string) => {
     const slot = slotsRef.current.find((s) => s.id === slotId);
     if (!slot || slot.sessionId !== null) return;
+
+    // Gate on FDA: if the project is in a TCC-protected directory, check
+    // Full Disk Access before any Rust-side filesystem operations.
+    if (projectPath && pathRequiresFDA(projectPath)) {
+      const hasAccess = await checkFullDiskAccess();
+      if (!hasAccess) {
+        useFDAStore.getState().requireAccess(projectPath, () => launchSlot(slotId));
+        return;
+      }
+    }
 
     // Serialize launches within the same project to prevent .mcp.json race conditions
     const lockPath = projectPath ?? "no-project";

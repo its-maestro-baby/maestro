@@ -7,5 +7,11 @@
   <string>Maestro needs access to external drives to open and manage projects stored on removable media.</string>
   <key>NSNetworkVolumesUsageDescription</key>
   <string>Maestro needs access to network drives to open and manage projects stored on network shares.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Maestro needs access to your Desktop to open and manage projects stored there.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Maestro needs access to your Documents to open and manage projects stored there.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Maestro needs access to your Downloads to open and manage projects stored there.</string>
 </dict>
 </plist>
