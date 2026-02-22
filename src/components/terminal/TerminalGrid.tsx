@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
 import { removeSessionMcpConfig, removeOpenCodeMcpConfig, setSessionMcpServers, writeSessionMcpConfig, writeOpenCodeMcpConfig, type McpServerConfig } from "@/lib/mcp";
@@ -788,12 +789,16 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     if (!slot) return;
 
     if (slot.sessionId !== null) {
-      // Confirm before closing a launched session
-      if (!window.confirm("Are you sure you want to close this session?")) return;
-
-      // Kill the backend PTY process (fire-and-forget)
-      killSession(slot.sessionId).catch(console.error);
-      handleKill(slot.sessionId);
+      // Confirm before closing a launched session (async native dialog)
+      ask("Are you sure you want to close this session?", {
+        title: "Close Session",
+        kind: "warning",
+      }).then((confirmed) => {
+        if (!confirmed) return;
+        // Kill the backend PTY process (fire-and-forget)
+        killSession(slot.sessionId!).catch(console.error);
+        handleKill(slot.sessionId!);
+      }).catch(console.error);
     } else {
       removeSlot(slot.id);
     }

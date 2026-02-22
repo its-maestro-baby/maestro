@@ -290,6 +290,8 @@ export const TerminalView = memo(function TerminalView({
     const MCP_GRACE_PERIOD_MS = 10_000; // Defer to MCP for 10s after last MCP update
     const WORKING_DEBOUNCE_MS = 500;    // Sustained output before marking "Working"
     const IDLE_TIMEOUT_MS = 5_000;      // No output before marking "Idle"
+    // Only overwrite "safe" states — never revert terminal states like Done/Error/NeedsInput/Timeout
+    const SAFE_TO_OVERRIDE: BackendSessionStatus[] = ["Working", "Idle", "Starting"];
 
     const MAX_BUFFER_CHUNKS = 100;  // Force flush at ~400KB (100 × 4KB chunks)
     const FALLBACK_FLUSH_MS = 50;   // 20fps floor for backgrounded tabs
@@ -495,14 +497,19 @@ export const TerminalView = memo(function TerminalView({
 
         // --- Activity-based status detection ---
         const session = useSessionStore.getState().sessions.find(s => s.id === sessionId);
-        const lastMcp = session?.lastMcpUpdateTime ?? 0;
+        if (!session) return; // Session was removed, skip heuristic
+
+        const lastMcp = session.lastMcpUpdateTime ?? 0;
         const mcpIsActive = (Date.now() - lastMcp) < MCP_GRACE_PERIOD_MS;
 
         if (!mcpIsActive) {
           // Debounce: set "Working" after sustained output
           if (!activityWorkingTimer && lastHeuristicStatus !== "Working") {
             activityWorkingTimer = setTimeout(() => {
+              if (disposed) return;
               activityWorkingTimer = null;
+              const current = useSessionStore.getState().sessions.find(s => s.id === sessionId);
+              if (!current || !SAFE_TO_OVERRIDE.includes(current.status)) return;
               lastHeuristicStatus = "Working";
               useSessionStore.getState().updateSession(sessionId, {
                 status: "Working" as BackendSessionStatus,
@@ -513,8 +520,11 @@ export const TerminalView = memo(function TerminalView({
           // Reset idle timer on every output chunk
           if (activityIdleTimer) clearTimeout(activityIdleTimer);
           activityIdleTimer = setTimeout(() => {
+            if (disposed) return;
             activityIdleTimer = null;
             if (lastHeuristicStatus === "Working") {
+              const current = useSessionStore.getState().sessions.find(s => s.id === sessionId);
+              if (!current || !SAFE_TO_OVERRIDE.includes(current.status)) return;
               lastHeuristicStatus = "Idle";
               useSessionStore.getState().updateSession(sessionId, {
                 status: "Idle" as BackendSessionStatus,

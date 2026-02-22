@@ -15,7 +15,7 @@ import {
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import { Minus, PanelLeft, Plus, Square, X } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useProjectStatus, STATUS_COLORS } from "@/hooks/useProjectStatus";
 import { isMac } from "@/lib/platform";
 
@@ -44,11 +44,13 @@ function TabItem({
   onSelect,
   onClose,
   onKeyDown,
+  tabRefCallback,
 }: {
   tab: ProjectTab;
   onSelect: () => void;
   onClose: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
+  tabRefCallback: (node: HTMLElement | null) => void;
 }) {
   const { status, sessionCount } = useProjectStatus(tab.id);
   const shouldPulse = status === "working" || status === "needs-input";
@@ -62,6 +64,14 @@ function TabItem({
     isDragging,
   } = useSortable({ id: tab.id });
 
+  const combinedRef = useCallback(
+    (node: HTMLElement | null) => {
+      setNodeRef(node);
+      tabRefCallback(node);
+    },
+    [setNodeRef, tabRefCallback],
+  );
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -70,7 +80,7 @@ function TabItem({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={combinedRef}
       style={style}
       {...attributes}
       {...listeners}
@@ -134,6 +144,16 @@ export function ProjectTabs({
 }: ProjectTabsProps) {
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
+  // Ref map for focus management (WAI-ARIA tablist keyboard navigation)
+  const tabRefs = useRef(new Map<string, HTMLElement>());
+  const setTabRef = useCallback((id: string) => (node: HTMLElement | null) => {
+    if (node) {
+      tabRefs.current.set(id, node);
+    } else {
+      tabRefs.current.delete(id);
+    }
+  }, []);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
@@ -157,10 +177,7 @@ export function ProjectTabs({
       // Cmd/Ctrl+Shift+Arrow: move tab position
       if (isMeta && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault();
-        const activeTab = tabs.find((t) => t.active);
-        if (activeTab) {
-          onMoveTab(activeTab.id, e.key === "ArrowLeft" ? "left" : "right");
-        }
+        onMoveTab(tab.id, e.key === "ArrowLeft" ? "left" : "right");
         return;
       }
 
@@ -168,11 +185,17 @@ export function ProjectTabs({
       if (e.key === "ArrowRight") {
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const next = tabs[(idx + 1) % tabs.length];
-        if (next) onSelectTab(next.id);
+        if (next) {
+          onSelectTab(next.id);
+          tabRefs.current.get(next.id)?.focus();
+        }
       } else if (e.key === "ArrowLeft") {
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
-        if (prev) onSelectTab(prev.id);
+        if (prev) {
+          onSelectTab(prev.id);
+          tabRefs.current.get(prev.id)?.focus();
+        }
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         onSelectTab(tab.id);
@@ -227,6 +250,7 @@ export function ProjectTabs({
                     onSelect={() => onSelectTab(tab.id)}
                     onClose={() => onCloseTab(tab.id)}
                     onKeyDown={(e) => handleTabKeyDown(e, tab)}
+                    tabRefCallback={setTabRef(tab.id)}
                   />
                 ))
               )}
