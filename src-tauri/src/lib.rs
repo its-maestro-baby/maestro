@@ -202,6 +202,8 @@ pub fn run() {
             commands::mcp::remove_session_status,
             commands::mcp::write_session_mcp_config,
             commands::mcp::remove_session_mcp_config,
+            commands::mcp::write_opencode_mcp_config,
+            commands::mcp::remove_opencode_mcp_config,
             commands::mcp::generate_project_hash,
             commands::mcp::get_custom_mcp_servers,
             commands::mcp::save_custom_mcp_server,
