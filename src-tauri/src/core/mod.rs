@@ -2,6 +2,7 @@ pub mod claude_event;
 pub mod error;
 pub mod event_bus;
 pub mod transcript_parser;
+pub mod transcript_watcher;
 pub mod font_detector;
 pub mod marketplace_error;
 pub mod marketplace_manager;
@@ -36,6 +37,7 @@ pub use terminal_backend::{
     BackendCapabilities, BackendType, SubscriptionHandle, TerminalBackend, TerminalConfig,
     TerminalError, TerminalState,
 };
+pub use transcript_watcher::TranscriptWatcher;
 pub use worktree_manager::WorktreeManager;
 pub use xterm_backend::XtermPassthroughBackend;
 pub use process_tree::{ProcessError, ProcessInfo, SessionProcessTree};
