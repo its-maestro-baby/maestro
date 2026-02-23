@@ -208,6 +208,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   const mounted = useRef(false);
   // Track debounce timers for saving branch config (keyed by slot ID)
   const branchConfigSaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Ref to access latest onAllSessionsClosed without adding it to callback deps
+  const onAllSessionsClosedRef = useRef(onAllSessionsClosed);
+  onAllSessionsClosedRef.current = onAllSessionsClosed;
 
   // Stable per-slot focus callbacks — avoids creating new arrow functions on every render,
   // which would defeat React.memo on TerminalView.
@@ -721,24 +724,33 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     const worktreePath = slot?.worktreePath;
     const workingDir = worktreePath || projectPath;
 
-    // Clean up cached focus callback for this slot
-    if (slot) {
-      focusCallbacksRef.current.delete(slot.id);
+    // If this is the last slot, return to idle landing view immediately
+    if (slotsRef.current.length <= 1 && onAllSessionsClosedRef.current) {
+      // Clean up focus callback
+      if (slot) {
+        focusCallbacksRef.current.delete(slot.id);
+      }
+      onAllSessionsClosedRef.current();
+    } else {
+      // Clean up cached focus callback for this slot
+      if (slot) {
+        focusCallbacksRef.current.delete(slot.id);
 
-      // If the closed pane was focused, focus its sibling
-      if (focusedSlotId === slot.id) {
-        const sibling = findSiblingSlotId(layoutTree, slot.id);
-        setFocusedSlotId(sibling);
+        // If the closed pane was focused, focus its sibling
+        if (focusedSlotId === slot.id) {
+          const sibling = findSiblingSlotId(layoutTree, slot.id);
+          setFocusedSlotId(sibling);
+        }
+
+        // Remove leaf from split tree
+        setLayoutTree((prev) => {
+          const result = removeLeaf(prev, slot.id);
+          return result ?? prev;
+        });
       }
 
-      // Remove leaf from split tree
-      setLayoutTree((prev) => {
-        const result = removeLeaf(prev, slot.id);
-        return result ?? prev; // shouldn't be null since we respawn below
-      });
+      setSlots((prev) => prev.filter((s) => s.sessionId !== sessionId));
     }
-
-    setSlots((prev) => prev.filter((s) => s.sessionId !== sessionId));
 
     // Remove session from the session store
     useSessionStore.getState().removeSession(sessionId);
@@ -776,6 +788,13 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
    */
   const removeSlot = useCallback((slotId: string) => {
     focusCallbacksRef.current.delete(slotId);
+
+    // If removing the last slot, return to idle landing view immediately
+    // rather than going through an intermediate empty state
+    if (slotsRef.current.length <= 1 && onAllSessionsClosedRef.current) {
+      onAllSessionsClosedRef.current();
+      return;
+    }
 
     // If the removed pane was focused, focus its sibling
     if (focusedSlotId === slotId) {
