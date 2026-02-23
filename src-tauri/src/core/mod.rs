@@ -1,6 +1,7 @@
 pub mod claude_event;
 pub mod error;
 pub mod event_bus;
+pub mod transcript_parser;
 pub mod font_detector;
 pub mod marketplace_error;
 pub mod marketplace_manager;
