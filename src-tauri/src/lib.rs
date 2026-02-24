@@ -301,6 +301,9 @@ pub fn run() {
             commands::update::check_for_updates,
             commands::update::download_and_install_update,
             commands::update::get_app_version,
+            // Hooks commands
+            commands::hooks::write_session_hooks_config,
+            commands::hooks::remove_session_hooks_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maestro");

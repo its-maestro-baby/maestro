@@ -75,6 +75,24 @@ export const AI_CLI_CONFIG: Record<AiMode, {
   },
 };
 
+/** Writes hooks configuration for a Claude session to .claude/settings.local.json. */
+export async function writeSessionHooksConfig(
+  workingDir: string,
+  sessionId: number
+): Promise<void> {
+  await invoke("write_session_hooks_config", {
+    workingDir,
+    sessionId,
+  });
+}
+
+/** Removes hooks configuration from .claude/settings.local.json. */
+export async function removeSessionHooksConfig(
+  workingDir: string
+): Promise<void> {
+  await invoke("remove_session_hooks_config", { workingDir });
+}
+
 /** Checks if a CLI tool is available in the user's PATH */
 export async function checkCliAvailable(command: string): Promise<boolean> {
   return invoke<boolean>("check_cli_available", { command });
