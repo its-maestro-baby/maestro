@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
+import { ActivityFeed } from "@/components/session/ActivityFeed";
 import { isGitWorktree } from "@/lib/git";
 import { useSessionBranch } from "@/hooks/useSessionBranch";
 import { buildFontFamily, waitForFont } from "@/lib/fonts";
@@ -176,6 +177,7 @@ export const TerminalView = memo(function TerminalView({
 
   // Quick actions manager modal state
   const [showQuickActionsManager, setShowQuickActionsManager] = useState(false);
+  const [activeTab, setActiveTab] = useState<"terminal" | "activity">("terminal");
   const handleManageClick = useCallback(() => setShowQuickActionsManager(true), []);
 
   // Backend capabilities (for future enhanced features like terminal state queries)
@@ -620,14 +622,49 @@ export const TerminalView = memo(function TerminalView({
         onSetZoomLevel={setZoomLevel}
       />
 
-      {/* xterm.js container */}
-      <div ref={containerRef} className="flex-1 overflow-hidden" />
+      {/* Tab bar */}
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-neutral-800 bg-neutral-900/50 px-2">
+        <button
+          type="button"
+          className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+            activeTab === "terminal"
+              ? "border-b-2 border-blue-500 text-neutral-200"
+              : "text-neutral-500 hover:text-neutral-300"
+          }`}
+          onClick={() => setActiveTab("terminal")}
+        >
+          Terminal
+        </button>
+        <button
+          type="button"
+          className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+            activeTab === "activity"
+              ? "border-b-2 border-blue-500 text-neutral-200"
+              : "text-neutral-500 hover:text-neutral-300"
+          }`}
+          onClick={() => setActiveTab("activity")}
+        >
+          Activity
+        </button>
+      </div>
 
-      {/* Quick action pills */}
-      <QuickActionPills
-        onAction={handleQuickAction}
-        onManageClick={handleManageClick}
-      />
+      {/* xterm.js container - always mounted but hidden when activity tab is active */}
+      <div ref={containerRef} className={`flex-1 overflow-hidden ${activeTab !== "terminal" ? "hidden" : ""}`} />
+
+      {/* Activity feed - shown when activity tab is active */}
+      {activeTab === "activity" && (
+        <div className="flex-1 overflow-hidden">
+          <ActivityFeed sessionId={sessionId} maxHeight="100%" />
+        </div>
+      )}
+
+      {/* Quick action pills - only show on terminal tab */}
+      {activeTab === "terminal" && (
+        <QuickActionPills
+          onAction={handleQuickAction}
+          onManageClick={handleManageClick}
+        />
+      )}
 
       {/* Quick actions manager modal */}
       {showQuickActionsManager && (
