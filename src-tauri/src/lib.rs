@@ -120,7 +120,7 @@ pub fn run() {
             // before any commands try to use it
             let app_handle = app.handle().clone();
             let server = tauri::async_runtime::block_on(async {
-                StatusServer::start(app_handle, instance_id).await
+                StatusServer::start(app_handle, instance_id, None).await
             });
 
             match server {
