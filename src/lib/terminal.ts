@@ -21,6 +21,11 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
   return invoke<number>("spawn_shell", { cwd: cwd ?? null, env: env ?? null });
 }
 
+/** Saves pasted image data to a temporary file. Returns the absolute file path. */
+export async function savePastedImage(data: number[], mediaType: string): Promise<string> {
+  return invoke<string>("save_pasted_image", { data, mediaType });
+}
+
 /** Writes raw bytes to the PTY stdin of the given session. */
 export async function writeStdin(sessionId: number, data: string): Promise<void> {
   return invoke("write_stdin", { sessionId, data });
