@@ -24,7 +24,7 @@ fn resolve_ssh_auth_sock() -> Option<&'static str> {
             // 1. Already in the inherited environment – use it directly.
             if let Ok(sock) = std::env::var("SSH_AUTH_SOCK") {
                 if !sock.is_empty() {
-                    log::info!("resolve_ssh_auth_sock: found in process env: {sock}");
+                    log::debug!("resolve_ssh_auth_sock: found in process env: {sock}");
                     return Some(sock);
                 }
             }
@@ -42,7 +42,7 @@ fn resolve_ssh_auth_sock() -> Option<&'static str> {
                     if output.status.success() {
                         let sock = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         if !sock.is_empty() {
-                            log::info!("resolve_ssh_auth_sock: found via launchctl: {sock}");
+                            log::debug!("resolve_ssh_auth_sock: found via launchctl: {sock}");
                             return Some(sock);
                         }
                     }
@@ -52,21 +52,49 @@ fn resolve_ssh_auth_sock() -> Option<&'static str> {
                 // 3. Source the user's login shell to pick up profile-defined
                 //    SSH_AUTH_SOCK (handles 1Password, gpg-agent, custom agents,
                 //    and newer macOS where launchctl getenv may return empty).
+                //    Uses a 5-second timeout to avoid hanging if the shell profile
+                //    blocks (e.g. slow NFS mounts, misconfigured .zshrc).
                 let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-                if let Ok(output) = std::process::Command::new(&shell)
+                if let Ok(mut child) = std::process::Command::new(&shell)
                     .args(["-lc", "echo $SSH_AUTH_SOCK"])
-                    .output()
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
                 {
-                    if output.status.success() {
-                        let sock = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        if !sock.is_empty() {
-                            log::info!(
-                                "resolve_ssh_auth_sock: found via login shell ({shell}): {sock}"
-                            );
-                            return Some(sock);
+                    let start = std::time::Instant::now();
+                    let timeout = std::time::Duration::from_secs(5);
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) if status.success() => {
+                                if let Some(stdout) = child.stdout.take() {
+                                    use std::io::Read;
+                                    let mut buf = String::new();
+                                    let _ = std::io::BufReader::new(stdout)
+                                        .read_to_string(&mut buf);
+                                    let sock = buf.trim().to_string();
+                                    if !sock.is_empty() {
+                                        log::debug!(
+                                            "resolve_ssh_auth_sock: found via login shell ({shell}): {sock}"
+                                        );
+                                        return Some(sock);
+                                    }
+                                }
+                                break;
+                            }
+                            Ok(Some(_)) => break, // non-zero exit
+                            Ok(None) if start.elapsed() > timeout => {
+                                let _ = child.kill();
+                                log::warn!(
+                                    "resolve_ssh_auth_sock: login shell timed out after 5s"
+                                );
+                                break;
+                            }
+                            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                            Err(_) => break,
                         }
                     }
-                    log::debug!("resolve_ssh_auth_sock: login shell returned empty or failed");
+                } else {
+                    log::debug!("resolve_ssh_auth_sock: failed to spawn login shell");
                 }
             }
 
@@ -155,10 +183,10 @@ impl Git {
                 "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5",
             );
             if let Some(sock) = resolve_ssh_auth_sock() {
-                ssh_opts.push_str(" -o IdentityAgent=");
+                ssh_opts.push_str(" -o IdentityAgent='");
                 ssh_opts.push_str(sock);
+                ssh_opts.push('\'');
             }
-            log::debug!("git run: GIT_SSH_COMMAND={ssh_opts}");
             cmd.env("GIT_SSH_COMMAND", &ssh_opts);
         }
 
