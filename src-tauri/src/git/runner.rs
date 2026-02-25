@@ -24,13 +24,17 @@ fn resolve_ssh_auth_sock() -> Option<&'static str> {
             // 1. Already in the inherited environment – use it directly.
             if let Ok(sock) = std::env::var("SSH_AUTH_SOCK") {
                 if !sock.is_empty() {
+                    log::info!("resolve_ssh_auth_sock: found in process env: {sock}");
                     return Some(sock);
                 }
             }
 
-            // 2. macOS: ask launchd for the socket path.
+            // macOS GUI apps (Tauri, Electron, etc.) do not inherit the shell
+            // environment, so SSH_AUTH_SOCK is typically absent.  Try several
+            // platform-specific fallbacks.
             #[cfg(target_os = "macos")]
             {
+                // 2. Ask launchd directly.
                 if let Ok(output) = std::process::Command::new("launchctl")
                     .args(["getenv", "SSH_AUTH_SOCK"])
                     .output()
@@ -38,12 +42,37 @@ fn resolve_ssh_auth_sock() -> Option<&'static str> {
                     if output.status.success() {
                         let sock = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         if !sock.is_empty() {
+                            log::info!("resolve_ssh_auth_sock: found via launchctl: {sock}");
                             return Some(sock);
                         }
                     }
+                    log::debug!("resolve_ssh_auth_sock: launchctl returned empty or failed");
+                }
+
+                // 3. Source the user's login shell to pick up profile-defined
+                //    SSH_AUTH_SOCK (handles 1Password, gpg-agent, custom agents,
+                //    and newer macOS where launchctl getenv may return empty).
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+                if let Ok(output) = std::process::Command::new(&shell)
+                    .args(["-lc", "echo $SSH_AUTH_SOCK"])
+                    .output()
+                {
+                    if output.status.success() {
+                        let sock = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !sock.is_empty() {
+                            log::info!(
+                                "resolve_ssh_auth_sock: found via login shell ({shell}): {sock}"
+                            );
+                            return Some(sock);
+                        }
+                    }
+                    log::debug!("resolve_ssh_auth_sock: login shell returned empty or failed");
                 }
             }
 
+            log::warn!(
+                "resolve_ssh_auth_sock: could not resolve SSH_AUTH_SOCK – SSH remotes may fail"
+            );
             None
         })
         .as_deref()
@@ -109,6 +138,28 @@ impl Git {
         // (git@github.com:…) can authenticate without interactive prompts.
         if let Some(sock) = resolve_ssh_auth_sock() {
             cmd.env("SSH_AUTH_SOCK", sock);
+        }
+
+        // For SSH transport: prevent hanging on interactive prompts (host key
+        // verification, passphrase) since there is no terminal in a GUI app.
+        // - BatchMode=yes: never prompt for user input, fail immediately instead
+        // - StrictHostKeyChecking=accept-new: auto-accept new host keys but
+        //   reject changed ones (secure default for GUI apps)
+        // - ConnectTimeout=5: fail fast on unreachable hosts
+        // - IdentityAgent=<sock>: directly specify the agent socket so SSH does
+        //   not fall back to reading key files (which can trigger a macOS
+        //   Keychain prompt that hangs in GUI apps without a terminal)
+        // Only set if the user hasn't configured their own SSH command.
+        if std::env::var("GIT_SSH_COMMAND").is_err() && std::env::var("GIT_SSH").is_err() {
+            let mut ssh_opts = String::from(
+                "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5",
+            );
+            if let Some(sock) = resolve_ssh_auth_sock() {
+                ssh_opts.push_str(" -o IdentityAgent=");
+                ssh_opts.push_str(sock);
+            }
+            log::debug!("git run: GIT_SSH_COMMAND={ssh_opts}");
+            cmd.env("GIT_SSH_COMMAND", &ssh_opts);
         }
 
         let command_str = format!("git -C {} {}", self.repo_path.display(), args.join(" "));
