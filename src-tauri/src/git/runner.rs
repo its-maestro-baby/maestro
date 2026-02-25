@@ -1,9 +1,53 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 use super::error::GitError;
 use crate::core::windows_process::TokioCommandExt;
+
+/// Resolves the `SSH_AUTH_SOCK` path for SSH-based git operations.
+///
+/// macOS GUI applications (Tauri, Electron, etc.) do not inherit the shell
+/// environment, so `SSH_AUTH_SOCK` is typically absent.  Without it, any
+/// `git` command that uses SSH transport (e.g. `git ls-remote` on an
+/// `git@github.com:…` remote) will fail or hang because the SSH agent is
+/// unreachable.
+///
+/// This function checks the process environment first, then falls back to
+/// `launchctl getenv SSH_AUTH_SOCK` on macOS.  The result is cached for the
+/// lifetime of the process.
+fn resolve_ssh_auth_sock() -> Option<&'static str> {
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            // 1. Already in the inherited environment – use it directly.
+            if let Ok(sock) = std::env::var("SSH_AUTH_SOCK") {
+                if !sock.is_empty() {
+                    return Some(sock);
+                }
+            }
+
+            // 2. macOS: ask launchd for the socket path.
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(output) = std::process::Command::new("launchctl")
+                    .args(["getenv", "SSH_AUTH_SOCK"])
+                    .output()
+                {
+                    if output.status.success() {
+                        let sock = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !sock.is_empty() {
+                            return Some(sock);
+                        }
+                    }
+                }
+            }
+
+            None
+        })
+        .as_deref()
+}
 
 /// Captured stdout/stderr from a completed git subprocess.
 ///
@@ -60,6 +104,12 @@ impl Git {
             .env("LC_ALL", "C")
             .kill_on_drop(true)
             .hide_console_window();
+
+        // Ensure the SSH agent socket is reachable so that SSH-based remotes
+        // (git@github.com:…) can authenticate without interactive prompts.
+        if let Some(sock) = resolve_ssh_auth_sock() {
+            cmd.env("SSH_AUTH_SOCK", sock);
+        }
 
         let command_str = format!("git -C {} {}", self.repo_path.display(), args.join(" "));
 
