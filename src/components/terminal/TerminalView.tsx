@@ -4,6 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
@@ -352,7 +353,9 @@ export const TerminalView = memo(function TerminalView({
       });
 
       fitAddon = new FitAddon();
-      const webLinksAddon = new WebLinksAddon();
+      const webLinksAddon = new WebLinksAddon((_event, uri) => {
+        openUrl(uri);
+      });
 
       const unicode11Addon = new Unicode11Addon();
       term.loadAddon(fitAddon);
