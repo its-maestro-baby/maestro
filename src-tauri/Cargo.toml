@@ -25,6 +25,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -53,6 +54,8 @@ font-kit = "0.14"
 chrono = "0.4"
 # Cross-platform credential store access (Keychain, Credential Manager, Secret Service)
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# Filesystem watching for transcript tailing
+notify = { version = "7", features = ["macos_fsevent"] }
 
 # macOS permissions (Full Disk Access check)
 [target.'cfg(target_os = "macos")'.dependencies]

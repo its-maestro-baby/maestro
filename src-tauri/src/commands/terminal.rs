@@ -230,6 +230,43 @@ pub async fn kill_process(
         .map_err(|e| e.to_string())
 }
 
+/// Saves image data from the frontend clipboard to a temporary file.
+///
+/// Called by the frontend when the user pastes an image into the terminal.
+/// The image bytes are written to a temp file and the absolute path is returned
+/// so the frontend can insert it into the terminal input for Claude to read.
+#[tauri::command]
+pub async fn save_pasted_image(data: Vec<u8>, media_type: String) -> Result<String, String> {
+    const MAX_IMAGE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
+    if data.len() > MAX_IMAGE_SIZE {
+        return Err(format!(
+            "Image too large: {} bytes (max {MAX_IMAGE_SIZE})",
+            data.len()
+        ));
+    }
+
+    let extension = match media_type.as_str() {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        _ => {
+            return Err(format!("Unsupported media type: {media_type}"));
+        }
+    };
+
+    let filename = format!("maestro-paste-{}.{}", uuid::Uuid::new_v4(), extension);
+    let path = std::env::temp_dir().join(filename);
+
+    tokio::fs::write(&path, &data)
+        .await
+        .map_err(|e| format!("Failed to save pasted image: {e}"))?;
+
+    log::info!("Saved pasted image to {}", path.display());
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Kills all active PTY sessions.
 ///
 /// Used to clean up orphaned sessions when the frontend reloads.

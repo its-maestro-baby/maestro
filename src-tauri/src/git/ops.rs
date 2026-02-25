@@ -562,18 +562,25 @@ impl Git {
     /// Tests connectivity to a remote by running `git ls-remote --heads`.
     ///
     /// Returns `true` if the remote is reachable, `false` otherwise.
-    /// Uses a 10-second timeout to avoid hanging on unresponsive remotes.
+    /// Uses a 15-second timeout (longer than SSH's own ConnectTimeout=5) so
+    /// that SSH fails with a meaningful error before we kill the process.
     pub async fn test_remote(&self, remote_name: &str) -> Result<bool, GitError> {
         match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(15),
             self.run(&["ls-remote", "--heads", remote_name]),
         )
         .await
         {
             Ok(Ok(_)) => Ok(true),
-            Ok(Err(GitError::CommandFailed { .. })) => Ok(false),
+            Ok(Err(GitError::CommandFailed { ref stderr, .. })) => {
+                log::warn!("test_remote('{remote_name}'): {stderr}");
+                Ok(false)
+            }
             Ok(Err(e)) => Err(e),
-            Err(_) => Ok(false), // Timeout = disconnected
+            Err(_) => {
+                log::warn!("test_remote('{remote_name}'): timed out after 15s");
+                Ok(false)
+            }
         }
     }
 

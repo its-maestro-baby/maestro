@@ -17,6 +17,8 @@ interface UseTerminalKeyboardOptions {
   onSplitHorizontal?: () => void;
   /** Callback to close the focused pane (Cmd+W) */
   onClosePane?: () => void;
+  /** Whether this keyboard handler is active (e.g. only for the active project tab) */
+  enabled?: boolean;
 }
 
 /**
@@ -43,8 +45,11 @@ export function useTerminalKeyboard({
   onSplitVertical,
   onSplitHorizontal,
   onClosePane,
+  enabled = true,
 }: UseTerminalKeyboardOptions): void {
   useEffect(() => {
+    if (!enabled) return;
+
     function handleKeyDown(event: KeyboardEvent) {
       const modifierKey = isMac() ? event.metaKey : event.ctrlKey;
       if (!modifierKey) return;
@@ -112,5 +117,5 @@ export function useTerminalKeyboard({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [terminalCount, focusedIndex, onFocusTerminal, onCycleNext, onCyclePrevious, onSplitVertical, onSplitHorizontal, onClosePane]);
+  }, [enabled, terminalCount, focusedIndex, onFocusTerminal, onCycleNext, onCyclePrevious, onSplitVertical, onSplitHorizontal, onClosePane]);
 }

@@ -12,6 +12,7 @@ import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { useAppKeyboard } from "./hooks/useAppKeyboard";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useUpdateStore } from "./stores/useUpdateStore";
+import { initActivityListener, stopActivityListener } from "./stores/useActivityStore";
 import { UpdateNotification } from "./components/update/UpdateNotification";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
@@ -124,6 +125,16 @@ function App() {
       unlistenPromise.then((unlisten) => unlisten());
     };
   }, [initUpdateListeners]);
+
+  // Initialize activity event listener (claude-event from transcript watcher)
+  useEffect(() => {
+    initActivityListener().catch((err) => {
+      console.error("Failed to initialize activity listener:", err);
+    });
+    return () => {
+      stopActivityListener();
+    };
+  }, []);
 
   useEffect(() => {
     if (!autoCheckEnabled) return;

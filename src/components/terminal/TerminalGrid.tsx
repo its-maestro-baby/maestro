@@ -22,8 +22,10 @@ import {
   checkCliAvailable,
   createSession,
   killSession,
+  removeSessionHooksConfig,
   spawnShell,
   waitForTerminalReady,
+  writeSessionHooksConfig,
   writeStdin,
 } from "@/lib/terminal";
 import { checkFullDiskAccess, pathRequiresFDA } from "@/lib/permissions";
@@ -291,6 +293,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSplitVertical: useCallback(() => handleSplit("vertical"), [handleSplit]),
     onSplitHorizontal: useCallback(() => handleSplit("horizontal"), [handleSplit]),
     onClosePane: closePaneRef.current,
+    enabled: isActive,
   });
 
   // Sync refs with state and report counts to parent
@@ -612,6 +615,15 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 console.error("Failed to write plugin config:", err);
                 // Non-fatal - continue with CLI launch
               }
+
+              // Write hooks config for Claude sessions
+              // This configures Claude Code to POST hook events back to Maestro's status server
+              try {
+                await writeSessionHooksConfig(workingDirectory, sessionId);
+              } catch (err) {
+                console.warn("Failed to write hooks config:", err);
+                // Non-fatal: hooks are enhancement, session can work without them
+              }
             } else if (workingDirectory && slot.mode === "OpenCode") {
               // Write OpenCode MCP config (opencode.json format)
               try {
@@ -772,6 +784,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     // Clean up session-specific plugin config (fire-and-forget)
     if (workingDir) {
       removeSessionPluginConfig(workingDir).catch(console.error);
+    }
+
+    // Clean up session-specific hooks config (fire-and-forget)
+    if (workingDir && slot?.mode === "Claude") {
+      removeSessionHooksConfig(workingDir).catch(console.error);
     }
 
     // Clean up worktree if one was created (fire-and-forget)
