@@ -237,13 +237,23 @@ pub async fn kill_process(
 /// so the frontend can insert it into the terminal input for Claude to read.
 #[tauri::command]
 pub async fn save_pasted_image(data: Vec<u8>, media_type: String) -> Result<String, String> {
+    const MAX_IMAGE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
+    if data.len() > MAX_IMAGE_SIZE {
+        return Err(format!(
+            "Image too large: {} bytes (max {MAX_IMAGE_SIZE})",
+            data.len()
+        ));
+    }
+
     let extension = match media_type.as_str() {
         "image/png" => "png",
         "image/jpeg" | "image/jpg" => "jpg",
         "image/gif" => "gif",
         "image/webp" => "webp",
         "image/bmp" => "bmp",
-        _ => "png",
+        _ => {
+            return Err(format!("Unsupported media type: {media_type}"));
+        }
     };
 
     let filename = format!("maestro-paste-{}.{}", uuid::Uuid::new_v4(), extension);

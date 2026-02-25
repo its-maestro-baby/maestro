@@ -5,6 +5,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 
@@ -331,6 +332,7 @@ export const TerminalView = memo(function TerminalView({
     let resizeDisposable: { dispose: () => void } | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let pasteHandler: ((e: Event) => void) | null = null;
+    let unlistenDragDrop: (() => void) | null = null;
 
     // Wait for font to load before initializing terminal
     const initTerminal = async () => {
@@ -434,8 +436,13 @@ export const TerminalView = memo(function TerminalView({
         if (!blob) return;
 
         const mediaType = imageItem.type;
+        const MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB
         // Save image async, then write the path to stdin
         blob.arrayBuffer().then(async (arrayBuffer) => {
+          if (arrayBuffer.byteLength > MAX_IMAGE_SIZE) {
+            console.error("[TerminalView] Image too large to paste");
+            return;
+          }
           const bytes = Array.from(new Uint8Array(arrayBuffer));
           const filePath = await savePastedImage(bytes, mediaType);
           await writeStdin(sessionId, filePath);
@@ -444,6 +451,31 @@ export const TerminalView = memo(function TerminalView({
         });
       };
       container.addEventListener("paste", pasteHandler, { capture: true });
+
+      // Drag-and-drop support for images via Tauri's native file-drop API.
+      // Tauri intercepts drag-and-drop at the webview level (JS drop events
+      // never fire), so we listen for its onDragDropEvent instead. This also
+      // gives us file paths directly — no need to read file data into JS.
+      const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+      getCurrentWebviewWindow().onDragDropEvent((event) => {
+        if (event.payload.type === "drop") {
+          const imagePaths = event.payload.paths.filter((p) => {
+            const ext = p.split(".").pop()?.toLowerCase() ?? "";
+            return IMAGE_EXTENSIONS.has(ext);
+          });
+          for (const filePath of imagePaths) {
+            writeStdin(sessionId, filePath).catch((err) => {
+              console.error("[TerminalView] Failed to drop image:", err);
+            });
+          }
+        }
+      }).then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          unlistenDragDrop = unlisten;
+        }
+      });
 
       dataDisposable = term.onData((data) => {
         if (pendingCompositionData !== null) {
@@ -626,6 +658,7 @@ export const TerminalView = memo(function TerminalView({
       writeBuffer = [];
       resizeObserver?.disconnect();
       if (pasteHandler) container.removeEventListener("paste", pasteHandler, { capture: true });
+      if (unlistenDragDrop) unlistenDragDrop();
       dataDisposable?.dispose();
       resizeDisposable?.dispose();
       if (unlisten) unlisten();
