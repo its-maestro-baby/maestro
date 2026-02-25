@@ -291,6 +291,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSplitVertical: useCallback(() => handleSplit("vertical"), [handleSplit]),
     onSplitHorizontal: useCallback(() => handleSplit("horizontal"), [handleSplit]),
     onClosePane: closePaneRef.current,
+    enabled: isActive,
   });
 
   // Sync refs with state and report counts to parent
