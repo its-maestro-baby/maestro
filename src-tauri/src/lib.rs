@@ -34,6 +34,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
     // Register macOS permissions plugin (for Full Disk Access check)
