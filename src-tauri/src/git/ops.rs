@@ -584,6 +584,32 @@ impl Git {
         }
     }
 
+    /// Fetches refs and objects from a specific remote.
+    ///
+    /// Uses `--prune` to remove stale remote-tracking branches that no longer
+    /// exist on the remote. Allows up to 120 seconds for large repositories.
+    pub async fn fetch(&self, remote_name: &str) -> Result<(), GitError> {
+        self.run_with_timeout(
+            &["fetch", "--prune", remote_name],
+            std::time::Duration::from_secs(120),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Fetches refs and objects from all configured remotes.
+    ///
+    /// Uses `--all --prune` to update every remote and clean up stale
+    /// remote-tracking branches. Allows up to 120 seconds.
+    pub async fn fetch_all(&self) -> Result<(), GitError> {
+        self.run_with_timeout(
+            &["fetch", "--all", "--prune"],
+            std::time::Duration::from_secs(120),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Updates the URL of an existing remote.
     pub async fn set_remote_url(&self, name: &str, url: &str) -> Result<(), GitError> {
         self.run(&["remote", "set-url", name, url]).await?;

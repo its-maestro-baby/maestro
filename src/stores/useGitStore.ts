@@ -78,6 +78,10 @@ interface GitState {
   remoteStatuses: Record<string, RemoteStatus>;
   defaultBranch: string | null;
 
+  // Fetch state
+  isFetching: boolean;
+  fetchingRemotes: Record<string, boolean>;
+
   // Loading/error state
   isLoading: boolean;
   isLoadingMore: boolean;
@@ -103,6 +107,8 @@ interface GitState {
   setRemoteUrl: (repoPath: string, name: string, url: string) => Promise<void>;
   testRemote: (repoPath: string, remoteName: string) => Promise<void>;
   testAllRemotes: (repoPath: string) => Promise<void>;
+  fetchRemoteRefs: (repoPath: string, remoteName: string) => Promise<void>;
+  fetchAllRemoteRefs: (repoPath: string) => Promise<void>;
   fetchDefaultBranch: (repoPath: string) => Promise<void>;
   setDefaultBranch: (repoPath: string, branch: string, global?: boolean) => Promise<void>;
   getCommitFiles: (repoPath: string, commitHash: string) => Promise<FileChange[]>;
@@ -123,6 +129,8 @@ export const useGitStore = create<GitState>()((set, get) => ({
   remotes: [],
   remoteStatuses: {},
   defaultBranch: null,
+  isFetching: false,
+  fetchingRemotes: {},
   isLoading: false,
   isLoadingMore: false,
   error: null,
@@ -334,6 +342,34 @@ export const useGitStore = create<GitState>()((set, get) => ({
     await Promise.all(remotes.map((remote) => get().testRemote(repoPath, remote.name)));
   },
 
+  fetchRemoteRefs: async (repoPath: string, remoteName: string) => {
+    set((state) => ({
+      fetchingRemotes: { ...state.fetchingRemotes, [remoteName]: true },
+    }));
+    try {
+      await invoke("git_fetch", { repoPath, remoteName });
+    } catch (err) {
+      console.error(`Failed to fetch remote '${remoteName}':`, err);
+      throw err;
+    } finally {
+      set((state) => ({
+        fetchingRemotes: { ...state.fetchingRemotes, [remoteName]: false },
+      }));
+    }
+  },
+
+  fetchAllRemoteRefs: async (repoPath: string) => {
+    set({ isFetching: true });
+    try {
+      await invoke("git_fetch_all", { repoPath });
+    } catch (err) {
+      console.error("Failed to fetch all remotes:", err);
+      throw err;
+    } finally {
+      set({ isFetching: false });
+    }
+  },
+
   fetchDefaultBranch: async (repoPath: string) => {
     try {
       const defaultBranch = await invoke<string | null>("git_get_default_branch", { repoPath });
@@ -382,6 +418,8 @@ export const useGitStore = create<GitState>()((set, get) => ({
       remotes: [],
       remoteStatuses: {},
       defaultBranch: null,
+      isFetching: false,
+      fetchingRemotes: {},
       isLoading: false,
       isLoadingMore: false,
       error: null,

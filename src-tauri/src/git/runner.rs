@@ -147,12 +147,22 @@ impl Git {
         }
     }
 
-    /// Executes a git subcommand and returns its captured output.
+    /// Executes a git subcommand with the default 30-second timeout.
     ///
     /// Returns `GitNotFound` if the git binary is missing, `SpawnError` for
     /// other I/O failures, and `CommandFailed` for non-zero exit codes.
     /// Both stdout and stderr are decoded as UTF-8 (returns `InvalidUtf8` on failure).
     pub async fn run(&self, args: &[&str]) -> Result<GitOutput, GitError> {
+        self.run_with_timeout(args, Duration::from_secs(30)).await
+    }
+
+    /// Like `run`, but with a caller-specified timeout for long-running
+    /// operations such as `git fetch`.
+    pub async fn run_with_timeout(
+        &self,
+        args: &[&str],
+        timeout_duration: Duration,
+    ) -> Result<GitOutput, GitError> {
         let mut cmd = Command::new("git");
         cmd.arg("-C")
             .arg(&self.repo_path)
@@ -191,12 +201,13 @@ impl Git {
         }
 
         let command_str = format!("git -C {} {}", self.repo_path.display(), args.join(" "));
+        let timeout_secs = timeout_duration.as_secs();
 
-        let output = timeout(Duration::from_secs(30), cmd.output())
+        let output = timeout(timeout_duration, cmd.output())
             .await
             .map_err(|_| GitError::CommandFailed {
                 code: -1,
-                stderr: format!("Command timed out after 30s: {}", command_str),
+                stderr: format!("Command timed out after {timeout_secs}s: {command_str}"),
                 command: command_str.clone(),
             })?
             .map_err(|source| {
