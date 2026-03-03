@@ -662,21 +662,12 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
               console.warn("Terminal ready timeout, proceeding anyway:", err);
             }
 
-            // Brief delay for shell to initialize
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
             // Build CLI command with user-configured flags
             const cliFlags = useCliSettingsStore.getState().getFlags(slot.mode);
             const cliCommand = buildCliCommand(slot.mode, cliFlags);
 
             // Send CLI launch command
             await writeStdin(sessionId, `${cliCommand}\r`);
-
-            // Brief delay for CLI initialization.
-            // With session-specific MCP server names (maestro-1, maestro-2, etc.),
-            // we no longer have race conditions on .mcp.json, so we only need
-            // a minimal delay for general CLI startup.
-            await new Promise((resolve) => setTimeout(resolve, 500));
           } else {
             console.warn(
               `CLI '${cliConfig.command}' not found. Install with: ${cliConfig.installHint}`
@@ -1151,9 +1142,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             await writeSessionHooksConfig(workingDirectory, sessionId);
           } catch { /* non-fatal */ }
         }
-
-        // Brief delay for shell to initialize
-        await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Send the resume command (combine command + \r in one write, matching launchSlotInner pattern)
         await writeStdin(sessionId, `claude --dangerously-skip-permissions --resume ${uuid}\r`);

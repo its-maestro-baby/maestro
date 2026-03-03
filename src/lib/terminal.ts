@@ -181,6 +181,7 @@ export async function hasEnhancedState(): Promise<boolean> {
 declare global {
   interface Window {
     __maestroTerminalsReady?: Set<number>;
+    __maestroPendingReady?: Map<number, { resolve: () => void; timer: ReturnType<typeof setTimeout> }>;
   }
 }
 
@@ -191,12 +192,41 @@ function getTerminalsReadySet(): Set<number> {
   return window.__maestroTerminalsReady;
 }
 
+function getPendingReadyMap(): Map<number, { resolve: () => void; timer: ReturnType<typeof setTimeout> }> {
+  if (!window.__maestroPendingReady) {
+    window.__maestroPendingReady = new Map();
+  }
+  return window.__maestroPendingReady;
+}
+
 /**
  * Signals that a terminal is ready to receive PTY output.
  * Called by TerminalView after xterm.js is mounted and listening.
  */
 export function signalTerminalReady(sessionId: number): void {
-  getTerminalsReadySet().add(sessionId);
+  const pendingReady = getPendingReadyMap();
+  const pending = pendingReady.get(sessionId);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingReady.delete(sessionId);
+    pending.resolve();
+  } else {
+    getTerminalsReadySet().add(sessionId);
+  }
+}
+
+/**
+ * Cleans up terminal ready state for a session.
+ * Call when a terminal is killed/unmounted to prevent stale entries.
+ */
+export function cleanupTerminalReady(sessionId: number): void {
+  getTerminalsReadySet().delete(sessionId);
+  const pendingReady = getPendingReadyMap();
+  const pending = pendingReady.get(sessionId);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingReady.delete(sessionId);
+  }
 }
 
 /** Registry of focus callbacks, keyed by session ID. */
@@ -223,33 +253,29 @@ export function requestTerminalFocus(sessionId: number): void {
 /**
  * Waits for a terminal to signal it's ready to receive PTY output.
  * Called by TerminalGrid before sending CLI commands.
- * Uses polling to check if the terminal has signaled ready.
+ *
+ * Uses a Promise/callback pattern instead of polling. Resolves immediately
+ * if the terminal has already signaled ready, otherwise waits with timeout.
+ *
  * @param sessionId - The session ID to wait for
- * @param timeoutMs - Maximum time to wait (default 5000ms to account for font loading)
+ * @param timeoutMs - Maximum time to wait (default 5000ms)
  * @returns Promise that resolves when terminal is ready or rejects on timeout
  */
 export function waitForTerminalReady(sessionId: number, timeoutMs = 5000): Promise<void> {
+  const readySet = getTerminalsReadySet();
+  if (readySet.has(sessionId)) {
+    readySet.delete(sessionId);
+    return Promise.resolve();
+  }
+
   return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    const pollInterval = 50; // Check every 50ms
+    const pendingReady = getPendingReadyMap();
+    const timer = setTimeout(() => {
+      pendingReady.delete(sessionId);
+      reject(new Error(`Terminal ${sessionId} ready timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
 
-    const check = () => {
-      const readySet = getTerminalsReadySet();
-      if (readySet.has(sessionId)) {
-        readySet.delete(sessionId);
-        resolve();
-        return;
-      }
-
-      if (Date.now() - startTime >= timeoutMs) {
-        reject(new Error(`Terminal ${sessionId} ready timeout after ${timeoutMs}ms`));
-        return;
-      }
-
-      setTimeout(check, pollInterval);
-    };
-
-    check();
+    pendingReady.set(sessionId, { resolve, timer });
   });
 }
 

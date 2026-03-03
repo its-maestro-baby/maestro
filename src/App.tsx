@@ -10,6 +10,7 @@ import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
+import { preloadTerminalFont } from "./lib/fonts";
 import { useAppKeyboard } from "./hooks/useAppKeyboard";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useUpdateStore } from "./stores/useUpdateStore";
@@ -143,9 +144,11 @@ function App() {
     (s) => s.initialize,
   );
   useEffect(() => {
-    initializeTerminalSettings().catch((err) => {
-      console.error("Failed to initialize terminal settings:", err);
-    });
+    initializeTerminalSettings()
+      .then(() => preloadTerminalFont())
+      .catch((err) => {
+        console.error("Failed to initialize terminal settings:", err);
+      });
   }, [initializeTerminalSettings]);
 
   // Initialize update event listeners and auto-check

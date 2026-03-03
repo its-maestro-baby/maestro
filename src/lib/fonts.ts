@@ -127,6 +127,21 @@ export async function waitForFont(
 }
 
 /**
+ * Preloads the terminal font so it's cached by the browser before any
+ * terminal is created. Call once at app startup (fire-and-forget).
+ */
+export function preloadTerminalFont(): void {
+  // Dynamic import to avoid circular deps (useTerminalSettingsStore imports from fonts.ts)
+  import("@/stores/useTerminalSettingsStore").then(({ useTerminalSettingsStore }) => {
+    const state = useTerminalSettingsStore.getState();
+    const effectiveFont = state.getEffectiveFontFamily();
+    const fontFamily = buildFontFamily(effectiveFont);
+    const firstFont = fontFamily.split(",")[0].trim().replace(/["']/g, "");
+    document.fonts.load(`16px "${firstFont}"`).catch(() => {});
+  }).catch(() => {});
+}
+
+/**
  * Selects the best available font based on priority.
  *
  * Priority order:
