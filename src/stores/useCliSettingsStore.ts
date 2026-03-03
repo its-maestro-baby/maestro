@@ -38,7 +38,7 @@ type CliSettingsActions = {
 // --- Default Settings ---
 
 const DEFAULT_MODE_FLAGS: AiModeCliFlags = {
-  skipPermissions: false,
+  skipPermissions: true,
   customFlags: "",
 };
 

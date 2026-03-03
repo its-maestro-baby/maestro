@@ -11,3 +11,4 @@ export type IconComponent = React.ComponentType<{
 }>;
 
 export { OpenCodeIcon } from "./OpenCodeIcon";
+export { ClaudeIcon } from "./ClaudeIcon";

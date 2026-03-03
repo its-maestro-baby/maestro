@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use crate::core::database::Database;
 use crate::core::mcp_config_writer;
 use crate::core::mcp_manager::McpManager;
 use crate::core::plugin_manager::PluginManager;
@@ -23,6 +24,7 @@ pub async fn get_sessions(state: State<'_, SessionManager>) -> Result<Vec<Sessio
 #[tauri::command]
 pub async fn create_session(
     state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
     id: u32,
     mode: AiMode,
     project_path: String,
@@ -33,8 +35,16 @@ pub async fn create_session(
         .to_string_lossy()
         .into_owned();
 
-    state.create_session(id, mode, canonical)
-        .map_err(|existing| format!("Session {} already exists", existing.id))
+    let mode_str = format!("{:?}", mode);
+    let result = state.create_session(id, mode, canonical.clone())
+        .map_err(|existing| format!("Session {} already exists", existing.id))?;
+
+    // Write-through to SQLite
+    if let Err(e) = db.insert_maestro_session(id, &mode_str, &canonical) {
+        log::warn!("Failed to write session {} to SQLite: {}", id, e);
+    }
+
+    Ok(result)
 }
 
 /// Exposes `SessionManager::update_status` to the frontend.
@@ -42,10 +52,21 @@ pub async fn create_session(
 #[tauri::command]
 pub async fn update_session_status(
     state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
     session_id: u32,
     status: SessionStatus,
 ) -> Result<bool, String> {
-    Ok(state.update_status(session_id, status))
+    let status_str = format!("{:?}", status);
+    let result = state.update_status(session_id, status);
+
+    // Write-through to SQLite
+    if result {
+        if let Err(e) = db.update_session_status(session_id, &status_str, None, None) {
+            log::warn!("Failed to update session {} status in SQLite: {}", session_id, e);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Exposes `SessionManager::assign_branch` to the frontend.
@@ -54,13 +75,21 @@ pub async fn update_session_status(
 #[tauri::command]
 pub async fn assign_session_branch(
     state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
     session_id: u32,
     branch: String,
     worktree_path: Option<String>,
 ) -> Result<SessionConfig, String> {
-    state
-        .assign_branch(session_id, branch, worktree_path)
-        .ok_or_else(|| format!("Session {} not found", session_id))
+    let result = state
+        .assign_branch(session_id, branch.clone(), worktree_path.clone())
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+
+    // Write-through to SQLite
+    if let Err(e) = db.assign_session_branch(session_id, &branch, worktree_path.as_deref()) {
+        log::warn!("Failed to assign branch for session {} in SQLite: {}", session_id, e);
+    }
+
+    Ok(result)
 }
 
 /// Exposes `SessionManager::remove_session` to the frontend.
@@ -68,9 +97,79 @@ pub async fn assign_session_branch(
 #[tauri::command]
 pub async fn remove_session(
     state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
     session_id: u32,
 ) -> Result<Option<SessionConfig>, String> {
-    Ok(state.remove_session(session_id))
+    let result = state.remove_session(session_id);
+
+    // Write-through: mark as ended in SQLite (don't delete, just mark Done)
+    if result.is_some() {
+        if let Err(e) = db.mark_session_ended(session_id) {
+            log::warn!("Failed to mark session {} ended in SQLite: {}", session_id, e);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Renames a session. Pass `None` to clear the custom name.
+#[tauri::command]
+pub async fn rename_session(
+    state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
+    session_id: u32,
+    name: Option<String>,
+) -> Result<bool, String> {
+    let result = state.rename_session(session_id, name.clone());
+
+    // Write-through to SQLite
+    if result {
+        if let Err(e) = db.rename_session(session_id, name.as_deref()) {
+            log::warn!("Failed to rename session {} in SQLite: {}", session_id, e);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Hides or unhides a session from the sidebar.
+#[tauri::command]
+pub async fn hide_session(
+    state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
+    session_id: u32,
+    hidden: bool,
+) -> Result<bool, String> {
+    let result = state.set_session_hidden(session_id, hidden);
+
+    // Write-through to SQLite
+    if result {
+        if let Err(e) = db.set_session_hidden(session_id, hidden) {
+            log::warn!("Failed to set hidden for session {} in SQLite: {}", session_id, e);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Associates a Claude session UUID with a session.
+#[tauri::command]
+pub async fn set_session_claude_uuid(
+    state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
+    session_id: u32,
+    uuid: String,
+) -> Result<bool, String> {
+    let result = state.set_claude_session_uuid(session_id, uuid.clone());
+
+    // Write-through to SQLite
+    if result {
+        if let Err(e) = db.update_session_claude_uuid(session_id, &uuid) {
+            log::warn!("Failed to set claude_uuid for session {} in SQLite: {}", session_id, e);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Gets all sessions for a specific project.
@@ -92,6 +191,7 @@ pub async fn get_sessions_for_project(
 #[tauri::command]
 pub async fn remove_sessions_for_project(
     state: State<'_, SessionManager>,
+    db: State<'_, Arc<Database>>,
     process_manager: State<'_, ProcessManager>,
     mcp_manager: State<'_, McpManager>,
     status_server: State<'_, Arc<StatusServer>>,
@@ -104,6 +204,13 @@ pub async fn remove_sessions_for_project(
         .into_owned();
 
     let removed = state.remove_sessions_for_project(&canonical);
+
+    // Write-through: mark removed sessions as ended in SQLite
+    for session in &removed {
+        if let Err(e) = db.mark_session_ended(session.id) {
+            log::warn!("Failed to mark session {} ended in SQLite: {}", session.id, e);
+        }
+    }
 
     // Clean up MCP, plugin, and PTY state for each removed session
     for session in &removed {

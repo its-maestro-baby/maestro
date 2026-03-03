@@ -1,15 +1,12 @@
 import {
-  BrainCircuit,
   Check,
   ChevronDown,
   ChevronRight,
   Code2,
-  Expand,
   FolderGit2,
   FolderOpen,
   GitBranch,
   Loader2,
-  Minimize,
   Package,
   Play,
   Plus,
@@ -23,7 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { OpenCodeIcon, type IconComponent } from "@/components/icons";
+import {  type IconComponent } from "@/components/icons";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
 import type { McpServerConfig } from "@/lib/mcp";
@@ -83,6 +80,7 @@ interface PreLaunchCardProps {
   isZoomed?: boolean;
   onToggleZoom?: () => void;
 }
+import { ClaudeIcon } from "@/components/icons";
 
 const AI_MODES: {
   mode: AiMode;
@@ -90,11 +88,10 @@ const AI_MODES: {
   label: string;
   color: string;
 }[] = [
-  { mode: "Claude", icon: BrainCircuit, label: "Claude Code", color: "text-violet-500" },
+  { mode: "Claude", icon: ClaudeIcon, label: "Claude Code", color: "text-violet-500" },
+  { mode: "Plain", icon: Terminal, label: "Terminal", color: "text-maestro-muted" },
   { mode: "Gemini", icon: Sparkles, label: "Gemini CLI", color: "text-blue-400" },
   { mode: "Codex", icon: Code2, label: "Codex", color: "text-green-400" },
-  { mode: "OpenCode", icon: OpenCodeIcon, label: "OpenCode", color: "text-purple-500" },
-  { mode: "Plain", icon: Terminal, label: "Terminal", color: "text-maestro-muted" },
 ];
 
 function getModeConfig(mode: AiMode) {
@@ -138,8 +135,8 @@ export function PreLaunchCard({
   onPluginsUnselectAll,
   onLaunch,
   onRemove,
-  isZoomed = false,
-  onToggleZoom,
+  isZoomed: _isZoomed = false,
+  onToggleZoom: _onToggleZoom,
 }: PreLaunchCardProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
@@ -360,7 +357,7 @@ export function PreLaunchCard({
           <span className="text-sm font-medium text-maestro-text">Configure Session</span>
           <div className="flex items-center gap-1">
             {/* Zoom toggle button */}
-            {onToggleZoom && (
+            {/* {onToggleZoom && (
               <button
                 type="button"
                 onClick={() => onToggleZoom()}
@@ -370,7 +367,7 @@ export function PreLaunchCard({
               >
                 {isZoomed ? <Minimize size={14} /> : <Expand size={14} />}
               </button>
-            )}
+            )} */}
             <button
               type="button"
               onClick={onRemove}

@@ -1,7 +1,7 @@
 [package]
-name = "maestro"
+name = "jspace"
 version = "0.2.3"
-description = "Maestro — Multi-session AI orchestrator"
+description = "JSpace — Multi-session AI orchestrator"
 authors = ["lliWcWill"]
 edition = "2021"
 
@@ -56,6 +56,8 @@ chrono = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 # Filesystem watching for transcript tailing
 notify = { version = "7", features = ["macos_fsevent"] }
+# SQLite for unified session database
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # macOS permissions (Full Disk Access check)
 [target.'cfg(target_os = "macos")'.dependencies]

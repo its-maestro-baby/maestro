@@ -38,12 +38,15 @@ pub enum SessionStatus {
 pub struct SessionConfig {
     pub id: u32,
     pub mode: AiMode,
+    pub name: Option<String>,
     pub branch: Option<String>,
     pub status: SessionStatus,
     pub worktree_path: Option<String>,
     /// The project directory this session belongs to.
     /// Canonicalized absolute path for reliable comparison.
     pub project_path: String,
+    pub hidden: bool,
+    pub claude_session_uuid: Option<String>,
 }
 
 /// Thread-safe session registry backed by `DashMap` for lock-free concurrent reads.
@@ -75,10 +78,13 @@ impl SessionManager {
         let config = SessionConfig {
             id,
             mode,
+            name: None,
             branch: None,
             status: SessionStatus::Idle,
             worktree_path: None,
             project_path,
+            hidden: false,
+            claude_session_uuid: None,
         };
         match self.sessions.entry(id) {
             Entry::Occupied(e) => Err(e.get().clone()),
@@ -135,6 +141,36 @@ impl SessionManager {
             .filter(|entry| entry.value().project_path == project_path)
             .map(|entry| entry.value().clone())
             .collect()
+    }
+
+    /// Renames a session. Pass `None` to clear the custom name.
+    pub fn rename_session(&self, id: u32, name: Option<String>) -> bool {
+        if let Some(mut session) = self.sessions.get_mut(&id) {
+            session.name = name;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Hides or unhides a session from the sidebar.
+    pub fn set_session_hidden(&self, id: u32, hidden: bool) -> bool {
+        if let Some(mut session) = self.sessions.get_mut(&id) {
+            session.hidden = hidden;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Associates a Claude session UUID with a session (captured from SessionStarted event).
+    pub fn set_claude_session_uuid(&self, id: u32, uuid: String) -> bool {
+        if let Some(mut session) = self.sessions.get_mut(&id) {
+            session.claude_session_uuid = Some(uuid);
+            true
+        } else {
+            false
+        }
     }
 
     /// Removes all sessions for a project. Returns the removed configs.

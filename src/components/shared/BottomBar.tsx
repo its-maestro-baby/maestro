@@ -1,14 +1,10 @@
-import { FolderOpen, Play, Plus, Square } from "lucide-react";
+import { FolderOpen, Plus, Square } from "lucide-react";
 
 interface BottomBarProps {
-  /** Whether in the grid view (project selected and launched) */
   inGridView: boolean;
-  /** Number of total slots (pre-launch + launched) */
   slotCount: number;
-  /** Number of actually running sessions */
   launchedCount: number;
   maxSessions?: number;
-  /** Whether Stop All is currently in progress */
   isStoppingAll?: boolean;
   onSelectDirectory: () => void;
   onLaunchAll: () => void;
@@ -23,16 +19,13 @@ export function BottomBar({
   maxSessions = 6,
   isStoppingAll = false,
   onSelectDirectory,
-  onLaunchAll,
   onStopAll,
   onAddSession,
 }: BottomBarProps) {
   const hasRunningSessions = launchedCount > 0;
-  const hasUnlaunchedSlots = slotCount > launchedCount;
-  const unlaunchedCount = slotCount - launchedCount;
 
   return (
-    <div className="no-select flex h-11 items-center justify-center gap-3 px-4">
+    <div className="no-select flex py-2 gap-3 px-4">
       <button
         type="button"
         onClick={inGridView ? undefined : onSelectDirectory}
@@ -71,7 +64,7 @@ export function BottomBar({
         </button>
       )}
 
-      {(hasUnlaunchedSlots || !inGridView) && (
+      {/* {(hasUnlaunchedSlots || !inGridView) && (
         <button
           type="button"
           onClick={unlaunchedCount > 0 ? onLaunchAll : undefined}
@@ -85,7 +78,7 @@ export function BottomBar({
               ? "Launch Session"
               : `Launch All (${unlaunchedCount})`}
         </button>
-      )}
+      )} */}
     </div>
   );
 }

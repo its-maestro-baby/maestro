@@ -370,8 +370,8 @@ mod tests {
 
     #[test]
     fn test_parse_empty_project() {
-        let manager = McpManager::new();
-        let servers = manager.get_project_servers("/nonexistent/path");
+        // parse_project_mcp_config should return empty for a nonexistent path
+        let servers = McpManager::parse_project_mcp_config("/nonexistent/path");
         assert!(servers.is_empty());
     }
 

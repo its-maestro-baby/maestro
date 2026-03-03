@@ -1,7 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { invoke } from "@tauri-apps/api/core";
-import { ask } from "@tauri-apps/plugin-dialog";
 
 import { getBranchesWithWorktreeStatus, type BranchWithWorktreeStatus } from "@/lib/git";
 import { removeSessionMcpConfig, removeOpenCodeMcpConfig, setSessionMcpServers, writeSessionMcpConfig, writeOpenCodeMcpConfig, type McpServerConfig } from "@/lib/mcp";
@@ -23,6 +22,7 @@ import {
   createSession,
   killSession,
   removeSessionHooksConfig,
+  requestTerminalFocus,
   spawnShell,
   waitForTerminalReady,
   writeSessionHooksConfig,
@@ -33,11 +33,13 @@ import { useFDAStore } from "@/stores/useFDAStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useTerminalKeyboard } from "@/hooks/useTerminalKeyboard";
+import { useCloseConfirmStore } from "@/stores/useCloseConfirmStore";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { usePluginStore } from "@/stores/usePluginStore";
 import { useSessionStore } from "@/stores/useSessionStore";
 import type { AiMode } from "@/stores/useSessionStore";
 import { useWorkspaceStore, type RepositoryInfo, type WorkspaceType } from "@/stores/useWorkspaceStore";
+import { useResumeRequestStore } from "@/stores/useResumeRequestStore";
 import { PreLaunchCard, type SessionSlot } from "./PreLaunchCard";
 import { SplitPaneView } from "./SplitPaneView";
 import { createLeaf, splitLeaf, removeLeaf, updateRatio, collectSlotIds, findSiblingSlotId, buildGridTree, type TreeNode, type SplitDirection } from "./splitTree";
@@ -764,8 +766,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       setSlots((prev) => prev.filter((s) => s.sessionId !== sessionId));
     }
 
-    // Remove session from the session store
-    useSessionStore.getState().removeSession(sessionId);
+    // Mark session as Done so it persists in sidebar (resumable)
+    useSessionStore.getState().updateSession(sessionId, { status: "Done" as import("@/stores/useSessionStore").BackendSessionStatus });
+    invoke("update_session_status", { sessionId, status: "Done" }).catch(console.error);
 
     // Unregister session from the project
     if (tabId) {
@@ -837,13 +840,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     if (!slot) return;
 
     if (slot.sessionId !== null) {
-      // Confirm before closing a launched session (async native dialog)
-      ask("Are you sure you want to close this session?", {
-        title: "Close Session",
-        kind: "warning",
-      }).then((confirmed) => {
+      useCloseConfirmStore.getState().confirm(
+        "Close session?",
+        "You have a running process in this pane.",
+      ).then((confirmed) => {
         if (!confirmed) return;
-        // Kill the backend PTY process (fire-and-forget)
         killSession(slot.sessionId!).catch(console.error);
         handleKill(slot.sessionId!);
       }).catch(console.error);
@@ -1081,6 +1082,90 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
   useImperativeHandle(ref, () => ({ addSession, launchAll, refreshBranches }), [addSession, launchAll, refreshBranches]);
 
+  // Resume consumer: watches for pendingResume and spawns `claude --resume <uuid>`
+  const pendingResume = useResumeRequestStore((s) => s.pendingResume);
+  useEffect(() => {
+    if (!pendingResume) return;
+    if (pendingResume.sessionConfig.project_path !== projectPath) return;
+
+    const { consumeResume } = useResumeRequestStore.getState();
+    const request = consumeResume();
+    if (!request) return;
+
+    const uuid = request.sessionConfig.claude_session_uuid;
+    if (!uuid) return;
+
+    (async () => {
+      try {
+        const workingDirectory = projectPath;
+        let envVars: Record<string, string> | undefined;
+        if (projectPath) {
+          const projectHash = await invoke<string>("generate_project_hash", { projectPath });
+          envVars = { MAESTRO_PROJECT_HASH: projectHash };
+        }
+
+        // Spawn shell first to get a sessionId
+        const sessionId = await spawnShell(workingDirectory, envVars);
+
+        if (projectPath) {
+          const sessionConfig = await createSession(sessionId, "Claude", projectPath);
+          await invoke("add_mcp_project", { projectPath });
+          useSessionStore.getState().addSession({
+            ...sessionConfig,
+            status: sessionConfig.status as import("@/stores/useSessionStore").BackendSessionStatus,
+          });
+        }
+
+        // Create the slot with sessionId already assigned so TerminalView mounts
+        // immediately and subscribes to PTY output BEFORE we send any commands.
+        // This matches the normal launch pattern in launchSlotInner.
+        const newSlot = createEmptySlot(mcpServers, skills, plugins);
+        newSlot.sessionId = sessionId;
+        newSlot.mode = "Claude";
+        setSlots((prev) => {
+          if (prev.length >= MAX_SESSIONS) return prev;
+          return [...prev, newSlot];
+        });
+        setLayoutTree((prev) => buildGridTree([...collectSlotIds(prev), newSlot.id]));
+        setFocusedSlotId(newSlot.id);
+
+        if (tabId) {
+          addSessionToProject(tabId, sessionId);
+        }
+
+        // Wait for TerminalView to mount and start listening for PTY output.
+        // This ensures we don't send CLI commands before the terminal is ready
+        // (Tauri events aren't buffered — output emitted before subscribe is lost).
+        try {
+          await waitForTerminalReady(sessionId);
+        } catch (err) {
+          console.warn("Terminal ready timeout for resume, proceeding anyway:", err);
+        }
+
+        // Write MCP + hooks config for the resume session
+        if (workingDirectory) {
+          try {
+            await writeSessionMcpConfig(workingDirectory, sessionId, projectPath, []);
+          } catch { /* non-fatal */ }
+          try {
+            await writeSessionHooksConfig(workingDirectory, sessionId);
+          } catch { /* non-fatal */ }
+        }
+
+        // Brief delay for shell to initialize
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Send the resume command (combine command + \r in one write, matching launchSlotInner pattern)
+        await writeStdin(sessionId, `claude --dangerously-skip-permissions --resume ${uuid}\r`);
+
+        // Focus the terminal so the user can interact immediately
+        requestTerminalFocus(sessionId);
+      } catch (err) {
+        console.error("Failed to resume Claude session:", err);
+      }
+    })();
+  }, [pendingResume, projectPath, tabId, addSessionToProject, mcpServers, skills, plugins]);
+
   // Handle zoom toggle for a slot
   const handleToggleZoom = useCallback((slotId: string) => {
     setZoomedSlotId(prev => prev === slotId ? null : slotId);
@@ -1170,7 +1255,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
               })}
             </div>
             <div className="flex-1" />
-            <button
+            {/* <button
               onClick={() => handleToggleZoom(zoomedSlotId)}
               className="rounded p-0.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
               title="Exit zoom (Esc)"
@@ -1178,7 +1263,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-            </button>
+            </button> */}
           </div>
 
           {/* Zoomed Terminal Content */}

@@ -3,16 +3,21 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
+  Folder,
+  FolderOpen,
   Plus,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { SourceType } from "@/types/marketplace";
 
 export function MarketplaceSourcesPanel() {
   const {
     sources,
     addSource,
+    addLocalSource,
     removeSource,
     toggleSource,
     refreshSource,
@@ -22,21 +27,50 @@ export function MarketplaceSourcesPanel() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
+  const [newLocalPath, setNewLocalPath] = useState("");
+  const [sourceType, setSourceType] = useState<SourceType>("github");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleAddSource = async () => {
-    if (!newName.trim() || !newUrl.trim()) return;
+    if (!newName.trim()) return;
 
-    await addSource(newName.trim(), newUrl.trim());
+    if (sourceType === "local") {
+      if (!newLocalPath.trim()) return;
+      await addLocalSource(newName.trim(), newLocalPath.trim());
+    } else {
+      if (!newUrl.trim()) return;
+      await addSource(newName.trim(), newUrl.trim());
+    }
     setNewName("");
     setNewUrl("");
+    setNewLocalPath("");
+    setSourceType("github");
     setShowAddForm(false);
+  };
+
+  const handlePickDirectory = async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (selected && typeof selected === "string") {
+      setNewLocalPath(selected);
+    }
   };
 
   const handleDelete = async (sourceId: string) => {
     await removeSource(sourceId);
     setDeleteConfirmId(null);
   };
+
+  const resetForm = () => {
+    setShowAddForm(false);
+    setNewName("");
+    setNewUrl("");
+    setNewLocalPath("");
+    setSourceType("github");
+  };
+
+  const canAdd =
+    newName.trim() &&
+    (sourceType === "github" ? newUrl.trim() : newLocalPath.trim());
 
   return (
     <div className="flex h-full w-72 flex-col border-l border-maestro-border bg-maestro-bg">
@@ -55,6 +89,32 @@ export function MarketplaceSourcesPanel() {
       {/* Add form */}
       {showAddForm && (
         <div className="border-b border-maestro-border p-3">
+          {/* Source type toggle */}
+          <div className="mb-2 flex rounded border border-maestro-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setSourceType("github")}
+              className={`flex-1 py-1.5 text-[10px] font-medium ${
+                sourceType === "github"
+                  ? "bg-maestro-accent text-white"
+                  : "bg-maestro-surface text-maestro-muted hover:text-maestro-text"
+              }`}
+            >
+              GitHub
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceType("local")}
+              className={`flex-1 py-1.5 text-[10px] font-medium ${
+                sourceType === "local"
+                  ? "bg-maestro-accent text-white"
+                  : "bg-maestro-surface text-maestro-muted hover:text-maestro-text"
+              }`}
+            >
+              Local Directory
+            </button>
+          </div>
+
           <div className="mb-2">
             <input
               type="text"
@@ -65,23 +125,40 @@ export function MarketplaceSourcesPanel() {
               autoFocus
             />
           </div>
-          <div className="mb-2">
-            <input
-              type="text"
-              value={newUrl}
-              onChange={(e) => setNewUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo"
-              className="w-full rounded border border-maestro-border bg-maestro-surface px-2 py-1.5 text-xs text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none"
-            />
-          </div>
+
+          {sourceType === "github" ? (
+            <div className="mb-2">
+              <input
+                type="text"
+                value={newUrl}
+                onChange={(e) => setNewUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo"
+                className="w-full rounded border border-maestro-border bg-maestro-surface px-2 py-1.5 text-xs text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none"
+              />
+            </div>
+          ) : (
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={handlePickDirectory}
+                className="flex w-full items-center gap-2 rounded border border-maestro-border bg-maestro-surface px-2 py-1.5 text-xs text-maestro-muted hover:border-maestro-accent hover:text-maestro-text"
+              >
+                <FolderOpen size={12} />
+                {newLocalPath ? (
+                  <span className="flex-1 truncate text-left text-maestro-text">
+                    {newLocalPath}
+                  </span>
+                ) : (
+                  <span className="flex-1 text-left">Choose directory...</span>
+                )}
+              </button>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => {
-                setShowAddForm(false);
-                setNewName("");
-                setNewUrl("");
-              }}
+              onClick={resetForm}
               className="rounded px-2 py-1 text-[10px] text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
             >
               Cancel
@@ -89,7 +166,7 @@ export function MarketplaceSourcesPanel() {
             <button
               type="button"
               onClick={handleAddSource}
-              disabled={!newName.trim() || !newUrl.trim()}
+              disabled={!canAdd}
               className="rounded bg-maestro-accent px-2 py-1 text-[10px] text-white hover:bg-maestro-accent/80 disabled:opacity-50"
             >
               Add
@@ -129,18 +206,30 @@ export function MarketplaceSourcesPanel() {
                           Official
                         </span>
                       )}
+                      {source.source_type === "local" && (
+                        <span className="shrink-0 rounded-full bg-maestro-purple/10 px-1.5 py-0.5 text-[8px] text-maestro-purple">
+                          Local
+                        </span>
+                      )}
                     </div>
-                    <a
-                      href={source.repository_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center gap-1 text-[10px] text-maestro-muted hover:text-maestro-accent"
-                    >
-                      <span className="truncate">
-                        {source.repository_url.replace("https://github.com/", "")}
-                      </span>
-                      <ExternalLink size={8} className="shrink-0 opacity-0 group-hover:opacity-100" />
-                    </a>
+                    {source.source_type === "local" && source.local_path ? (
+                      <div className="flex items-center gap-1 text-[10px] text-maestro-muted">
+                        <Folder size={8} className="shrink-0" />
+                        <span className="truncate">{source.local_path}</span>
+                      </div>
+                    ) : source.repository_url ? (
+                      <a
+                        href={source.repository_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group flex items-center gap-1 text-[10px] text-maestro-muted hover:text-maestro-accent"
+                      >
+                        <span className="truncate">
+                          {source.repository_url.replace("https://github.com/", "")}
+                        </span>
+                        <ExternalLink size={8} className="shrink-0 opacity-0 group-hover:opacity-100" />
+                      </a>
+                    ) : null}
                   </div>
 
                   {/* Actions */}

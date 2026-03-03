@@ -1,13 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   BrainCircuit,
-  CheckCircle,
-  ChevronDown,
   Code2,
-  Expand,
   GitBranch,
-  GitCompareArrows,
-  Minimize,
   Sparkles,
   Terminal,
   X,
@@ -70,9 +65,6 @@ export const TerminalHeader = memo(function TerminalHeader({
   sessionId,
   provider = "claude",
   status = "idle",
-  mcpCount = 1,
-  activeCount = 0,
-  statusMessage,
   branchName = "...",
   showLaunch = false,
   isWorktree = false,
@@ -80,11 +72,10 @@ export const TerminalHeader = memo(function TerminalHeader({
   onLaunch,
   terminalCount = 1,
   isZoomed = false,
-  onToggleZoom,
   zoomLevel = 100,
   onSetZoomLevel,
 }: TerminalHeaderProps) {
-  const { icon: ProviderIcon, label: providerLabel } = providerConfig[provider];
+  const { label: providerLabel } = providerConfig[provider];
   const [showZoomMenu, setShowZoomMenu] = useState(false);
   const zoomMenuRef = useRef<HTMLDivElement>(null);
 
@@ -200,7 +191,7 @@ export const TerminalHeader = memo(function TerminalHeader({
       {/* Left cluster */}
       <div className={`flex min-w-0 flex-1 items-center ${adaptive.gapSize}`}>
         {/* AI provider icon + dropdown */}
-        <button
+        {/* <button
           type="button"
           aria-label="Select AI provider"
           aria-disabled="true"
@@ -213,50 +204,12 @@ export const TerminalHeader = memo(function TerminalHeader({
             className="text-violet-500 drop-shadow-[0_0_4px_rgba(139,92,246,0.5)]"
           />
           {!isZoomed && terminalCount <= 4 && <ChevronDown size={9} className="text-maestro-muted/60" />}
-        </button>
+        </button> */}
 
         {/* Session label */}
         <span className={`shrink-0 font-medium text-maestro-text ${adaptive.sessionLabelSize}`}>
           {providerLabel} #{sessionId}
         </span>
-
-        {/* MCP badge */}
-        {(adaptive.showAllElements || terminalCount <= 6) && (
-          <span className={`shrink-0 rounded-full bg-maestro-accent/15 font-medium text-maestro-accent ${adaptive.badgePadding} ${adaptive.badgeSize}`}>
-            {mcpCount} MCP
-          </span>
-        )}
-
-        {/* Blue checkmark (verified/ready) - hide in very compact mode */}
-        {adaptive.showAllElements && (
-          <CheckCircle size={terminalCount <= 4 ? 11 : 9} className="shrink-0 text-maestro-accent" />
-        )}
-
-        {/* Active count - hide in compact mode */}
-        {adaptive.showAllElements && (
-          <span
-            className={`shrink-0 rounded-full font-medium ${adaptive.badgePadding} ${adaptive.badgeSize} ${
-              activeCount > 0
-                ? "bg-maestro-orange/15 text-maestro-orange"
-                : "bg-maestro-muted/10 text-maestro-muted"
-            }`}
-          >
-            {activeCount} Active
-          </span>
-        )}
-
-        {/* Git arrows + change count - hide in compact mode */}
-        {adaptive.showAllElements && (
-          <span className="flex shrink-0 items-center gap-0.5 text-maestro-muted">
-            <GitCompareArrows size={terminalCount <= 4 ? 11 : 9} />
-            <span className={adaptive.badgeSize}>0</span>
-          </span>
-        )}
-
-        {/* Truncated status message - hide in very compact mode */}
-        {statusMessage && (adaptive.showAllElements || terminalCount <= 6) && (
-          <span className={`min-w-0 truncate text-maestro-muted ${adaptive.badgeSize}`}>{statusMessage}</span>
-        )}
       </div>
 
       {/* Right cluster */}
@@ -290,8 +243,7 @@ export const TerminalHeader = memo(function TerminalHeader({
           </button>
         )}
 
-        {/* Zoom toggle button */}
-        {onToggleZoom && (
+        {/* {onToggleZoom && (
           <button
             type="button"
             onClick={() => onToggleZoom()}
@@ -301,7 +253,7 @@ export const TerminalHeader = memo(function TerminalHeader({
           >
             {isZoomed ? <Minimize size={terminalCount <= 4 ? 14 : 12} /> : <Expand size={terminalCount <= 4 ? 14 : 12} />}
           </button>
-        )}
+        )} */}
 
         {/* Font zoom indicator + dropdown (hidden at 100%) */}
         {zoomLevel !== 100 && onSetZoomLevel && (

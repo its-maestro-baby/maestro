@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getDeduplicatedCurrentBranch } from "@/lib/git";
 import { killSession } from "@/lib/terminal";
 import { useOpenProject } from "@/lib/useOpenProject";
+import { useCloseConfirmStore } from "@/stores/useCloseConfirmStore";
 import { useFDAStore } from "@/stores/useFDAStore";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
@@ -12,13 +13,23 @@ import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { useAppKeyboard } from "./hooks/useAppKeyboard";
 import { useSwipeNavigation } from "./hooks/useSwipeNavigation";
 import { useUpdateStore } from "./stores/useUpdateStore";
-import { initActivityListener, stopActivityListener } from "./stores/useActivityStore";
+import {
+  initActivityListener,
+  stopActivityListener,
+} from "./stores/useActivityStore";
 import { UpdateNotification } from "./components/update/UpdateNotification";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
 import { BottomBar } from "./components/shared/BottomBar";
+import { CloseConfirmDialog } from "./components/shared/CloseConfirmDialog";
 import { FDADialog } from "./components/shared/FDADialog";
-import { MultiProjectView, type MultiProjectViewHandle } from "./components/shared/MultiProjectView";
-import { MAC_TITLE_BAR_INSET_PX, useMacTitleBarPadding } from "@/hooks/useMacTitleBarPadding";
+import {
+  MultiProjectView,
+  type MultiProjectViewHandle,
+} from "./components/shared/MultiProjectView";
+import {
+  MAC_TITLE_BAR_INSET_PX,
+  useMacTitleBarPadding,
+} from "@/hooks/useMacTitleBarPadding";
 import { isMac } from "@/lib/platform";
 import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { TopBar } from "./components/shared/TopBar";
@@ -42,17 +53,36 @@ function App() {
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
   const { openProject: handleOpenProject } = useOpenProject();
+  const handleCloseTab = useCallback(async (id: string) => {
+    const tab = useWorkspaceStore.getState().tabs.find((t) => t.id === id);
+    if (tab && tab.sessionIds.length > 0) {
+      const confirmed = await useCloseConfirmStore.getState().confirm(
+        "Close project?",
+        `You have ${tab.sessionIds.length} running session${tab.sessionIds.length > 1 ? "s" : ""} in this project.`,
+        "Yes, close",
+      );
+      if (!confirmed) return;
+    }
+    closeTab(id);
+  }, [closeTab]);
   const showFDADialog = useFDAStore((s) => s.showDialog);
   const fdaPath = useFDAStore((s) => s.pendingPath);
   const dismissFDADialog = useFDAStore((s) => s.dismiss);
   const dismissFDADialogPermanently = useFDAStore((s) => s.dismissPermanently);
   const retryAfterFDAGrant = useFDAStore((s) => s.retryAfterGrant);
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const stored = localStorage.getItem("maestro-sidebar-open");
+    return stored !== null ? stored === "true" : true;
+  });
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
-  const [sessionCounts, setSessionCounts] = useState<Map<string, { slotCount: number; launchedCount: number }>>(new Map());
+  const [sessionCounts, setSessionCounts] = useState<
+    Map<string, { slotCount: number; launchedCount: number }>
+  >(new Map());
   const [isStoppingAll, setIsStoppingAll] = useState(false);
-  const [currentBranch, setCurrentBranch] = useState<string | undefined>(undefined);
+  const [currentBranch, setCurrentBranch] = useState<string | undefined>(
+    undefined,
+  );
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem("maestro-theme");
     return isValidTheme(stored) ? stored : "dark";
@@ -62,6 +92,10 @@ function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("maestro-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("maestro-sidebar-open", String(sidebarOpen));
+  }, [sidebarOpen]);
 
   // Tag the document with platform class so CSS can disable expensive effects
   // (e.g. box-shadow animations) that aren't GPU-accelerated on WebKitGTK/Linux.
@@ -78,7 +112,9 @@ function App() {
     invoke<number>("kill_all_sessions")
       .then((count) => {
         if (count > 0) {
-          console.log(`Cleaned up ${count} orphaned PTY session(s) from previous page load`);
+          console.log(
+            `Cleaned up ${count} orphaned PTY session(s) from previous page load`,
+          );
         }
       })
       .catch((err) => {
@@ -103,7 +139,9 @@ function App() {
   }, [fetchSessions, initListeners]);
 
   // Initialize terminal settings store (detects available fonts)
-  const initializeTerminalSettings = useTerminalSettingsStore((s) => s.initialize);
+  const initializeTerminalSettings = useTerminalSettingsStore(
+    (s) => s.initialize,
+  );
   useEffect(() => {
     initializeTerminalSettings().catch((err) => {
       console.error("Failed to initialize terminal settings:", err);
@@ -141,7 +179,10 @@ function App() {
     // Check on mount
     checkForUpdates();
     // Then periodically
-    const interval = setInterval(checkForUpdates, checkIntervalMinutes * 60 * 1000);
+    const interval = setInterval(
+      checkForUpdates,
+      checkIntervalMinutes * 60 * 1000,
+    );
     return () => clearInterval(interval);
   }, [autoCheckEnabled, checkIntervalMinutes, checkForUpdates]);
 
@@ -204,7 +245,9 @@ function App() {
 
   // Derive state from active tab
   const activeTabSessionsLaunched = activeTab?.sessionsLaunched ?? false;
-  const activeTabCounts = activeTab ? sessionCounts.get(activeTab.id) : undefined;
+  const activeTabCounts = activeTab
+    ? sessionCounts.get(activeTab.id)
+    : undefined;
   const activeTabSlotCount = activeTabCounts?.slotCount ?? 0;
   const activeTabLaunchedCount = activeTabCounts?.launchedCount ?? 0;
 
@@ -225,13 +268,16 @@ function App() {
     }
   };
 
-  const handleSessionCountChange = useCallback((tabId: string, slotCount: number, launchedCount: number) => {
-    setSessionCounts((prev) => {
-      const next = new Map(prev);
-      next.set(tabId, { slotCount, launchedCount });
-      return next;
-    });
-  }, []);
+  const handleSessionCountChange = useCallback(
+    (tabId: string, slotCount: number, launchedCount: number) => {
+      setSessionCounts((prev) => {
+        const next = new Map(prev);
+        next.set(tabId, { slotCount, launchedCount });
+        return next;
+      });
+    },
+    [],
+  );
 
   const macTitleBarInset =
     isMac() && macTitleBarPadding ? `${MAC_TITLE_BAR_INSET_PX}px` : "0";
@@ -245,7 +291,7 @@ function App() {
       <ProjectTabs
         tabs={tabs.map((t) => ({ id: t.id, name: t.name, active: t.active }))}
         onSelectTab={selectTab}
-        onCloseTab={closeTab}
+        onCloseTab={handleCloseTab}
         onNewTab={handleOpenProject}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         sidebarOpen={sidebarOpen}
@@ -259,6 +305,7 @@ function App() {
         <Sidebar
           collapsed={!sidebarOpen}
           onCollapse={() => setSidebarOpen(false)}
+          onExpand={() => setSidebarOpen(true)}
           theme={theme}
           onToggleTheme={toggleTheme}
         />
@@ -266,8 +313,68 @@ function App() {
         {/* Right column: top bar + content + bottom bar */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Top bar row - includes git panel header when open */}
-          <div className="flex h-10 shrink-0 bg-maestro-bg">
+          <div className="flex h-10 justify-between bg-maestro-bg">
             {/* TopBar takes flex-1 to fill available space */}
+
+            <div className="w-full">
+            <BottomBar
+              inGridView={activeTabSessionsLaunched}
+              slotCount={activeTabSlotCount}
+              launchedCount={activeTabLaunchedCount}
+              maxSessions={DEFAULT_SESSION_COUNT}
+              isStoppingAll={isStoppingAll}
+              onSelectDirectory={handleOpenProject}
+              onLaunchAll={() => {
+                if (!activeTabSessionsLaunched && activeTab) {
+                  // First enter grid view, then launch
+                  handleEnterGridView();
+                }
+                multiProjectRef.current?.launchAllInActiveProject();
+              }}
+              onAddSession={() =>
+                multiProjectRef.current?.addSessionToActiveProject()
+              }
+              onStopAll={async () => {
+                if (!activeTab || isStoppingAll) return;
+                const sessionStore = useSessionStore.getState();
+                const projectSessions = sessionStore.getSessionsByProject(
+                  activeTab.projectPath,
+                );
+                if (projectSessions.length === 0) return;
+
+                const confirmed = await useCloseConfirmStore.getState().confirm(
+                  "Stop all sessions?",
+                  `You have ${projectSessions.length} running session${projectSessions.length > 1 ? "s" : ""} in this project.`,
+                  "Yes, stop all",
+                );
+                if (!confirmed) return;
+
+                setIsStoppingAll(true);
+                try {
+                  const results = await Promise.allSettled(
+                    projectSessions.map((s) => killSession(s.id)),
+                  );
+                  for (const result of results) {
+                    if (result.status === "rejected") {
+                      console.error("Failed to stop session:", result.reason);
+                    }
+                  }
+                  await sessionStore.removeSessionsForProject(
+                    activeTab.projectPath,
+                  );
+                  setSessionsLaunched(activeTab.id, false);
+                  setSessionCounts((prev) => {
+                    const next = new Map(prev);
+                    next.set(activeTab.id, { slotCount: 0, launchedCount: 0 });
+                    return next;
+                  });
+                } finally {
+                  setIsStoppingAll(false);
+                }
+              }}
+            />
+            </div>
+            <div className="w-full"></div>
             <TopBar
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
@@ -289,7 +396,9 @@ function App() {
                 style={{ width: 560 }}
               >
                 <GitFork size={14} className="text-maestro-muted" />
-                <span className="text-sm font-medium text-maestro-text">Commits</span>
+                <span className="text-sm font-medium text-maestro-text">
+                  Commits
+                </span>
                 {commits.length > 0 && (
                   <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
                     {commits.length}
@@ -304,7 +413,10 @@ function App() {
                     className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
                     aria-label="Refresh commits"
                   >
-                    <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                    <RefreshCw
+                      size={14}
+                      className={isRefreshingGit ? "animate-spin" : ""}
+                    />
                   </button>
                 )}
                 <button
@@ -339,49 +451,7 @@ function App() {
           </div>
 
           {/* Bottom action bar */}
-          <div className="bg-maestro-bg">
-            <BottomBar
-              inGridView={activeTabSessionsLaunched}
-              slotCount={activeTabSlotCount}
-              launchedCount={activeTabLaunchedCount}
-              maxSessions={DEFAULT_SESSION_COUNT}
-              isStoppingAll={isStoppingAll}
-              onSelectDirectory={handleOpenProject}
-              onLaunchAll={() => {
-                if (!activeTabSessionsLaunched && activeTab) {
-                  // First enter grid view, then launch
-                  handleEnterGridView();
-                }
-                multiProjectRef.current?.launchAllInActiveProject();
-              }}
-              onAddSession={() => multiProjectRef.current?.addSessionToActiveProject()}
-              onStopAll={async () => {
-                if (!activeTab || isStoppingAll) return;
-                setIsStoppingAll(true);
-                try {
-                  // Kill all running PTY sessions for this project
-                  const sessionStore = useSessionStore.getState();
-                  const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
-                  const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
-                  for (const result of results) {
-                    if (result.status === "rejected") {
-                      console.error("Failed to stop session:", result.reason);
-                    }
-                  }
-                  // Remove sessions from backend and local store
-                  await sessionStore.removeSessionsForProject(activeTab.projectPath);
-                  setSessionsLaunched(activeTab.id, false);
-                  setSessionCounts((prev) => {
-                    const next = new Map(prev);
-                    next.set(activeTab.id, { slotCount: 0, launchedCount: 0 });
-                    return next;
-                  });
-                } finally {
-                  setIsStoppingAll(false);
-                }
-              }}
-            />
-          </div>
+          <div className="bg-maestro-bg"></div>
         </div>
       </div>
 
@@ -396,6 +466,7 @@ function App() {
       )}
 
       <UpdateNotification />
+      <CloseConfirmDialog />
     </div>
   );
 }

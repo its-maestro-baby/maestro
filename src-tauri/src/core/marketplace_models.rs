@@ -76,7 +76,23 @@ impl Default for PluginCategory {
     }
 }
 
-/// A marketplace source - a GitHub repository hosting a plugin catalog.
+/// Source type for a marketplace source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceType {
+    /// GitHub repository marketplace.
+    Github,
+    /// Local directory (e.g., Skills Hub).
+    Local,
+}
+
+impl Default for SourceType {
+    fn default() -> Self {
+        Self::Github
+    }
+}
+
+/// A marketplace source - a GitHub repository or local directory hosting a plugin catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketplaceSource {
     /// Unique identifier (UUID).
@@ -93,6 +109,12 @@ pub struct MarketplaceSource {
     pub last_fetched: Option<String>,
     /// Error message from last fetch attempt (if any).
     pub last_error: Option<String>,
+    /// Source type: github or local directory.
+    #[serde(default)]
+    pub source_type: SourceType,
+    /// Local filesystem path (for local source type).
+    #[serde(default)]
+    pub local_path: Option<String>,
 }
 
 /// A plugin available for download from a marketplace.
@@ -375,6 +397,80 @@ fn parse_plugin_type(s: &str) -> Option<PluginType> {
         "agent" => Some(PluginType::Agent),
         "hook" => Some(PluginType::Hook),
         _ => None,
+    }
+}
+
+/// Parsed SKILL.md YAML frontmatter.
+#[derive(Debug, Clone, Default)]
+pub struct SkillFrontmatter {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub display_name: Option<String>,
+    pub color: Option<String>,
+    pub license: Option<String>,
+}
+
+impl SkillFrontmatter {
+    /// Parses YAML frontmatter from a SKILL.md file content.
+    /// Frontmatter is delimited by `---` lines at the start of the file.
+    pub fn parse(content: &str) -> Self {
+        let mut result = Self::default();
+
+        let trimmed = content.trim();
+        if !trimmed.starts_with("---") {
+            return result;
+        }
+
+        // Find the closing ---
+        let after_first = &trimmed[3..];
+        let end_idx = after_first.find("\n---");
+        let yaml_block = match end_idx {
+            Some(idx) => &after_first[..idx],
+            None => return result,
+        };
+
+        // Simple line-by-line YAML parsing (no serde_yaml dependency needed)
+        for line in yaml_block.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once(':') {
+                let key = key.trim();
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                if value.is_empty() {
+                    continue;
+                }
+                match key {
+                    "name" => result.name = Some(value.to_string()),
+                    "description" => result.description = Some(value.to_string()),
+                    "category" => result.category = Some(value.to_string()),
+                    "displayName" => result.display_name = Some(value.to_string()),
+                    "color" => result.color = Some(value.to_string()),
+                    "license" => result.license = Some(value.to_string()),
+                    _ => {}
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Maps a skill category string to a PluginCategory.
+    pub fn map_category(&self) -> PluginCategory {
+        match self.category.as_deref() {
+            Some("framework") | Some("development") => PluginCategory::Development,
+            Some("productivity") => PluginCategory::Productivity,
+            Some("integration") => PluginCategory::Integration,
+            Some("ai") | Some("agent") => PluginCategory::Ai,
+            Some("data") | Some("analytics") => PluginCategory::Data,
+            Some("security") => PluginCategory::Security,
+            Some("documentation") | Some("docs") => PluginCategory::Documentation,
+            Some("learning") | Some("education") => PluginCategory::Learning,
+            Some("utility") | Some("tool") | Some("tools") => PluginCategory::Utility,
+            _ => PluginCategory::Other,
+        }
     }
 }
 

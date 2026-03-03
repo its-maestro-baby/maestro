@@ -11,7 +11,7 @@ export function PreLaunchView({ onSelectProject }: PreLaunchViewProps) {
         <div className="rounded-2xl bg-maestro-surface p-6">
           <FolderOpen size={48} className="text-maestro-accent" />
         </div>
-        <h1 className="text-2xl font-bold text-maestro-text">Welcome to Maestro</h1>
+        <h1 className="text-2xl font-bold text-maestro-text">Welcome to JSpace</h1>
         <p className="max-w-md text-center text-sm text-maestro-muted">
           Multi-session AI orchestrator for Linux. Open a project to get started with Claude,
           Gemini, or Codex sessions.

@@ -8,6 +8,7 @@
 import { create } from "zustand";
 
 import {
+  addLocalMarketplaceSource,
   addMarketplaceSource,
   getAvailablePlugins,
   getInstalledPlugins,
@@ -94,6 +95,9 @@ interface MarketplaceState {
 
   /** Adds a new marketplace source. */
   addSource: (name: string, repositoryUrl: string, isOfficial?: boolean) => Promise<void>;
+
+  /** Adds a new local directory marketplace source. */
+  addLocalSource: (name: string, localPath: string) => Promise<void>;
 
   /** Removes a marketplace source. */
   removeSource: (sourceId: string) => Promise<void>;
@@ -281,6 +285,21 @@ export const useMarketplaceStore = create<MarketplaceState>()((set, get) => ({
       await get().refreshSource(source.id);
     } catch (err) {
       console.error("Failed to add marketplace source:", err);
+      set({ error: String(err) });
+    }
+  },
+
+  addLocalSource: async (name: string, localPath: string) => {
+    try {
+      const source = await addLocalMarketplaceSource(name, localPath);
+      set((state) => ({
+        sources: [...state.sources, source],
+      }));
+
+      // Refresh the new source
+      await get().refreshSource(source.id);
+    } catch (err) {
+      console.error("Failed to add local marketplace source:", err);
       set({ error: String(err) });
     }
   },

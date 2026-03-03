@@ -14,9 +14,10 @@ import { ActivityFeed } from "@/components/session/ActivityFeed";
 import { isGitWorktree } from "@/lib/git";
 import { useSessionBranch } from "@/hooks/useSessionBranch";
 import { buildFontFamily, waitForFont } from "@/lib/fonts";
-import { getBackendInfo, killSession, onPtyOutput, resizePty, savePastedImage, signalTerminalReady, writeStdin, type BackendInfo } from "@/lib/terminal";
+import { getBackendInfo, killSession, onPtyOutput, registerTerminalFocusCallback, resizePty, savePastedImage, signalTerminalReady, writeStdin, type BackendInfo } from "@/lib/terminal";
 import { DEFAULT_THEME, LIGHT_THEME, toXtermTheme } from "@/lib/terminalTheme";
 import { useMcpStore } from "@/stores/useMcpStore";
+import { useCloseConfirmStore } from "@/stores/useCloseConfirmStore";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { useTerminalSettingsStore } from "@/stores/useTerminalSettingsStore";
 import { useShallow } from "zustand/react/shallow";
@@ -81,22 +82,22 @@ function mapStatus(status: BackendSessionStatus): SessionStatus {
 }
 
 /** Map session status to CSS class for border/glow */
-function cellStatusClass(status: SessionStatus): string {
-  switch (status) {
-    case "starting":
-      return "terminal-cell-starting";
-    case "working":
-      return "terminal-cell-working";
-    case "needs-input":
-      return "terminal-cell-needs-input";
-    case "done":
-      return "terminal-cell-done";
-    case "error":
-      return "terminal-cell-error";
-    default:
-      return "terminal-cell-idle";
-  }
-}
+// function cellStatusClass(status: SessionStatus): string {
+//   switch (status) {
+//     case "starting":
+//       return "terminal-cell-starting";
+//     case "working":
+//       return "terminal-cell-working";
+//     case "needs-input":
+//       return "terminal-cell-needs-input";
+//     case "done":
+//       return "terminal-cell-done";
+//     case "error":
+//       return "terminal-cell-error";
+//     default:
+//       return "terminal-cell-idle";
+//   }
+// }
 
 /**
  * Renders a single xterm.js terminal bound to a backend PTY session.
@@ -247,7 +248,12 @@ export const TerminalView = memo(function TerminalView({
    * then kills the backend session in the background.
    */
   const handleKill = useCallback(
-    (id: number) => {
+    async (id: number) => {
+      const confirmed = await useCloseConfirmStore.getState().confirm(
+        "Close session?",
+        "You have a running process in this pane.",
+      );
+      if (!confirmed) return;
       // Update UI immediately (optimistic)
       onKill(id);
       // Kill session in background - don't await
@@ -281,6 +287,7 @@ export const TerminalView = memo(function TerminalView({
     let term: Terminal | null = null;
     let fitAddon: FitAddon | null = null;
     let unlisten: (() => void) | null = null;
+    let unregisterFocus: (() => void) | null = null;
     // === PTY Output Batching (reduces xterm.js render overhead) ===
     let writeBuffer: string[] = [];
     let rafId: number | null = null;
@@ -333,6 +340,7 @@ export const TerminalView = memo(function TerminalView({
     let resizeObserver: ResizeObserver | null = null;
     let pasteHandler: ((e: Event) => void) | null = null;
     let unlistenDragDrop: (() => void) | null = null;
+    let compositionCleanup: (() => void) | null = null;
 
     // Wait for font to load before initializing terminal
     const initTerminal = async () => {
@@ -387,6 +395,7 @@ export const TerminalView = memo(function TerminalView({
 
       termRef.current = term;
       fitAddonRef.current = fitAddon;
+      unregisterFocus = registerTerminalFocusCallback(sessionId, () => term?.focus());
 
       requestAnimationFrame(() => {
         try {
@@ -397,17 +406,43 @@ export const TerminalView = memo(function TerminalView({
       });
 
       // Workaround for xterm.js CompositionHelper bug on WebKit (Tauri/WKWebView):
+      //
+      // Problem 1 — Wrong text extraction:
       // The hidden textarea accumulates text across compositions, but CompositionHelper
       // uses textarea.value.length at compositionstart as the extraction offset. When
       // prior text remains in the textarea, it extracts the wrong substring — e.g.
-      // sending "測試" instead of "這是". We capture the correct text from the
-      // compositionend event and replace whatever xterm sends via onData.
+      // sending "測試" instead of "這是".
+      //
+      // Problem 2 — Character loss with Vietnamese / fast IME input:
+      // Vietnamese IME (Telex/VNI) produces very short, rapid composition cycles.
+      // xterm.js fires onData synchronously from its own compositionend handler
+      // (registered in bubble phase). If our compositionend listener also uses bubble
+      // phase, it runs AFTER xterm's — so onData sees pendingCompositionData as null
+      // and sends the (possibly wrong) raw data to the PTY. Characters get lost or
+      // garbled. Additionally, some IMEs may leak intermediate keystrokes via onData
+      // during an active composition.
+      //
+      // Fix: Use capture-phase listeners so we set state BEFORE xterm.js processes the
+      // event, and suppress all onData calls while a composition is in progress.
       const textarea = term.textarea!;
+      let isComposing = false;
       let pendingCompositionData: string | null = null;
 
-      textarea.addEventListener("compositionend", (e) => {
+      const onCompositionStart = () => {
+        isComposing = true;
+      };
+      const onCompositionEnd = (e: Event) => {
+        isComposing = false;
         pendingCompositionData = (e as CompositionEvent).data;
-      });
+      };
+      // Capture phase fires before xterm.js's bubble-phase handlers, ensuring
+      // our flags are set before xterm.js calls onData synchronously.
+      textarea.addEventListener("compositionstart", onCompositionStart, { capture: true });
+      textarea.addEventListener("compositionend", onCompositionEnd, { capture: true });
+      compositionCleanup = () => {
+        textarea.removeEventListener("compositionstart", onCompositionStart, { capture: true });
+        textarea.removeEventListener("compositionend", onCompositionEnd, { capture: true });
+      };
 
       // Intercept paste events to handle images from the clipboard.
       // xterm.js only pastes text; images are silently dropped. We detect image
@@ -478,6 +513,13 @@ export const TerminalView = memo(function TerminalView({
       });
 
       dataDisposable = term.onData((data) => {
+        // During an active composition, suppress intermediate data entirely.
+        // The final text will be sent from the compositionend handler's data.
+        if (isComposing) {
+          return;
+        }
+        // After compositionend, use the correct text captured from the event
+        // instead of xterm's potentially wrong extraction from the textarea.
         if (pendingCompositionData !== null) {
           const correctData = pendingCompositionData;
           pendingCompositionData = null;
@@ -657,11 +699,13 @@ export const TerminalView = memo(function TerminalView({
       }
       writeBuffer = [];
       resizeObserver?.disconnect();
+      compositionCleanup?.();
       if (pasteHandler) container.removeEventListener("paste", pasteHandler, { capture: true });
       if (unlistenDragDrop) unlistenDragDrop();
       dataDisposable?.dispose();
       resizeDisposable?.dispose();
       if (unlisten) unlisten();
+      unregisterFocus?.();
       term?.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
@@ -678,7 +722,7 @@ export const TerminalView = memo(function TerminalView({
 
   return (
     <div
-      className={`terminal-cell flex h-full flex-col bg-maestro-bg ${cellStatusClass(effectiveStatus)} ${isFocused ? "terminal-cell-focused" : ""}`}
+      className={`terminal-cell flex h-full flex-col bg-maestro-bg `}
       onClick={onFocus}
     >
       {/* Rich header bar */}

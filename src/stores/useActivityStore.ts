@@ -1,6 +1,9 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ClaudeEvent } from "@/types/claude-events";
+import { useSessionStore } from "@/stores/useSessionStore";
+import { dbAddSessionTokens, dbAddSessionFile } from "@/lib/database";
 
 interface SessionActivity {
   events: ClaudeEvent[];
@@ -51,10 +54,17 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       if (event.event_type === "TokenUsageUpdate") {
         totalInputTokens += event.input_tokens;
         totalOutputTokens += event.output_tokens;
+
+        // Write-through to SQLite (fire-and-forget)
+        dbAddSessionTokens(sessionId, event.input_tokens, event.output_tokens).catch(() => {});
       } else if (event.event_type === "FileEdited" || event.event_type === "FileCreated") {
         if (!filesModified.includes(event.file_path)) {
           filesModified = [...filesModified, event.file_path];
         }
+
+        // Write-through to SQLite (fire-and-forget)
+        const action = event.event_type === "FileEdited" ? "edit" : "create";
+        dbAddSessionFile(sessionId, event.file_path, action).catch(() => {});
       }
 
       return {
@@ -86,6 +96,13 @@ export async function initActivityListener(): Promise<void> {
   if (unlisten) return;
   unlisten = await listen<ClaudeEvent>("claude-event", (event) => {
     useActivityStore.getState().addEvent(event.payload);
+
+    // Capture Claude session UUID from SessionStarted events
+    if (event.payload.event_type === "SessionStarted") {
+      const { session_id, claude_session_uuid } = event.payload;
+      invoke("set_session_claude_uuid", { sessionId: session_id, uuid: claude_session_uuid }).catch(console.error);
+      useSessionStore.getState().updateSession(session_id, { claude_session_uuid });
+    }
   });
 }
 

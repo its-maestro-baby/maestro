@@ -50,6 +50,8 @@ impl MarketplaceManager {
             is_enabled: true,
             last_fetched: None,
             last_error: None,
+            source_type: SourceType::Github,
+            local_path: None,
         };
 
         Self {
@@ -125,6 +127,26 @@ impl MarketplaceManager {
             is_enabled: true,
             last_fetched: None,
             last_error: None,
+            source_type: SourceType::Github,
+            local_path: None,
+        };
+
+        self.sources.write().unwrap().push(source.clone());
+        source
+    }
+
+    /// Adds a new local directory marketplace source.
+    pub fn add_local_source(&self, name: String, local_path: String) -> MarketplaceSource {
+        let source = MarketplaceSource {
+            id: Self::generate_source_id(),
+            name,
+            repository_url: String::new(),
+            is_official: false,
+            is_enabled: true,
+            last_fetched: None,
+            last_error: None,
+            source_type: SourceType::Local,
+            local_path: Some(local_path),
         };
 
         self.sources.write().unwrap().push(source.clone());
@@ -187,6 +209,24 @@ impl MarketplaceManager {
         let source = self.get_source(source_id)
             .ok_or_else(|| MarketplaceError::SourceNotFound(source_id.to_string()))?;
 
+        // Branch on source type
+        match source.source_type {
+            SourceType::Local => {
+                let local_path = source.local_path.as_deref()
+                    .ok_or_else(|| MarketplaceError::InvalidPath("Local source has no path".to_string()))?;
+                let plugins = Self::scan_local_skills_hub(source_id, local_path)?;
+                self.update_source_success(source_id);
+                self.available_plugins.insert(source_id.to_string(), plugins.clone());
+                Ok(plugins)
+            }
+            SourceType::Github => {
+                self.fetch_github_marketplace(source_id, &source).await
+            }
+        }
+    }
+
+    /// Fetches a GitHub-based marketplace catalog.
+    async fn fetch_github_marketplace(&self, source_id: &str, source: &MarketplaceSource) -> MarketplaceResult<Vec<MarketplacePlugin>> {
         let url = Self::get_marketplace_json_url(&source.repository_url);
 
         // Fetch the marketplace.json
@@ -224,6 +264,76 @@ impl MarketplaceManager {
 
         // Cache the plugins
         self.available_plugins.insert(source_id.to_string(), plugins.clone());
+
+        Ok(plugins)
+    }
+
+    /// Scans a local skills hub directory for SKILL.md files and converts them to plugins.
+    fn scan_local_skills_hub(source_id: &str, local_path: &str) -> MarketplaceResult<Vec<MarketplacePlugin>> {
+        let hub_dir = Path::new(local_path);
+        if !hub_dir.exists() || !hub_dir.is_dir() {
+            return Err(MarketplaceError::InvalidPath(format!(
+                "Skills hub directory not found: {}", local_path
+            )));
+        }
+
+        let entries = std::fs::read_dir(hub_dir)
+            .map_err(|e| MarketplaceError::IoError(e))?;
+
+        let mut plugins = Vec::new();
+
+        for entry in entries.flatten() {
+            let skill_dir = entry.path();
+            if !skill_dir.is_dir() {
+                continue;
+            }
+
+            let skill_md_path = skill_dir.join("SKILL.md");
+            if !skill_md_path.exists() {
+                continue;
+            }
+
+            let content = match std::fs::read_to_string(&skill_md_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let frontmatter = SkillFrontmatter::parse(&content);
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+
+            let skill_name = frontmatter.name.clone().unwrap_or_else(|| dir_name.clone());
+            let display_name = frontmatter.display_name.clone()
+                .unwrap_or_else(|| skill_name.clone());
+
+            let mut tags = Vec::new();
+            if let Some(ref color) = frontmatter.color {
+                tags.push(format!("color:{}", color));
+            }
+
+            let category = frontmatter.map_category();
+            let license = frontmatter.license.clone();
+
+            plugins.push(MarketplacePlugin {
+                id: format!("local:{}", skill_name),
+                name: display_name,
+                description: frontmatter.description.clone().unwrap_or_default(),
+                version: "0.0.0".to_string(),
+                author: "Local".to_string(),
+                category,
+                types: vec![PluginType::Skill],
+                download_url: None,
+                repository_url: None,
+                source_path: Some(skill_dir.to_string_lossy().to_string()),
+                tags,
+                marketplace_id: source_id.to_string(),
+                icon_url: None,
+                homepage_url: None,
+                min_version: None,
+                license,
+                downloads: None,
+                stars: None,
+            });
+        }
 
         Ok(plugins)
     }
@@ -542,13 +652,6 @@ impl MarketplaceManager {
             .find(|p| p.id == marketplace_plugin_id)
             .ok_or_else(|| MarketplaceError::PluginNotFound(marketplace_plugin_id.to_string()))?;
 
-        // Get repository URL
-        let repo_url = plugin.repository_url.as_ref()
-            .or(plugin.download_url.as_ref())
-            .ok_or_else(|| MarketplaceError::PluginNotFound(
-                format!("{}: No repository URL", marketplace_plugin_id)
-            ))?;
-
         // Check if already installed (scope the lock guard)
         {
             let installed = self.installed_plugins.read().unwrap();
@@ -563,11 +666,30 @@ impl MarketplaceManager {
         let install_base = self.get_install_dir(scope, project_path)?;
 
         // Use plugin name for directory
-        let plugin_dir_name = plugin.id.replace('/', "-");
+        let plugin_dir_name = plugin.id.replace('/', "-").replace(':', "-");
         let plugin_dir = install_base.join(&plugin_dir_name);
 
-        // Clone the repository (with sparse checkout for monorepo plugins)
-        Self::clone_repository(repo_url, &plugin_dir, plugin.source_path.as_deref()).await?;
+        // Check if this is a local source plugin
+        let is_local = marketplace_plugin_id.starts_with("local:");
+
+        if is_local {
+            // For local sources, copy the skill directory
+            let source_path = plugin.source_path.as_ref()
+                .ok_or_else(|| MarketplaceError::InvalidPath(
+                    format!("{}: No source path for local plugin", marketplace_plugin_id)
+                ))?;
+            Self::copy_directory(Path::new(source_path), &plugin_dir).await?;
+        } else {
+            // Get repository URL for GitHub sources
+            let repo_url = plugin.repository_url.as_ref()
+                .or(plugin.download_url.as_ref())
+                .ok_or_else(|| MarketplaceError::PluginNotFound(
+                    format!("{}: No repository URL", marketplace_plugin_id)
+                ))?;
+
+            // Clone the repository (with sparse checkout for monorepo plugins)
+            Self::clone_repository(repo_url, &plugin_dir, plugin.source_path.as_deref()).await?;
+        }
 
         // Create plugin manifest directory
         let manifest_dir = plugin_dir.join(".claude-plugin");
@@ -588,14 +710,22 @@ impl MarketplaceManager {
         let (skills, commands, mcp_servers, agents, hooks) = Self::discover_plugin_components(&plugin_dir);
 
         // Create installed plugin record
+        let install_source = if is_local {
+            InstalledPluginSource::Local {
+                source_path: plugin.source_path.clone().unwrap_or_default(),
+            }
+        } else {
+            InstalledPluginSource::Marketplace {
+                marketplace_id: plugin.marketplace_id.clone(),
+                plugin_id: marketplace_plugin_id.to_string(),
+            }
+        };
+
         let installed_plugin = InstalledPlugin {
             id: Self::generate_plugin_id(),
             name: plugin.name.clone(),
             version: plugin.version.clone(),
-            source: InstalledPluginSource::Marketplace {
-                marketplace_id: plugin.marketplace_id.clone(),
-                plugin_id: marketplace_plugin_id.to_string(),
-            },
+            source: install_source,
             install_scope: scope,
             path: plugin_dir.to_string_lossy().to_string(),
             installed_at: Self::now_iso8601(),
@@ -612,6 +742,27 @@ impl MarketplaceManager {
         self.installed_plugins.write().unwrap().push(installed_plugin.clone());
 
         Ok(installed_plugin)
+    }
+
+    /// Recursively copies a directory and its contents.
+    async fn copy_directory(src: &Path, dst: &Path) -> MarketplaceResult<()> {
+        tokio::fs::create_dir_all(dst).await?;
+
+        let mut entries = tokio::fs::read_dir(src).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+
+            if src_path.is_dir() {
+                Box::pin(Self::copy_directory(&src_path, &dst_path)).await?;
+            } else {
+                tokio::fs::copy(&src_path, &dst_path).await.map_err(|e| {
+                    MarketplaceError::IoError(e)
+                })?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Uninstalls a plugin by ID.

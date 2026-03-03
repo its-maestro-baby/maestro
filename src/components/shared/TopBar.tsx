@@ -14,7 +14,7 @@ import { isMac } from "@/lib/platform";
 import { useGitStore } from "../../stores/useGitStore";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { BranchDropdown } from "./BranchDropdown";
-import { StatusLegend } from "./StatusLegend";
+// StatusLegend available but not currently used in TopBar layout
 
 interface TopBarProps {
   sidebarOpen: boolean;
@@ -157,12 +157,12 @@ export function TopBar({
       </div>
 
       {/* Center: drag region */}
-      <div data-tauri-drag-region className="flex-1" />
+      {/* <div data-tauri-drag-region className="flex-1" /> */}
 
       {/* Right: status legend (embedded text, no button wrappers) */}
-      <div className="mr-3">
+      {/* <div className="mr-3">
         <StatusLegend />
-      </div>
+      </div> */}
 
       {/* Right: action icons */}
       <div className="flex items-center gap-0.5 mr-1">

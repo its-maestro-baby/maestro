@@ -47,6 +47,19 @@ export async function addMarketplaceSource(
 }
 
 /**
+ * Adds a new local directory marketplace source.
+ */
+export async function addLocalMarketplaceSource(
+  name: string,
+  localPath: string
+): Promise<MarketplaceSource> {
+  return invoke<MarketplaceSource>("add_local_marketplace_source", {
+    name,
+    localPath,
+  });
+}
+
+/**
  * Removes a marketplace source by ID.
  */
 export async function removeMarketplaceSource(sourceId: string): Promise<void> {

@@ -22,7 +22,7 @@ function clampRatio(ratio: number): number {
  * - SplitNode → flex container with a draggable divider between two children
  * - LeafNode → calls `renderLeaf(slotId)`
  */
-export function SplitPaneView({ node, renderLeaf, onRatioChange, onDragStateChange }: SplitPaneViewProps) {
+export function   SplitPaneView({ node, renderLeaf, onRatioChange, onDragStateChange }: SplitPaneViewProps) {
   if (node.type === "leaf") {
     return (
       <div className="h-full w-full min-w-0 min-h-0">

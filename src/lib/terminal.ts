@@ -199,6 +199,27 @@ export function signalTerminalReady(sessionId: number): void {
   getTerminalsReadySet().add(sessionId);
 }
 
+/** Registry of focus callbacks, keyed by session ID. */
+const terminalFocusCallbacks = new Map<number, () => void>();
+
+/**
+ * Registers a focus callback for a terminal session.
+ * Called by TerminalView when xterm.js is initialized.
+ * @returns Cleanup function to unregister the callback.
+ */
+export function registerTerminalFocusCallback(sessionId: number, cb: () => void): () => void {
+  terminalFocusCallbacks.set(sessionId, cb);
+  return () => terminalFocusCallbacks.delete(sessionId);
+}
+
+/**
+ * Requests focus on a specific terminal session.
+ * Called by TerminalGrid after sending commands to ensure the terminal is focused.
+ */
+export function requestTerminalFocus(sessionId: number): void {
+  terminalFocusCallbacks.get(sessionId)?.();
+}
+
 /**
  * Waits for a terminal to signal it's ready to receive PTY output.
  * Called by TerminalGrid before sending CLI commands.

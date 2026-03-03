@@ -1,4 +1,6 @@
+pub mod claude_data_sync;
 pub mod claude_event;
+pub mod database;
 pub mod error;
 pub mod event_bus;
 pub mod transcript_parser;

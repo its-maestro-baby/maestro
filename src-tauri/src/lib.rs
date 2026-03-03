@@ -8,6 +8,8 @@ use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
+use core::claude_data_sync::ClaudeDataSyncTask;
+use core::database::Database;
 use core::marketplace_manager::MarketplaceManager;
 use core::mcp_manager::McpManager;
 use core::plugin_manager::PluginManager;
@@ -168,6 +170,32 @@ pub fn run() {
             app.manage(event_bus);
             app.manage(transcript_watcher);
 
+            // Initialize SQLite database
+            let app_data_dir = app.path().app_data_dir()
+                .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+            let db_path = app_data_dir.join("maestro.db");
+            log::info!("Opening SQLite database at {:?}", db_path);
+
+            let db = Database::open(&db_path)
+                .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+
+            // Mark all sessions from previous run as Done
+            if let Err(e) = db.mark_all_active_sessions_done() {
+                log::warn!("Failed to mark active sessions as done: {}", e);
+            }
+
+            // One-time migration from store.json
+            let store_path = app_data_dir.join("store.json");
+            if let Err(e) = db.migrate_from_store_json(&store_path) {
+                log::warn!("Failed to migrate from store.json: {}", e);
+            }
+
+            let db = Arc::new(db);
+            app.manage(db.clone());
+
+            // Start background Claude data sync task (30s interval)
+            ClaudeDataSyncTask::start(db.clone(), std::time::Duration::from_secs(30));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -215,6 +243,9 @@ pub fn run() {
             commands::session::update_session_status,
             commands::session::assign_session_branch,
             commands::session::remove_session,
+            commands::session::rename_session,
+            commands::session::hide_session,
+            commands::session::set_session_claude_uuid,
             commands::session::get_sessions_for_project,
             commands::session::remove_sessions_for_project,
             // Worktree commands
@@ -264,6 +295,7 @@ pub fn run() {
             commands::marketplace::load_marketplace_data,
             commands::marketplace::get_marketplace_sources,
             commands::marketplace::add_marketplace_source,
+            commands::marketplace::add_local_marketplace_source,
             commands::marketplace::remove_marketplace_source,
             commands::marketplace::toggle_marketplace_source,
             commands::marketplace::refresh_marketplace,
@@ -276,6 +308,16 @@ pub fn run() {
             commands::marketplace::get_session_marketplace_config,
             commands::marketplace::set_marketplace_plugin_enabled,
             commands::marketplace::clear_session_marketplace_config,
+            // Database query commands
+            commands::database::db_get_sessions_for_project,
+            commands::database::db_search_sessions,
+            commands::database::db_get_history,
+            commands::database::db_get_project_memory,
+            commands::database::db_get_plans,
+            commands::database::db_get_session_files,
+            commands::database::db_trigger_sync,
+            commands::database::db_add_session_tokens,
+            commands::database::db_add_session_file,
             // ClaudeMd commands
             commands::claudemd::check_claude_md,
             commands::claudemd::read_claude_md,

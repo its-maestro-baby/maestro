@@ -243,6 +243,23 @@
   .sidebar-w-320 {
     width: 320px;
   }
+
+  .sidebar-w-collapsed {
+    width: 44px;
+  }
+}
+
+@keyframes sidebar-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-sidebar-fade-in {
+  animation: sidebar-fade-in 150ms ease-out;
 }
 
 /* ── Split Pane Dividers ── */
@@ -259,7 +276,7 @@
 }
 
 .split-divider-vertical {
-  width: 4px;
+  width: 2px;
   cursor: col-resize;
 }
 
@@ -282,7 +299,7 @@
 .terminal-cell {
   border-radius: 12px;
   overflow: hidden;
-  border: 3px solid rgb(var(--maestro-border));
+  border: 1px solid rgb(var(--maestro-border));
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.3),
     0 1px 3px rgba(0, 0, 0, 0.2);

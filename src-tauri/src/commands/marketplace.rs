@@ -103,6 +103,24 @@ pub async fn toggle_marketplace_source(
     Ok(new_state)
 }
 
+/// Adds a new local directory marketplace source.
+#[tauri::command]
+pub async fn add_local_marketplace_source(
+    app: AppHandle,
+    state: State<'_, MarketplaceManager>,
+    name: String,
+    local_path: String,
+) -> Result<MarketplaceSource, String> {
+    // Validate path exists
+    let path = std::path::Path::new(&local_path);
+    if !path.exists() || !path.is_dir() {
+        return Err(format!("Directory not found: {}", local_path));
+    }
+    let source = state.add_local_source(name, local_path);
+    save_marketplace_data(&app, &state).await?;
+    Ok(source)
+}
+
 // ========== Marketplace Fetching Commands ==========
 
 /// Refreshes a single marketplace source.

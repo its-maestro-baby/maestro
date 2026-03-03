@@ -4,6 +4,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Circle,
   Cpu,
@@ -12,6 +13,7 @@ import {
   FolderGit2,
   GitBranch,
   Globe,
+  History,
   Home,
   Info,
   Loader2,
@@ -29,6 +31,7 @@ import {
   Sun,
   Trash2,
   User,
+  Search,
   Wrench,
   X,
   Zap,
@@ -41,8 +44,8 @@ import { useMcpStore } from "@/stores/useMcpStore";
 import { usePluginStore } from "@/stores/usePluginStore";
 import { useMarketplaceStore } from "@/stores/useMarketplaceStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { useResumeRequestStore } from "@/stores/useResumeRequestStore";
 import { useProcessTreeStore, type ProcessInfo, type SessionProcessTree } from "@/stores/useProcessTreeStore";
-import { useUsageStore } from "@/stores/useUsageStore";
 import { GitSettingsModal, RemoteStatusIndicator } from "@/components/git";
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
 import { MarketplaceBrowser } from "@/components/marketplace";
@@ -51,16 +54,18 @@ import { ClaudeMdEditorModal } from "@/components/claudemd";
 import { CliSettingsModal } from "@/components/terminal/CliSettingsModal";
 import { TerminalSettingsModal } from "@/components/terminal/TerminalSettingsModal";
 import { MaestroSettingsModal } from "@/components/settings";
-import { Tamagotchi } from "@/components/tamagotchi";
 import type { McpCustomServer } from "@/lib/mcp";
 import { checkClaudeMd, type ClaudeMdStatus } from "@/lib/claudemd";
 import { OpenCodeIcon } from "@/components/icons/OpenCodeIcon";
+import { ClaudeDataTab } from "./ClaudeDataTab";
+import { CollapsedRail } from "./CollapsedRail";
 
-type SidebarTab = "config" | "processes";
+type SidebarTab = "config" | "processes" | "claude-data"
 
 interface SidebarProps {
   collapsed?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
   theme?: "dark" | "light";
   onToggleTheme?: () => void;
 }
@@ -72,7 +77,7 @@ const cardClass =
 const divider = <div className="h-px bg-maestro-border/30 my-1" />;
 
 const SIDEBAR_MIN_WIDTH = 180;
-const SIDEBAR_MAX_WIDTH = 320;
+const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_COLLAPSE_THRESHOLD = 60;
 const SIDEBAR_WIDTH_STEP = 4;
 
@@ -100,12 +105,24 @@ const STATUS_LABEL: Record<BackendSessionStatus, string> = {
 /*  SIDEBAR ROOT                                                     */
 /* ================================================================ */
 
-export function Sidebar({ collapsed, onCollapse, theme, onToggleTheme }: SidebarProps) {
+export function Sidebar({ collapsed, onCollapse, onExpand, theme, onToggleTheme }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("config");
-  const [width, setWidth] = useState(240);
+  const [width, setWidth] = useState(() => {
+    const stored = localStorage.getItem("maestro-sidebar-width");
+    if (stored) {
+      const n = Number(stored);
+      if (n >= SIDEBAR_MIN_WIDTH && n <= SIDEBAR_MAX_WIDTH) return n;
+    }
+    return 240;
+  });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; w: number } | null>(null);
-  const sidebarWidthClass = collapsed ? "w-0" : `sidebar-w-${width}`;
+  const sidebarStyle = { width: collapsed ? 44 : width };
+
+  // Persist width to localStorage
+  useEffect(() => {
+    localStorage.setItem("maestro-sidebar-width", String(width));
+  }, [width]);
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -188,66 +205,92 @@ export function Sidebar({ collapsed, onCollapse, theme, onToggleTheme }: Sidebar
   return (
     // Use a class-based width to avoid inline styles (CSP-friendly).
     <aside
-      className={`theme-transition no-select relative flex h-full flex-col border-r border-maestro-border bg-maestro-surface ${sidebarWidthClass} ${
+      style={sidebarStyle}
+      className={`theme-transition no-select relative flex h-full shrink-0 flex-col border-r border-maestro-border bg-maestro-surface ${
         isDragging ? "" : "transition-all duration-200 ease-out"
-      } ${collapsed ? "overflow-hidden border-r-0 opacity-0" : "opacity-100"}`}
+      }`}
     >
-      {/* Tab switcher */}
-      <div className="flex shrink-0 border-b border-maestro-border">
-        <button
-          type="button"
-          onClick={() => setActiveTab("config")}
-          className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${
-            activeTab === "config"
-              ? "border-b-2 border-maestro-accent text-maestro-accent"
-              : "text-maestro-muted hover:text-maestro-text"
-          }`}
-        >
-          <Settings size={12} />
-          Config
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("processes")}
-          className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${
-            activeTab === "processes"
-              ? "border-b-2 border-maestro-accent text-maestro-accent"
-              : "text-maestro-muted hover:text-maestro-text"
-          }`}
-        >
-          <Activity size={12} />
-          Processes
-        </button>
-      </div>
+      {/* Edge toggle button */}
+      <button
+        type="button"
+        onClick={() => (collapsed ? onExpand?.() : onCollapse?.())}
+        className="absolute -right-3 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-maestro-border bg-maestro-surface text-maestro-muted shadow-sm transition-colors hover:bg-maestro-card hover:text-maestro-text"
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+      </button>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-2.5 py-3">
-        {activeTab === "config" ? (
-          <ConfigTab theme={theme} onToggleTheme={onToggleTheme} />
-        ) : (
-          <ProcessesTab />
-        )}
-      </div>
+      {collapsed ? (
+        <CollapsedRail onExpand={() => onExpand?.()} />
+      ) : (
+        <>
+          {/* Tab switcher */}
+          <div className="flex shrink-0 border-b border-maestro-border">
+            <button
+              type="button"
+              onClick={() => setActiveTab("config")}
+              className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${
+                activeTab === "config"
+                  ? "border-b-2 border-maestro-accent text-maestro-accent"
+                  : "text-maestro-muted hover:text-maestro-text"
+              }`}
+            >
+              <Settings size={12} />
+              Config
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("processes")}
+              className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${
+                activeTab === "processes"
+                  ? "border-b-2 border-maestro-accent text-maestro-accent"
+                  : "text-maestro-muted hover:text-maestro-text"
+              }`}
+            >
+              <Activity size={12} />
+              Processes
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("claude-data")}
+              className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold tracking-wide uppercase ${
+                activeTab === "claude-data"
+                  ? "border-b-2 border-maestro-accent text-maestro-accent"
+                  : "text-maestro-muted hover:text-maestro-text"
+              }`}
+            >
+              <History size={12} />
+              Sessions
+            </button>
+          </div>
 
-      {/* Tamagotchi widget - fixed footer */}
-      {!collapsed && <Tamagotchi />}
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto px-2.5 py-3">
+            {activeTab === "config" ? (
+              <ConfigTab theme={theme} onToggleTheme={onToggleTheme} />
+            ) : activeTab === "processes" ? (
+              <ProcessesTab />
+            ) : (
+              <ClaudeDataTab />
+            )}
+          </div>
 
-      {/* Drag handle */}
-      {!collapsed && (
-        // biome-ignore lint/a11y/useSemanticElements: Vertical resizer requires interactive div for pointer/keyboard handling.
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuenow={Math.round(width)}
-          aria-valuetext={`${Math.round(width)} pixels`}
-          tabIndex={0}
-          aria-label="Resize sidebar"
-          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-maestro-accent/30 active:bg-maestro-accent/40"
-          onMouseDown={handleDragStart}
-          onKeyDown={handleResizeKeyDown}
-        />
+          {/* Drag handle */}
+          {/* biome-ignore lint/a11y/useSemanticElements: Vertical resizer requires interactive div for pointer/keyboard handling. */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={Math.round(width)}
+            aria-valuetext={`${Math.round(width)} pixels`}
+            tabIndex={0}
+            aria-label="Resize sidebar"
+            className="absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize hover:bg-maestro-accent/30 active:bg-maestro-accent/40"
+            onMouseDown={handleDragStart}
+            onKeyDown={handleResizeKeyDown}
+          />
+        </>
       )}
     </aside>
   );
@@ -311,8 +354,8 @@ function ConfigTab({
       <MCPServersSection />
       {divider}
       <PluginsSection />
-      {divider}
-      <QuickActionsSection />
+      {/* {divider}
+      <QuickActionsSection /> */}
       {divider}
       <AppearanceSection theme={theme} onToggle={onToggleTheme} />
     </>
@@ -592,15 +635,65 @@ function ProjectContextSection() {
 
 /* ── 3. Sessions ── */
 
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return String(tokens);
+}
+
 function SessionsSection() {
   const [expanded, setExpanded] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+
   const allSessions = useSessionStore((s) => s.sessions);
+  const renameSession = useSessionStore((s) => s.renameSession);
+  const hideSession = useSessionStore((s) => s.hideSession);
+  const requestResume = useResumeRequestStore((s) => s.requestResume);
   const tabs = useWorkspaceStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.active);
-  const activeProjectPath = activeTab?.projectPath ?? "";
 
-  // Filter sessions to only show those belonging to the active project
-  const sessions = allSessions.filter((s) => s.project_path === activeProjectPath);
+  // Only show sessions currently on the terminal grid (view board).
+  // Full session history is available in the Sessions tab (ClaudeDataTab).
+  const activeSessionIds = activeTab?.sessionIds ?? [];
+  let sessions = allSessions.filter(
+    (s) => activeSessionIds.includes(s.id) && !s.hidden
+  );
+
+  // Apply search filter
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase();
+    sessions = sessions.filter((s) =>
+      (s.name?.toLowerCase().includes(q)) ||
+      (s.first_message?.toLowerCase().includes(q)) ||
+      `#${s.id}`.includes(q)
+    );
+  }
+
+  const startEditing = useCallback((s: { id: number; name?: string | null }) => {
+    setEditingId(s.id);
+    setEditValue(s.name ?? `#${s.id}`);
+  }, []);
+
+  const commitRename = useCallback(
+    (sessionId: number) => {
+      const trimmed = editValue.trim();
+      const name = trimmed === "" || trimmed === `#${sessionId}` ? null : trimmed;
+      renameSession(sessionId, name);
+      setEditingId(null);
+    },
+    [editValue, renameSession],
+  );
+
+  // Focus the input when editing starts
+  useEffect(() => {
+    if (editingId !== null && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
 
   return (
     <div className={cardClass}>
@@ -625,21 +718,141 @@ function SessionsSection() {
 
       {expanded && (
         <div className="space-y-0.5">
-          {sessions.length === 0 ? (
-            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">No sessions yet</div>
-          ) : (
-            sessions.map((s) => (
-              <div
-                key={s.id}
-                title={s.statusMessage || s.needsInputPrompt || STATUS_LABEL[s.status]}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-maestro-text hover:bg-maestro-border/40"
+          {/* Search input */}
+          <div className="relative mb-1">
+            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-maestro-muted/60" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search sessions..."
+              className="w-full bg-maestro-bg border border-maestro-border/60 rounded-md pl-6 pr-2 py-1 text-[11px] text-maestro-text placeholder:text-maestro-muted/40 outline-none focus:border-maestro-accent/50"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-maestro-muted/60 hover:text-maestro-text"
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_CLASS[s.status]}`} />
-                <Bot size={12} className="text-maestro-purple shrink-0" />
-                <span className="flex-1 font-medium">#{s.id}</span>
-                <span className="text-[10px] text-maestro-muted">{STATUS_LABEL[s.status]}</span>
-              </div>
-            ))
+                <X size={10} />
+              </button>
+            )}
+          </div>
+
+          {sessions.length === 0 ? (
+            <div className="px-2 py-1 text-[11px] text-maestro-muted/60">
+              {searchQuery ? "No matching sessions" : "No sessions yet"}
+            </div>
+          ) : (
+            sessions.map((s) => {
+              const totalTokens = (s.total_input_tokens ?? 0) + (s.total_output_tokens ?? 0);
+              const toolsList = s.tools_used ?? [];
+
+              return (
+                <div
+                  key={s.id}
+                  title={s.statusMessage || s.needsInputPrompt || STATUS_LABEL[s.status]}
+                  className="group rounded-md px-2 py-1.5 text-xs text-maestro-text hover:bg-maestro-border/40"
+                >
+                  {/* Row 1: Status dot, icon, name, status label, action buttons */}
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_CLASS[s.status]}`} />
+                    <Bot size={12} className="text-maestro-purple shrink-0" />
+
+                    {/* Inline-editable session name */}
+                    {editingId === s.id ? (
+                      <input
+                        ref={editInputRef}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => commitRename(s.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename(s.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="flex-1 min-w-0 bg-maestro-bg border border-maestro-border rounded px-1 py-0 text-xs font-medium text-maestro-text outline-none focus:border-maestro-accent"
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 font-medium truncate cursor-default"
+                        onDoubleClick={() => startEditing(s)}
+                      >
+                        {s.name ?? `#${s.id}`}
+                      </span>
+                    )}
+
+                    <span className="text-[10px] text-maestro-muted shrink-0">{STATUS_LABEL[s.status]}</span>
+
+                    {/* Edit button (hover) */}
+                    {editingId !== s.id && (
+                      <button
+                        type="button"
+                        onClick={() => startEditing(s)}
+                        className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-maestro-border/60 transition-opacity"
+                        title="Rename session"
+                      >
+                        <Edit2 size={10} className="text-maestro-muted" />
+                      </button>
+                    )}
+
+                    {/* Quick Run button — visible when session is Done and has a Claude UUID */}
+                    {s.claude_session_uuid && s.status === "Done" && (
+                      <button
+                        type="button"
+                        onClick={() => requestResume(s)}
+                        className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-maestro-green/10 transition-opacity"
+                        title="Resume Claude session"
+                      >
+                        <Play size={10} className="text-maestro-green" />
+                      </button>
+                    )}
+
+                    {/* Hide button (hover) */}
+                    <button
+                      type="button"
+                      onClick={() => hideSession(s.id, true)}
+                      className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-maestro-red/10 transition-opacity"
+                      title="Hide session"
+                    >
+                      <X size={10} className="text-maestro-muted hover:text-maestro-red" />
+                    </button>
+                  </div>
+
+                  {/* Row 2: First message preview (if available) */}
+                  {s.first_message && (
+                    <div className="mt-0.5 pl-[22px] text-[10px] text-maestro-muted leading-relaxed line-clamp-1 truncate">
+                      {s.first_message.length > 60 ? `${s.first_message.slice(0, 60)}...` : s.first_message}
+                    </div>
+                  )}
+
+                  {/* Row 3: Enrichment badges (tokens, files, tools) */}
+                  {(totalTokens > 0 || (s.files_modified_count ?? 0) > 0 || toolsList.length > 0) && (
+                    <div className="mt-0.5 pl-[22px] flex items-center gap-1.5 flex-wrap">
+                      {totalTokens > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
+                          <Zap size={8} />
+                          {formatTokenCount(totalTokens)}
+                        </span>
+                      )}
+                      {(s.files_modified_count ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
+                          <FileText size={8} />
+                          {s.files_modified_count}
+                        </span>
+                      )}
+                      {toolsList.slice(0, 4).map((tool) => (
+                        <span key={tool} className="text-[9px] text-maestro-accent/70 bg-maestro-accent/10 rounded px-1 py-px">
+                          {tool}
+                        </span>
+                      ))}
+                      {toolsList.length > 4 && (
+                        <span className="text-[9px] text-maestro-muted">+{toolsList.length - 4}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -751,7 +964,7 @@ function MaestroMCPSection() {
     <div className={cardClass}>
       <SectionHeader
         icon={Server}
-        label="Maestro MCP"
+        label="JSpace MCP"
         iconColor="text-maestro-green"
         right={
           <button type="button" className="rounded p-0.5 hover:bg-maestro-border/40">
@@ -1328,6 +1541,7 @@ function PluginsSection() {
 
 /* ── 8. Quick Actions ── */
 
+// @ts-expect-error Temporarily unused but kept for future re-enable
 function QuickActionsSection() {
   const [showManager, setShowManager] = useState(false);
 
@@ -1394,8 +1608,6 @@ function AppearanceSection({
   const [showTerminalSettings, setShowTerminalSettings] = useState(false);
   const [showCliSettings, setShowCliSettings] = useState(false);
   const [showMaestroSettings, setShowMaestroSettings] = useState(false);
-  const { showCharacter, toggleCharacter } = useUsageStore();
-
   return (
     <>
       <div className={cardClass}>
@@ -1414,14 +1626,6 @@ function AppearanceSection({
             <Moon size={14} className="text-maestro-accent" />
           )}
           <span>{isDark ? "Switch to Light" : "Switch to Dark"}</span>
-        </button>
-        <button
-          type="button"
-          onClick={toggleCharacter}
-          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs text-maestro-text transition-colors hover:bg-maestro-border/40"
-        >
-          <Bot size={14} className={showCharacter ? "text-maestro-accent" : "text-maestro-muted"} />
-          <span>{showCharacter ? "Hide Tamagotchi" : "Show Tamagotchi"}</span>
         </button>
         <button
           type="button"
@@ -1445,7 +1649,7 @@ function AppearanceSection({
           className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs text-maestro-text transition-colors hover:bg-maestro-border/40"
         >
           <Info size={14} className="text-maestro-accent" />
-          <span>Maestro Settings</span>
+          <span>JSpace Settings</span>
         </button>
       </div>
 
@@ -1513,7 +1717,7 @@ function AgentSessionsSection() {
             >
               <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_CLASS[s.status]}`} />
               <span className="flex-1 truncate">
-                <span className="font-medium">#{s.id}</span>{" "}
+                <span className="font-medium">{s.name ?? `#${s.id}`}</span>{" "}
                 <span className="text-maestro-muted">{s.mode}</span>{" "}
                 <span className="text-maestro-muted">-</span>{" "}
                 <span className="text-maestro-muted">{STATUS_LABEL[s.status]}</span>

@@ -22,7 +22,10 @@ export type PluginCategory =
   | "utility"
   | "other";
 
-/** A marketplace source - a GitHub repository hosting a plugin catalog. */
+/** Source type for a marketplace source. */
+export type SourceType = "github" | "local";
+
+/** A marketplace source - a GitHub repository or local directory hosting a plugin catalog. */
 export interface MarketplaceSource {
   /** Unique identifier (UUID). */
   id: string;
@@ -38,6 +41,10 @@ export interface MarketplaceSource {
   last_fetched: string | null;
   /** Error message from last fetch attempt (if any). */
   last_error: string | null;
+  /** Source type: github or local directory. */
+  source_type: SourceType;
+  /** Local filesystem path (for local source type). */
+  local_path: string | null;
 }
 
 /** A plugin available for download from a marketplace. */
