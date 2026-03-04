@@ -73,7 +73,7 @@ interface SidebarProps {
 /* ── Shared card class ── */
 const cardClass = "sidebar-card-link sidebar-card";
 
-const divider = <div className="h-px bg-maestro-border/30 my-1" />;
+const divider = <div className="h-px bg-maestro-border/30 my-1 sidebar-divider" />;
 
 const SIDEBAR_MIN_WIDTH = 180;
 const SIDEBAR_MAX_WIDTH = 480;
@@ -264,7 +264,7 @@ export function Sidebar({ collapsed, onCollapse, onExpand, theme, onToggleTheme 
           </div>
 
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto px-2.5 py-3">
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
             {activeTab === "config" ? (
               <ConfigTab theme={theme} onToggleTheme={onToggleTheme} />
             ) : activeTab === "processes" ? (
@@ -432,7 +432,7 @@ function GitRepositorySection() {
           label="Git Repository"
           iconColor="text-maestro-muted"
         />
-        <div className="px-1 py-1 text-xs text-maestro-muted">No project selected</div>
+        <div className="px-2 py-1.5 text-xs text-maestro-muted">No project selected</div>
       </div>
     );
   }
@@ -456,7 +456,7 @@ function GitRepositorySection() {
           }
         />
         {/* User */}
-        <div className="flex items-center gap-2 px-1 py-1">
+        <div className="flex items-center gap-2 px-2 py-1.5">
           <User size={12} className={hasUser ? "text-maestro-green" : "text-maestro-muted"} />
           <span className="text-xs font-semibold text-maestro-text truncate">{displayName}</span>
         </div>
@@ -464,11 +464,11 @@ function GitRepositorySection() {
 
         {/* Remotes */}
         {remotes.length === 0 ? (
-          <div className="mt-2 px-1 py-1 text-xs text-maestro-muted">No remotes configured</div>
+          <div className="mt-2 px-2 py-1.5 text-xs text-maestro-muted">No remotes configured</div>
         ) : (
           remotes.map((remote) => (
             <div key={remote.name} className="mt-1">
-              <div className="flex items-center gap-2 px-1 py-1">
+              <div className="flex items-center gap-2 px-2 py-1.5">
                 <RemoteStatusIndicator status={remoteStatuses[remote.name] ?? "unknown"} />
                 <span className="text-xs font-semibold text-maestro-text truncate">
                   {remote.name}
@@ -484,7 +484,7 @@ function GitRepositorySection() {
         {/* Worktree base path */}
         {(worktreeBasePath || defaultWorktreeBase) && (
           <div className="mt-2 border-t border-maestro-border/30 pt-2 min-w-0 overflow-hidden">
-            <div className="flex items-center gap-2 px-1 py-1 min-w-0">
+            <div className="flex items-center gap-2 px-2 py-1.5 min-w-0">
               <FolderGit2 size={12} className="text-maestro-accent shrink-0" />
               <span className="text-xs font-semibold text-maestro-text truncate min-w-0">Worktrees</span>
               {!worktreeBasePath && (
@@ -563,7 +563,7 @@ function ProjectContextSection() {
           label="Project Context"
           iconColor="text-maestro-muted"
         />
-        <div className="flex items-center gap-2 px-1 py-1">
+        <div className="flex items-center gap-2 px-2 py-1.5">
           <span className="text-xs text-maestro-muted">No project selected</span>
         </div>
       </div>
@@ -595,18 +595,18 @@ function ProjectContextSection() {
           }
         />
         {isLoading ? (
-          <div className="flex items-center gap-2 px-1 py-1">
+          <div className="flex items-center gap-2 px-2 py-1.5">
             <Loader2 size={13} className="text-maestro-muted shrink-0 animate-spin" />
             <span className="text-xs text-maestro-muted">Checking...</span>
           </div>
         ) : fileExists ? (
-          <div className="flex items-center gap-2 px-1 py-1">
+          <div className="flex items-center gap-2 px-2 py-1.5">
             <Check size={13} className="text-maestro-green shrink-0" />
             <span className="text-xs text-maestro-text">CLAUDE.md</span>
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 px-1 py-1">
+            <div className="flex items-center gap-2 px-2 py-1.5">
               <AlertTriangle size={13} className="text-maestro-orange shrink-0" />
               <span className="text-xs text-maestro-text">No CLAUDE.md</span>
             </div>
@@ -769,7 +769,7 @@ function SessionsSection() {
                           if (e.key === "Enter") commitRename(s.id);
                           if (e.key === "Escape") setEditingId(null);
                         }}
-                        className="flex-1 min-w-0 bg-maestro-bg border border-maestro-border rounded px-1 py-0 text-xs font-medium text-maestro-text outline-none focus:border-maestro-accent"
+                        className="flex-1 min-w-0 bg-maestro-bg border border-maestro-border rounded px-1 py-0.5 text-xs font-medium text-maestro-text outline-none focus:border-maestro-accent"
                       />
                     ) : (
                       <span
@@ -828,24 +828,24 @@ function SessionsSection() {
                   {(totalTokens > 0 || (s.files_modified_count ?? 0) > 0 || toolsList.length > 0) && (
                     <div className="mt-0.5 pl-[22px] flex items-center gap-1.5 flex-wrap">
                       {totalTokens > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-[9px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
                           <Zap size={8} />
                           {formatTokenCount(totalTokens)}
                         </span>
                       )}
                       {(s.files_modified_count ?? 0) > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-[9px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-maestro-muted bg-maestro-bg/60 rounded px-1 py-px">
                           <FileText size={8} />
                           {s.files_modified_count}
                         </span>
                       )}
                       {toolsList.slice(0, 4).map((tool) => (
-                        <span key={tool} className="text-[9px] text-maestro-accent/70 bg-maestro-accent/10 rounded px-1 py-px">
+                        <span key={tool} className="text-[10px] text-maestro-accent/70 bg-maestro-accent/10 rounded px-1 py-px">
                           {tool}
                         </span>
                       ))}
                       {toolsList.length > 4 && (
-                        <span className="text-[9px] text-maestro-muted">+{toolsList.length - 4}</span>
+                        <span className="text-[10px] text-maestro-muted">+{toolsList.length - 4}</span>
                       )}
                     </div>
                   )}
@@ -971,7 +971,7 @@ function MaestroMCPSection() {
           </button>
         }
       />
-      <div className="flex items-center gap-2 px-1 py-1">
+      <div className="flex items-center gap-2 px-2 py-1.5">
         <span className="h-2 w-2 shrink-0 rounded-full bg-maestro-green" />
         <span className="text-xs text-maestro-text font-medium">Available</span>
       </div>
@@ -1098,7 +1098,7 @@ function MCPServersSection() {
             {/* Discovered servers from .mcp.json */}
             {discoveredServers.length > 0 && (
               <>
-                <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-maestro-muted/60">
                   Discovered ({discoveredServers.length})
                 </div>
                 {discoveredServers.map((server) => {
@@ -1123,7 +1123,7 @@ function MCPServersSection() {
             {/* Custom servers */}
             {customServers.length > 0 && (
               <>
-                <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-maestro-muted/60">
                   Custom ({customServers.length})
                 </div>
                 {customServers.map((server) => (
@@ -1404,7 +1404,7 @@ function PluginsSection() {
               {/* Plugins with their skills */}
               {plugins.length > 0 && (
                 <>
-                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                  <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-maestro-muted/60">
                     Plugins ({plugins.length})
                   </div>
                   {plugins.map((plugin) => {
@@ -1486,7 +1486,7 @@ function PluginsSection() {
               {/* Standalone Skills */}
               {standaloneSkills.length > 0 && (
                 <>
-                  <div className="px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-maestro-muted/60">
+                  <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-maestro-muted/60">
                     Skills ({standaloneSkills.length})
                   </div>
                   {standaloneSkills.map((skill) => {
@@ -1500,7 +1500,7 @@ function PluginsSection() {
                       >
                         <Zap size={12} className="shrink-0 text-maestro-orange" />
                         <span className="flex-1 truncate font-medium">{skill.name}</span>
-                        <span className={`shrink-0 rounded px-1 text-[9px] ${badge.className}`}>
+                        <span className={`shrink-0 rounded px-1 text-[10px] ${badge.className}`}>
                           {badge.text}
                         </span>
                         {canDeleteSkill(skill) && (
@@ -1844,8 +1844,8 @@ function ProcessTreeSection() {
           )}
           <Cpu size={10} className="shrink-0 text-maestro-accent" />
           <span className="flex-1 truncate font-medium">{process.name}</span>
-          <span className="shrink-0 text-[9px] text-maestro-muted">{process.pid}</span>
-          <span className="shrink-0 text-[9px] text-maestro-muted/60">
+          <span className="shrink-0 text-[10px] text-maestro-muted">{process.pid}</span>
+          <span className="shrink-0 text-[10px] text-maestro-muted/60">
             {formatMemory(process.memoryBytes)}
           </span>
           {/* Kill button - only for non-root processes */}

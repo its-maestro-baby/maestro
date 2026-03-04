@@ -34,20 +34,20 @@
                           0 0 12px rgb(var(--maestro-accent) / 0.2);
   }
 
-  /* Light theme — clean neutral with strong contrast */
+  /* Light theme — soft neutral with gentle depth */
   [data-theme="light"] {
-    --maestro-bg: 241 241 243; /* #f1f1f3 */
-    --maestro-surface: 252 252 253; /* #fcfcfd */
-    --maestro-card: 245 245 247; /* #f5f5f7 */
-    --maestro-border: 210 210 216; /* #d2d2d8 */
-    --maestro-text: 20 20 24; /* #141418 */
-    --maestro-muted: 80 80 94; /* #50505e — contrast ~5.2:1 on #f1f1f3, WCAG AA */
+    --maestro-bg: 235 235 240;       /* #ebebf0 — soft gray page bg */
+    --maestro-surface: 245 245 249;  /* #f5f5f9 — sidebar, barely gray */
+    --maestro-card: 255 255 255;     /* #ffffff — white cards, gently elevated */
+    --maestro-border: 210 210 218;   /* #d2d2da — soft border */
+    --maestro-text: 20 20 24;        /* #141418 — unchanged */
+    --maestro-muted: 80 80 94;       /* #50505e — unchanged */
 
-    /* Shadow depth scale — light mode (reduced intensity) */
-    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.04);
-    --shadow-2: 0 2px 8px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.06);
-    --shadow-3: 0 4px 16px rgb(0 0 0 / 0.10), 0 2px 6px rgb(0 0 0 / 0.07);
-    --shadow-4: 0 8px 32px rgb(0 0 0 / 0.12), 0 4px 12px rgb(0 0 0 / 0.08);
+    /* Shadow depth scale — light mode */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.07), 0 0 0 1px rgb(0 0 0 / 0.04);
+    --shadow-2: 0 2px 8px rgb(0 0 0 / 0.09), 0 1px 3px rgb(0 0 0 / 0.06);
+    --shadow-3: 0 4px 16px rgb(0 0 0 / 0.11), 0 2px 6px rgb(0 0 0 / 0.07);
+    --shadow-4: 0 8px 32px rgb(0 0 0 / 0.13), 0 4px 12px rgb(0 0 0 / 0.09);
   }
 
   /* ── Theme transition on chrome (scoped to direct children) ── */
@@ -667,4 +667,64 @@
   border: 1px solid rgb(var(--maestro-border) / 0.6) !important;
   box-shadow: none !important;
   transition: border-color 200ms ease !important;
+}
+
+/* ── Light Theme Component Overrides ── */
+
+/* Sidebar bg: gentle top-to-bottom gradient using themed vars */
+[data-theme="light"] .sidebar-surface {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--maestro-surface)) 0%,
+    rgb(var(--maestro-bg) / 0.85) 100%
+  );
+}
+
+/* Cards: pure white + visible raised border + stronger top highlight */
+[data-theme="light"] .sidebar-card {
+  background:
+    linear-gradient(180deg, rgb(255 255 255) 0%, rgb(250 250 252) 100%) padding-box,
+    linear-gradient(
+      150deg,
+      rgb(255 255 255) 0%,
+      rgb(var(--maestro-border)) 50%,
+      rgb(0 0 0 / 0.10) 100%
+    ) border-box;
+  box-shadow:
+    var(--shadow-2),
+    inset 0 1px 0 rgb(255 255 255);
+}
+
+[data-theme="light"] .sidebar-card:hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255) 0%, rgb(247 247 250) 100%) padding-box,
+    linear-gradient(
+      150deg,
+      rgb(255 255 255) 0%,
+      rgb(var(--maestro-border)) 45%,
+      rgb(0 0 0 / 0.12) 100%
+    ) border-box;
+  box-shadow:
+    var(--shadow-3),
+    inset 0 1px 0 rgb(255 255 255);
+}
+
+/* Dividers: slightly more visible in light mode */
+[data-theme="light"] .sidebar-divider {
+  background-color: rgb(var(--maestro-border) / 0.45);
+}
+
+/* Glass panel (modals): true frosted white */
+[data-theme="light"] .glass-panel {
+  background:
+    linear-gradient(rgb(255 255 255 / 0.94), rgb(250 250 252 / 0.92)) padding-box,
+    linear-gradient(
+      150deg,
+      rgb(255 255 255) 0%,
+      rgb(var(--maestro-border)) 50%,
+      rgb(0 0 0 / 0.08) 100%
+    ) border-box;
+  box-shadow:
+    var(--shadow-3),
+    inset 0 1px 0 rgb(255 255 255);
 }
