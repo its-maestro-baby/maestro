@@ -43,7 +43,7 @@ import { useMarketplaceStore } from "@/stores/useMarketplaceStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useProcessTreeStore, type ProcessInfo, type SessionProcessTree } from "@/stores/useProcessTreeStore";
 import { useUsageStore } from "@/stores/useUsageStore";
-import { GitSettingsModal, RemoteStatusIndicator } from "@/components/git";
+import { GitSettingsModal } from "@/components/git";
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
 import { MarketplaceBrowser } from "@/components/marketplace";
 import { McpServerEditorModal } from "@/components/mcp";
@@ -364,23 +364,6 @@ function GitRepositorySection() {
   const hasUser = userConfig?.name || userConfig?.email;
   const displayName = userConfig?.name || "Not configured";
   const displayEmail = userConfig?.email || "No email set";
-
-  // Format remote URL for display (shorten GitHub URLs)
-  const formatRemoteUrl = (url: string) => {
-    // git@github.com:user/repo.git -> github.com/user/repo
-    // https://github.com/user/repo.git -> github.com/user/repo
-    const match = url.match(/github\.com[:/](.+?)(?:\.git)?$/);
-    if (match) {
-      return `github.com/${match[1]}`;
-    }
-    // For other URLs, just show the host/path
-    try {
-      const parsed = new URL(url.replace(/^git@/, "https://").replace(/:(?!\/\/)/, "/"));
-      return `${parsed.host}${parsed.pathname.replace(/\.git$/, "")}`;
-    } catch {
-      return url;
-    }
-  };
 
   if (!repoPath) {
     return (
