@@ -297,7 +297,7 @@ function ConfigTab({
   onToggleTheme?: () => void;
 }) {
   return (
-    <>
+    <div className="flex flex-col gap-0 w-full min-w-0 max-w-full overflow-hidden">
       <GitRepositorySection />
       {divider}
       <ProjectContextSection />
@@ -315,7 +315,7 @@ function ConfigTab({
       <QuickActionsSection />
       {divider}
       <AppearanceSection theme={theme} onToggle={onToggleTheme} />
-    </>
+    </div>
   );
 }
 
@@ -397,7 +397,7 @@ function GitRepositorySection() {
 
   return (
     <>
-      <div className={cardClass}>
+      <div className={`${cardClass} min-w-0`}>
         <SectionHeader
           icon={GitBranch}
           label="Git Repository"
@@ -420,23 +420,11 @@ function GitRepositorySection() {
         </div>
         <div className="pl-5 text-[11px] text-maestro-muted truncate">{displayEmail}</div>
 
-        {/* Remotes */}
-        {remotes.length === 0 ? (
-          <div className="mt-2 px-1 py-1 text-xs text-maestro-muted">No remotes configured</div>
-        ) : (
-          remotes.map((remote) => (
-            <div key={remote.name} className="mt-1">
-              <div className="flex items-center gap-2 px-1 py-1">
-                <RemoteStatusIndicator status={remoteStatuses[remote.name] ?? "unknown"} />
-                <span className="text-xs font-semibold text-maestro-text truncate">
-                  {remote.name}
-                </span>
-              </div>
-              <div className="pl-5 text-[11px] text-maestro-muted truncate">
-                {formatRemoteUrl(remote.url)}
-              </div>
-            </div>
-          ))
+        {/* Remotes hint */}
+        {remotes.length > 0 && (
+          <div className="mt-2 px-1 text-[10px] text-maestro-muted/60 italic">
+            View remotes in settings
+          </div>
         )}
 
         {/* Worktree base path */}
