@@ -302,6 +302,9 @@ pub async fn get_default_worktree_base_dir() -> Result<String, String> {
 
 /// Returns true if at least one Maestro-managed worktree exists for the given project.
 /// Used by the frontend to enable/disable the "Current Worktree" launch option.
+///
+/// Filters out stale git worktree refs whose directories no longer exist on disk,
+/// so the UI correctly disables "Current Worktree" after a worktree is deleted.
 #[tauri::command]
 pub async fn has_managed_worktree(
     worktree_manager: State<'_, WorktreeManager>,
@@ -312,7 +315,9 @@ pub async fn has_managed_worktree(
         .list_managed(&repo_path)
         .await
         .unwrap_or_default();
-    Ok(!worktrees.is_empty())
+    Ok(worktrees
+        .iter()
+        .any(|wt| std::path::Path::new(&wt.path).exists()))
 }
 
 /// Resolves a branch reference to the local branch name.
@@ -469,7 +474,7 @@ mod tests {
     async fn test_prepare_no_branch_auto_detects_and_creates_worktree() {
         let (_dir, path) = create_test_repo().await;
         let wm = WorktreeManager::new();
-        let result = prepare_worktree_inner(&wm, path.to_string_lossy().to_string(), None, None)
+        let result = prepare_worktree_inner(&wm, path.to_string_lossy().to_string(), None, None, false)
             .await
             .unwrap();
 
@@ -496,6 +501,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -535,6 +541,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             None,
             Some(base_str.clone()),
+            false,
         )
         .await
         .unwrap();
@@ -546,6 +553,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             None,
             Some(base_str.clone()),
+            false,
         )
         .await
         .unwrap();
@@ -573,7 +581,7 @@ mod tests {
         // NOT a git repo — current_branch() will fail → fall back gracefully
 
         let wm = WorktreeManager::new();
-        let result = prepare_worktree_inner(&wm, path.to_string_lossy().to_string(), None, None)
+        let result = prepare_worktree_inner(&wm, path.to_string_lossy().to_string(), None, None, false)
             .await
             .unwrap();
 
@@ -599,6 +607,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some(current.clone()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -615,11 +624,11 @@ mod tests {
             "Working directory should NOT be the main repo"
         );
 
-        // Verify main repo switched away from the target branch
+        // With --force worktree add, main repo stays on the same branch
         let new_current = git.current_branch().await.unwrap();
-        assert_ne!(
+        assert_eq!(
             new_current, current,
-            "Main repo should have switched to a different branch"
+            "Main repo should stay on the same branch when --force is used"
         );
 
         // Cleanup
@@ -640,6 +649,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some(current.clone()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -668,6 +678,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("feature-test".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -699,6 +710,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("reuse-test".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -710,6 +722,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("reuse-test".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -731,6 +744,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("brand-new-branch".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
@@ -759,6 +773,7 @@ mod tests {
             path.to_string_lossy().to_string(),
             Some("main".to_string()),
             None,
+            false,
         )
         .await
         .unwrap();
