@@ -5,7 +5,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Circle,
   Cpu,
   Edit2,
   FileText,
@@ -17,7 +16,6 @@ import {
   Loader2,
   Moon,
   Package,
-  Play,
   Plus,
   PlusCircle,
   RefreshCw,
@@ -33,7 +31,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { useGitStore } from "@/stores/useGitStore";
@@ -45,6 +43,8 @@ import { useProcessTreeStore, type ProcessInfo, type SessionProcessTree } from "
 import { useUsageStore } from "@/stores/useUsageStore";
 import { GitSettingsModal, RemoteStatusIndicator } from "@/components/git";
 import { QuickActionsManager } from "@/components/quickactions/QuickActionsManager";
+import { DynamicIcon } from "@/components/quickactions/DynamicIcon";
+import { useQuickActionStore } from "@/stores/useQuickActionStore";
 import { MarketplaceBrowser } from "@/components/marketplace";
 import { McpServerEditorModal } from "@/components/mcp";
 import { ClaudeMdEditorModal } from "@/components/claudemd";
@@ -1330,13 +1330,15 @@ function PluginsSection() {
 
 function QuickActionsSection() {
   const [showManager, setShowManager] = useState(false);
+  const actions = useQuickActionStore((s) => s.actions);
 
-  const actions = [
-    { label: "Run App", icon: Play, color: "text-maestro-green" },
-    { label: "Commit & Push", icon: Circle, color: "text-maestro-accent" },
-    { label: "Fix Errors", icon: AlertTriangle, color: "text-maestro-orange" },
-    { label: "Lint & Format", icon: Wrench, color: "text-maestro-purple" },
-  ];
+  const sortedActions = useMemo(
+    () =>
+      actions
+        .filter((a) => a.isEnabled)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [actions]
+  );
 
   return (
     <>
@@ -1361,14 +1363,14 @@ function QuickActionsSection() {
           }
         />
         <div className="space-y-0.5">
-          {actions.map((a) => (
+          {sortedActions.map((a) => (
             <button
               type="button"
-              key={a.label}
+              key={a.id}
               className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-xs text-maestro-text transition-colors hover:bg-maestro-border/40"
             >
-              <a.icon size={14} className={a.color} />
-              <span>{a.label}</span>
+              <DynamicIcon name={a.icon} size={14} style={{ color: a.colorHex }} />
+              <span>{a.name}</span>
             </button>
           ))}
         </div>
