@@ -781,14 +781,25 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       }
     }
 
-    // Clean up session-specific plugin config (fire-and-forget)
+    // Clean up session-specific settings.local.json config (serialized to prevent race)
+    // Both removeSessionPluginConfig and removeSessionHooksConfig modify the same file,
+    // so they must be awaited sequentially to avoid concurrent write corruption.
     if (workingDir) {
-      removeSessionPluginConfig(workingDir).catch(console.error);
-    }
-
-    // Clean up session-specific hooks config (fire-and-forget)
-    if (workingDir && slot?.mode === "Claude") {
-      removeSessionHooksConfig(workingDir).catch(console.error);
+      const cleanupSettings = async () => {
+        try {
+          await removeSessionPluginConfig(workingDir);
+        } catch (err) {
+          console.error("Failed to remove plugin config:", err);
+        }
+        if (slot?.mode === "Claude") {
+          try {
+            await removeSessionHooksConfig(workingDir);
+          } catch (err) {
+            console.error("Failed to remove hooks config:", err);
+          }
+        }
+      };
+      cleanupSettings().catch(console.error);
     }
 
     // Clean up worktree if one was created (fire-and-forget)

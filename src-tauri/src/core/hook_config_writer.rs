@@ -79,8 +79,13 @@ pub async fn write_session_hooks_config(
             .map_err(|e| format!("Failed to create .claude directory: {}", e))?;
     }
 
-    // Read existing settings or start fresh
     let settings_path = claude_dir.join("settings.local.json");
+
+    // Acquire per-directory lock to serialize concurrent read-modify-write
+    let lock = super::settings_local_lock::dir_lock(&claude_dir);
+    let _guard = lock.lock().await;
+
+    // Read existing settings or start fresh
     let mut config: Value = if settings_path.exists() {
         let content = tokio::fs::read_to_string(&settings_path)
             .await
@@ -96,13 +101,12 @@ pub async fn write_session_hooks_config(
     let hooks = build_hooks_config(session_id, status_port, instance_id);
     config["hooks"] = hooks;
 
-    // Write back
+    // Serialize, validate, and write atomically
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize hooks config: {}", e))?;
 
-    tokio::fs::write(&settings_path, content)
-        .await
-        .map_err(|e| format!("Failed to write settings.local.json: {}", e))?;
+    super::settings_local_lock::validate_json(&content)?;
+    super::settings_local_lock::atomic_write(&settings_path, &content).await?;
 
     log::debug!(
         "Wrote session {} hooks config to {:?} (port={}, instance={})",
@@ -129,6 +133,12 @@ pub async fn remove_session_hooks_config(working_dir: &Path) -> Result<(), Strin
         return Ok(());
     }
 
+    let claude_dir = working_dir.join(".claude");
+
+    // Acquire per-directory lock to serialize concurrent read-modify-write
+    let lock = super::settings_local_lock::dir_lock(&claude_dir);
+    let _guard = lock.lock().await;
+
     let content = tokio::fs::read_to_string(&settings_path)
         .await
         .map_err(|e| format!("Failed to read settings.local.json: {}", e))?;
@@ -147,9 +157,8 @@ pub async fn remove_session_hooks_config(working_dir: &Path) -> Result<(), Strin
     let output = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    tokio::fs::write(&settings_path, output)
-        .await
-        .map_err(|e| format!("Failed to write settings.local.json: {}", e))?;
+    super::settings_local_lock::validate_json(&output)?;
+    super::settings_local_lock::atomic_write(&settings_path, &output).await?;
 
     Ok(())
 }

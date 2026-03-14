@@ -75,17 +75,23 @@ pub async fn write_session_plugin_config(
             .map_err(|e| format!("Failed to create .claude directory: {}", e))?;
     }
 
-    // Merge with existing settings
     let settings_path = claude_dir.join("settings.local.json");
+
+    // Acquire per-directory lock to serialize concurrent read-modify-write
+    let lock = super::settings_local_lock::dir_lock(&claude_dir);
+    let _guard = lock.lock().await;
+
+    // Merge with existing settings
     let final_config = merge_with_existing(&settings_path, enabled_plugins)?;
 
-    // Write the file
+    // Serialize and validate before writing
     let content = serde_json::to_string_pretty(&final_config)
         .map_err(|e| format!("Failed to serialize plugin config: {}", e))?;
 
-    tokio::fs::write(&settings_path, content)
-        .await
-        .map_err(|e| format!("Failed to write settings.local.json: {}", e))?;
+    super::settings_local_lock::validate_json(&content)?;
+
+    // Write atomically (temp file + rename)
+    super::settings_local_lock::atomic_write(&settings_path, &content).await?;
 
     let enabled_count = enabled_plugins.values().filter(|v| **v).count();
     let disabled_count = enabled_plugins.len() - enabled_count;
@@ -113,6 +119,12 @@ pub async fn remove_session_plugin_config(working_dir: &Path) -> Result<(), Stri
         return Ok(());
     }
 
+    let claude_dir = working_dir.join(".claude");
+
+    // Acquire per-directory lock to serialize concurrent read-modify-write
+    let lock = super::settings_local_lock::dir_lock(&claude_dir);
+    let _guard = lock.lock().await;
+
     let content = tokio::fs::read_to_string(&settings_path)
         .await
         .map_err(|e| format!("Failed to read settings.local.json: {}", e))?;
@@ -136,13 +148,11 @@ pub async fn remove_session_plugin_config(working_dir: &Path) -> Result<(), Stri
             .map_err(|e| format!("Failed to delete empty settings.local.json: {}", e))?;
         log::debug!("Deleted empty settings.local.json at {:?}", settings_path);
     } else {
-        // Otherwise, write the updated config
         let output = serde_json::to_string_pretty(&config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        tokio::fs::write(&settings_path, output)
-            .await
-            .map_err(|e| format!("Failed to write settings.local.json: {}", e))?;
+        super::settings_local_lock::validate_json(&output)?;
+        super::settings_local_lock::atomic_write(&settings_path, &output).await?;
     }
 
     Ok(())

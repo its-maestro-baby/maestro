@@ -11,6 +11,7 @@ pub mod marketplace_models;
 pub mod mcp_config_writer;
 pub mod mcp_manager;
 pub mod plugin_config_writer;
+pub mod settings_local_lock;
 pub mod plugin_manager;
 pub mod process_manager;
 pub mod process_tree;
