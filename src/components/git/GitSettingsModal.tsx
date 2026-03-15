@@ -19,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useGitStore } from "@/stores/useGitStore";
 import { useWorkspaceStore, type RepositoryInfo } from "@/stores/useWorkspaceStore";
+import { useWorktreeSettingsStore, type WorktreeCloseAction } from "@/stores/useWorktreeSettingsStore";
 import { RemoteStatusIndicator } from "./RemoteStatusIndicator";
 
 interface GitSettingsModalProps {
@@ -83,6 +84,7 @@ export function GitSettingsModal({ repoPath, tabId, onClose }: GitSettingsModalP
           <RemotesSection repoPath={repoPath} />
           <DefaultBranchSection repoPath={repoPath} />
           <WorktreeSection repoPath={repoPath} tabId={tabId} />
+          <SessionCloseBehaviorSection />
         </div>
       </div>
     </div>
@@ -629,6 +631,48 @@ function DefaultBranchSection({ repoPath }: { repoPath: string }) {
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
             Save
           </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Session Close Behavior Section ── */
+
+function SessionCloseBehaviorSection() {
+  const { worktreeCloseAction, setWorktreeCloseAction } = useWorktreeSettingsStore();
+
+  const options: { value: WorktreeCloseAction; label: string; description: string }[] = [
+    { value: "keep", label: "Keep", description: "Preserve the worktree for the next session" },
+    { value: "delete", label: "Delete", description: "Remove the worktree when the session closes" },
+    { value: "ask", label: "Ask", description: "Prompt each time a session with a worktree closes" },
+  ];
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-maestro-muted">
+        Worktree on Session Close
+      </h3>
+      <div className="space-y-2 rounded-lg border border-maestro-border bg-maestro-card p-3">
+        <p className="text-xs text-maestro-muted">
+          What to do with a session's worktree when the session is closed.
+        </p>
+        <div className="flex gap-1 pt-1">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setWorktreeCloseAction(opt.value)}
+              title={opt.description}
+              className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                worktreeCloseAction === opt.value
+                  ? "bg-maestro-accent text-white"
+                  : "border border-maestro-border bg-maestro-card text-maestro-muted hover:text-maestro-text hover:border-maestro-accent/50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
     </section>

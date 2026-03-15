@@ -291,51 +291,53 @@ async fn handle_status(
         payload.state
     );
 
-    // Verify this request is for our instance
+    // Look up session registration first.
+    // A registered session is always accepted — even if the instance_id doesn't
+    // match. This handles the case where Claude Code reuses an MCP server process
+    // across Maestro restarts: the process still has the old MAESTRO_INSTANCE_ID
+    // in its env, but the session is legitimately registered with this server.
+    let project_path = {
+        let projects = state.session_projects.read().await;
+        projects.get(&payload.session_id).cloned()
+    };
+
+    if let Some(project_path) = project_path {
+        if payload.instance_id != state.instance_id {
+            eprintln!(
+                "[STATUS] Accepted with stale instance_id for registered session {} (expected {}, got {})",
+                payload.session_id, state.instance_id, payload.instance_id
+            );
+        }
+        emit_status(&state.emit_fn, payload.session_id, &project_path, &payload);
+        return StatusCode::OK;
+    }
+
+    // Session not registered — only buffer if the instance_id matches this server.
+    // A mismatched instance_id here means it's from a different Maestro instance's
+    // stale MCP process posting for a session we don't own.
     if payload.instance_id != state.instance_id {
         eprintln!(
-            "[STATUS] REJECTED - wrong instance: expected {}, got {}",
-            state.instance_id,
-            payload.instance_id
+            "[STATUS] REJECTED - unknown session {} with wrong instance (expected {}, got {})",
+            payload.session_id, state.instance_id, payload.instance_id
         );
         return StatusCode::FORBIDDEN;
     }
 
-    // Get the project path for this session
-    let project_path = {
-        let projects = state.session_projects.read().await;
+    // Session not registered yet but instance matches — buffer for when it registers
+    eprintln!(
+        "[STATUS] BUFFERED - unknown session {}, will flush on registration",
+        payload.session_id
+    );
+    let mut pending = state.pending_statuses.write().await;
+    if pending.len() < MAX_PENDING_STATUSES {
+        pending.insert(payload.session_id, payload);
+    } else {
         eprintln!(
-            "[STATUS] Registered sessions: {:?}",
-            projects.keys().collect::<Vec<_>>()
+            "[STATUS] WARNING - pending buffer full ({}), dropping status for session {}",
+            MAX_PENDING_STATUSES, payload.session_id
         );
-        projects.get(&payload.session_id).cloned()
-    };
-
-    let project_path = match project_path {
-        Some(p) => p,
-        None => {
-            // Session not registered yet — buffer the status for later
-            eprintln!(
-                "[STATUS] BUFFERED - unknown session {}, will flush on registration",
-                payload.session_id
-            );
-            let mut pending = state.pending_statuses.write().await;
-            // Enforce bounded buffer size
-            if pending.len() < MAX_PENDING_STATUSES {
-                pending.insert(payload.session_id, payload);
-            } else {
-                eprintln!(
-                    "[STATUS] WARNING - pending buffer full ({}), dropping status for session {}",
-                    MAX_PENDING_STATUSES, payload.session_id
-                );
-            }
-            return StatusCode::ACCEPTED;
-        }
-    };
-
-    emit_status(&state.emit_fn, payload.session_id, &project_path, &payload);
-
-    StatusCode::OK
+    }
+    StatusCode::ACCEPTED
 }
 
 // ── Hook helpers ─────────────────────────────────────────────────────
@@ -676,17 +678,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wrong_instance_returns_403() {
+    async fn test_stale_instance_accepted_for_registered_session() {
+        // MCP server processes can be reused across Maestro restarts.
+        // A registered session should be accepted even when the instance_id is stale.
         let (emit_fn, events) = test_emit_fn();
         let (addr, projects, _) = start_test_http_server("inst-current", emit_fn).await;
 
         projects.write().await.insert(1, "/path/project".to_string());
 
-        // Send with stale instance ID
+        // Send with stale instance ID — should succeed because session is registered
         let code = post_status(addr, &make_status(1, "inst-old", "working", "Stale")).await;
+        assert_eq!(code, 200);
+
+        // Event should still be emitted
+        let evts = events.lock().unwrap();
+        assert_eq!(evts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_wrong_instance_unregistered_session_returns_403() {
+        // An unregistered session with a foreign instance_id is from a different
+        // Maestro instance — reject it to prevent cross-instance pollution.
+        let (emit_fn, events) = test_emit_fn();
+        let (addr, _, _) = start_test_http_server("inst-current", emit_fn).await;
+        // Session NOT registered
+
+        let code = post_status(addr, &make_status(99, "inst-foreign", "idle", "Foreign")).await;
         assert_eq!(code, 403);
 
-        // No event should have been emitted
         assert!(events.lock().unwrap().is_empty());
     }
 

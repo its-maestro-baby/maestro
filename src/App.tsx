@@ -6,7 +6,7 @@ import { killSession } from "@/lib/terminal";
 import { useOpenProject } from "@/lib/useOpenProject";
 import { useFDAStore } from "@/stores/useFDAStore";
 import { useSessionStore } from "@/stores/useSessionStore";
-import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
+import { useWorkspaceStore, type RepositoryInfo } from "@/stores/useWorkspaceStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { useAppKeyboard } from "./hooks/useAppKeyboard";
@@ -39,6 +39,8 @@ function App() {
   const reorderTabs = useWorkspaceStore((s) => s.reorderTabs);
   const moveTab = useWorkspaceStore((s) => s.moveTab);
   const setSessionsLaunched = useWorkspaceStore((s) => s.setSessionsLaunched);
+  const setSelectedRepo = useWorkspaceStore((s) => s.setSelectedRepo);
+  const rehydrateRepositories = useWorkspaceStore((s) => s.rehydrateRepositories);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const initListeners = useSessionStore((s) => s.initListeners);
   const { openProject: handleOpenProject } = useOpenProject();
@@ -72,8 +74,10 @@ function App() {
     }
   }, []);
 
-  // Clean up orphaned PTY sessions on mount (e.g., after page reload)
-  // This ensures no stale processes remain from the previous frontend state
+  // Clean up orphaned PTY sessions on mount, then fetch fresh session state.
+  // kill_all_sessions clears both ProcessManager (PTYs) and SessionManager
+  // (metadata), so fetchSessions must run AFTER cleanup completes to avoid
+  // loading stale "idle" sessions from a previous frontend lifecycle.
   useEffect(() => {
     invoke<number>("kill_all_sessions")
       .then((count) => {
@@ -83,14 +87,12 @@ function App() {
       })
       .catch((err) => {
         console.error("Failed to clean up orphaned sessions:", err);
+      })
+      .finally(() => {
+        fetchSessions().catch((err) => {
+          console.error("Failed to fetch sessions:", err);
+        });
       });
-  }, []);
-
-  // Initialize session store: fetch initial state and subscribe to events
-  useEffect(() => {
-    fetchSessions().catch((err) => {
-      console.error("Failed to fetch sessions:", err);
-    });
 
     const unlistenPromise = initListeners().catch((err) => {
       console.error("Failed to initialize listeners:", err);
@@ -149,6 +151,7 @@ function App() {
   const macTitleBarPadding = useMacTitleBarPadding();
   const activeTab = tabs.find((tab) => tab.active) ?? null;
   const activeProjectPath = activeTab?.projectPath;
+  const activeRepoPath = activeTab?.selectedRepoPath ?? activeProjectPath;
 
   // Trackpad two-finger horizontal swipe to switch project tabs
   const switchToNextTab = useCallback(() => {
@@ -174,22 +177,22 @@ function App() {
   const [isRefreshingGit, setIsRefreshingGit] = useState(false);
 
   const handleRefreshGit = useCallback(async () => {
-    if (!activeProjectPath) return;
+    if (!activeRepoPath) return;
     setIsRefreshingGit(true);
     try {
-      await fetchCommits(activeProjectPath);
+      await fetchCommits(activeRepoPath);
     } finally {
       setIsRefreshingGit(false);
     }
-  }, [activeProjectPath, fetchCommits]);
+  }, [activeRepoPath, fetchCommits]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!activeProjectPath) {
+    if (!activeRepoPath) {
       setCurrentBranch(undefined);
       return () => {};
     }
-    getDeduplicatedCurrentBranch(activeProjectPath)
+    getDeduplicatedCurrentBranch(activeRepoPath)
       .then((branch) => {
         if (!cancelled) setCurrentBranch(branch);
       })
@@ -200,7 +203,49 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeProjectPath]);
+  }, [activeRepoPath]);
+
+  // Rehydrate multi-repo tabs after store rehydration
+  useEffect(() => {
+    rehydrateRepositories().catch((err) => {
+      console.error("Failed to rehydrate repositories:", err);
+    });
+  }, [rehydrateRepositories]);
+
+  // Auto-refresh repos on window focus (with 2s debounce)
+  useEffect(() => {
+    let lastRefresh = 0;
+    const COOLDOWN_MS = 2000;
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefresh < COOLDOWN_MS) return;
+      lastRefresh = now;
+
+      const tab = useWorkspaceStore.getState().tabs.find((t) => t.active);
+      if (!tab) return;
+
+      if (tab.workspaceType === "multi-repo") {
+        invoke<RepositoryInfo[]>("detect_repositories", { path: tab.projectPath })
+          .then((repos) => {
+            useWorkspaceStore.getState().updateRepositories(tab.id, repos);
+          })
+          .catch((err) => console.error("Failed to refresh repos on focus:", err));
+      }
+
+      // Refresh branch for the active repo
+      const repoPath = tab.selectedRepoPath ?? tab.projectPath;
+      if (repoPath) {
+        getDeduplicatedCurrentBranch(repoPath)
+          .then(setCurrentBranch)
+          .catch(() => {});
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   // Derive state from active tab
   const activeTabSessionsLaunched = activeTab?.sessionsLaunched ?? false;
@@ -272,7 +317,7 @@ function App() {
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
               branchName={currentBranch}
-              repoPath={activeTab ? activeTab.projectPath : undefined}
+              repoPath={activeRepoPath}
               onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
               gitPanelOpen={gitPanelOpen}
               hideWindowControls
@@ -289,6 +334,11 @@ function App() {
                 style={{ width: 560 }}
               >
                 <GitFork size={14} className="text-maestro-muted" />
+                {activeTab?.workspaceType === "multi-repo" && activeTab.selectedRepoPath && (
+                  <span className="text-xs font-medium text-maestro-accent">
+                    {activeTab.repositories.find((r) => r.path === activeTab.selectedRepoPath)?.name}
+                  </span>
+                )}
                 <span className="text-sm font-medium text-maestro-text">Commits</span>
                 {commits.length > 0 && (
                   <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
@@ -296,7 +346,7 @@ function App() {
                   </span>
                 )}
                 <div className="flex-1" />
-                {activeProjectPath && (
+                {activeRepoPath && (
                   <button
                     type="button"
                     onClick={handleRefreshGit}
@@ -333,8 +383,11 @@ function App() {
             <GitGraphPanel
               open={gitPanelOpen}
               onClose={() => setGitPanelOpen(false)}
-              repoPath={activeProjectPath ?? null}
+              repoPath={activeRepoPath ?? null}
               currentBranch={currentBranch ?? null}
+              repositories={activeTab?.repositories ?? []}
+              workspaceType={activeTab?.workspaceType ?? "single-repo"}
+              onRepoChange={(path) => activeTab && setSelectedRepo(activeTab.id, path)}
             />
           </div>
 
