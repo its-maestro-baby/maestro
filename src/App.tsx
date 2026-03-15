@@ -72,8 +72,10 @@ function App() {
     }
   }, []);
 
-  // Clean up orphaned PTY sessions on mount (e.g., after page reload)
-  // This ensures no stale processes remain from the previous frontend state
+  // Clean up orphaned PTY sessions on mount, then fetch fresh session state.
+  // kill_all_sessions clears both ProcessManager (PTYs) and SessionManager
+  // (metadata), so fetchSessions must run AFTER cleanup completes to avoid
+  // loading stale "idle" sessions from a previous frontend lifecycle.
   useEffect(() => {
     invoke<number>("kill_all_sessions")
       .then((count) => {
@@ -83,14 +85,12 @@ function App() {
       })
       .catch((err) => {
         console.error("Failed to clean up orphaned sessions:", err);
+      })
+      .finally(() => {
+        fetchSessions().catch((err) => {
+          console.error("Failed to fetch sessions:", err);
+        });
       });
-  }, []);
-
-  // Initialize session store: fetch initial state and subscribe to events
-  useEffect(() => {
-    fetchSessions().catch((err) => {
-      console.error("Failed to fetch sessions:", err);
-    });
 
     const unlistenPromise = initListeners().catch((err) => {
       console.error("Failed to initialize listeners:", err);
