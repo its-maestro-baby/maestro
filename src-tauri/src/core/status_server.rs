@@ -9,14 +9,18 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::post,
     Json, Router,
 };
+use chrono::Utc;
+use log::info;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
+
+use super::claude_event::ClaudeEvent;
 
 /// Maximum number of pending statuses to buffer (prevents memory leaks).
 const MAX_PENDING_STATUSES: usize = 100;
@@ -24,6 +28,9 @@ const MAX_PENDING_STATUSES: usize = 100;
 /// Callback for emitting status events. In production this wraps `AppHandle::emit`;
 /// in tests it captures events into a `Vec`.
 type EmitFn = Arc<dyn Fn(SessionStatusPayload) + Send + Sync>;
+
+/// Callback for emitting hook-sourced ClaudeEvents.
+type HookEmitFn = Arc<dyn Fn(ClaudeEvent) + Send + Sync>;
 
 /// Status payload received from MCP server.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,9 +54,28 @@ pub struct SessionStatusPayload {
     pub needs_input_prompt: Option<String>,
 }
 
+/// Request payload for the session-start hook.
+#[derive(Debug, Deserialize)]
+pub struct HookSessionStartRequest {
+    pub session_id: String,
+    pub transcript_path: String,
+    pub cwd: String,
+    pub hook_event_name: String,
+}
+
+/// Generic request payload for hooks that don't need special fields.
+#[derive(Debug, Deserialize)]
+pub struct HookGenericRequest {
+    pub session_id: String,
+    pub hook_event_name: String,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
+}
+
 /// State shared with the HTTP handler.
 struct ServerState {
     emit_fn: EmitFn,
+    hook_emit_fn: Option<HookEmitFn>,
     instance_id: String,
     /// Maps session_id -> project_path for routing status updates
     session_projects: Arc<RwLock<HashMap<u32, String>>>,
@@ -70,6 +96,10 @@ pub struct StatusServer {
 fn build_router(state: Arc<ServerState>) -> Router {
     Router::new()
         .route("/status", post(handle_status))
+        .route("/hook/session-start", post(handle_hook_session_start))
+        .route("/hook/session-end", post(handle_hook_session_end))
+        .route("/hook/pre-tool", post(handle_hook_pre_tool))
+        .route("/hook/stop", post(handle_hook_stop))
         .with_state(state)
 }
 
@@ -109,7 +139,11 @@ impl StatusServer {
     /// Start the HTTP status server.
     ///
     /// Returns the server instance with the port it's listening on.
-    pub async fn start(app_handle: AppHandle, instance_id: String) -> Option<Self> {
+    pub async fn start(
+        app_handle: AppHandle,
+        instance_id: String,
+        hook_emit_fn: Option<Arc<dyn Fn(ClaudeEvent) + Send + Sync>>,
+    ) -> Option<Self> {
         // Find and bind in one step to avoid race conditions where another
         // process grabs the port between checking and binding
         let (port, listener) = Self::find_and_bind_port(9900, 9999).await?;
@@ -119,6 +153,7 @@ impl StatusServer {
 
         let state = Arc::new(ServerState {
             emit_fn: emit_fn.clone(),
+            hook_emit_fn,
             instance_id: instance_id.clone(),
             session_projects: session_projects.clone(),
             pending_statuses: pending_statuses.clone(),
@@ -256,49 +291,238 @@ async fn handle_status(
         payload.state
     );
 
-    // Verify this request is for our instance
+    // Look up session registration first.
+    // A registered session is always accepted — even if the instance_id doesn't
+    // match. This handles the case where Claude Code reuses an MCP server process
+    // across Maestro restarts: the process still has the old MAESTRO_INSTANCE_ID
+    // in its env, but the session is legitimately registered with this server.
+    let project_path = {
+        let projects = state.session_projects.read().await;
+        projects.get(&payload.session_id).cloned()
+    };
+
+    if let Some(project_path) = project_path {
+        if payload.instance_id != state.instance_id {
+            eprintln!(
+                "[STATUS] Accepted with stale instance_id for registered session {} (expected {}, got {})",
+                payload.session_id, state.instance_id, payload.instance_id
+            );
+        }
+        emit_status(&state.emit_fn, payload.session_id, &project_path, &payload);
+        return StatusCode::OK;
+    }
+
+    // Session not registered — only buffer if the instance_id matches this server.
+    // A mismatched instance_id here means it's from a different Maestro instance's
+    // stale MCP process posting for a session we don't own.
     if payload.instance_id != state.instance_id {
         eprintln!(
-            "[STATUS] REJECTED - wrong instance: expected {}, got {}",
-            state.instance_id,
-            payload.instance_id
+            "[STATUS] REJECTED - unknown session {} with wrong instance (expected {}, got {})",
+            payload.session_id, state.instance_id, payload.instance_id
         );
         return StatusCode::FORBIDDEN;
     }
 
-    // Get the project path for this session
-    let project_path = {
-        let projects = state.session_projects.read().await;
+    // Session not registered yet but instance matches — buffer for when it registers
+    eprintln!(
+        "[STATUS] BUFFERED - unknown session {}, will flush on registration",
+        payload.session_id
+    );
+    let mut pending = state.pending_statuses.write().await;
+    if pending.len() < MAX_PENDING_STATUSES {
+        pending.insert(payload.session_id, payload);
+    } else {
         eprintln!(
-            "[STATUS] Registered sessions: {:?}",
-            projects.keys().collect::<Vec<_>>()
+            "[STATUS] WARNING - pending buffer full ({}), dropping status for session {}",
+            MAX_PENDING_STATUSES, payload.session_id
         );
-        projects.get(&payload.session_id).cloned()
-    };
+    }
+    StatusCode::ACCEPTED
+}
 
-    let project_path = match project_path {
-        Some(p) => p,
+// ── Hook helpers ─────────────────────────────────────────────────────
+
+/// Extract the Maestro session ID from the `X-Maestro-Session` header.
+fn extract_maestro_session_id(headers: &HeaderMap) -> Option<u32> {
+    headers
+        .get("X-Maestro-Session")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u32>().ok())
+}
+
+// ── Hook handlers ────────────────────────────────────────────────────
+
+/// Handle the SessionStart hook callback.
+async fn handle_hook_session_start(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(payload): Json<HookSessionStartRequest>,
+) -> StatusCode {
+    let maestro_session_id = match extract_maestro_session_id(&headers) {
+        Some(id) => id,
         None => {
-            // Session not registered yet — buffer the status for later
-            eprintln!(
-                "[STATUS] BUFFERED - unknown session {}, will flush on registration",
-                payload.session_id
-            );
-            let mut pending = state.pending_statuses.write().await;
-            // Enforce bounded buffer size
-            if pending.len() < MAX_PENDING_STATUSES {
-                pending.insert(payload.session_id, payload);
-            } else {
-                eprintln!(
-                    "[STATUS] WARNING - pending buffer full ({}), dropping status for session {}",
-                    MAX_PENDING_STATUSES, payload.session_id
-                );
-            }
-            return StatusCode::ACCEPTED;
+            eprintln!("[HOOK] session-start: missing or invalid X-Maestro-Session header");
+            return StatusCode::BAD_REQUEST;
         }
     };
 
-    emit_status(&state.emit_fn, payload.session_id, &project_path, &payload);
+    info!(
+        "[HOOK] session-start: maestro_session={}, claude_session={}, cwd={}",
+        maestro_session_id, payload.session_id, payload.cwd
+    );
+
+    let event = ClaudeEvent::SessionStarted {
+        session_id: maestro_session_id,
+        claude_session_uuid: payload.session_id,
+        transcript_path: payload.transcript_path,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    if let Some(ref hook_emit) = state.hook_emit_fn {
+        (hook_emit)(event);
+    }
+
+    // Also emit a regular status update so the UI shows "Working"
+    let project_path = {
+        let projects = state.session_projects.read().await;
+        projects.get(&maestro_session_id).cloned()
+    };
+
+    if let Some(project_path) = project_path {
+        let status_payload = SessionStatusPayload {
+            session_id: maestro_session_id,
+            project_path,
+            status: "Working".to_string(),
+            message: "Session started".to_string(),
+            needs_input_prompt: None,
+        };
+        (state.emit_fn)(status_payload);
+    }
+
+    StatusCode::OK
+}
+
+/// Handle the SessionEnd hook callback.
+async fn handle_hook_session_end(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(payload): Json<HookGenericRequest>,
+) -> StatusCode {
+    let maestro_session_id = match extract_maestro_session_id(&headers) {
+        Some(id) => id,
+        None => {
+            eprintln!("[HOOK] session-end: missing or invalid X-Maestro-Session header");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    let reason = payload
+        .extra
+        .get("exit_reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    info!(
+        "[HOOK] session-end: maestro_session={}, reason={}",
+        maestro_session_id, reason
+    );
+
+    let event = ClaudeEvent::SessionEnded {
+        session_id: maestro_session_id,
+        reason,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    if let Some(ref hook_emit) = state.hook_emit_fn {
+        (hook_emit)(event);
+    }
+
+    StatusCode::OK
+}
+
+/// Handle the PreTool hook callback.
+async fn handle_hook_pre_tool(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(payload): Json<HookGenericRequest>,
+) -> StatusCode {
+    let maestro_session_id = match extract_maestro_session_id(&headers) {
+        Some(id) => id,
+        None => {
+            eprintln!("[HOOK] pre-tool: missing or invalid X-Maestro-Session header");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    let tool_name = payload
+        .extra
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let tool_use_id = payload
+        .extra
+        .get("tool_use_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let tool_input = payload
+        .extra
+        .get("tool_input")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
+    info!(
+        "[HOOK] pre-tool: maestro_session={}, tool={}",
+        maestro_session_id, tool_name
+    );
+
+    let event = ClaudeEvent::ToolUseStarted {
+        session_id: maestro_session_id,
+        tool_name,
+        tool_use_id,
+        input_summary: tool_input,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    if let Some(ref hook_emit) = state.hook_emit_fn {
+        (hook_emit)(event);
+    }
+
+    StatusCode::OK
+}
+
+/// Handle the Stop hook callback.
+async fn handle_hook_stop(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(payload): Json<HookGenericRequest>,
+) -> StatusCode {
+    let maestro_session_id = match extract_maestro_session_id(&headers) {
+        Some(id) => id,
+        None => {
+            eprintln!("[HOOK] stop: missing or invalid X-Maestro-Session header");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    info!(
+        "[HOOK] stop: maestro_session={}, claude_session={}",
+        maestro_session_id, payload.session_id
+    );
+
+    let event = ClaudeEvent::SessionEnded {
+        session_id: maestro_session_id,
+        reason: "stop".to_string(),
+        timestamp: Utc::now().to_rfc3339(),
+    };
+
+    if let Some(ref hook_emit) = state.hook_emit_fn {
+        (hook_emit)(event);
+    }
 
     StatusCode::OK
 }
@@ -345,6 +569,7 @@ mod tests {
 
         let state = Arc::new(ServerState {
             emit_fn,
+            hook_emit_fn: None,
             instance_id: instance_id.to_string(),
             session_projects: session_projects.clone(),
             pending_statuses: pending_statuses.clone(),
@@ -453,17 +678,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wrong_instance_returns_403() {
+    async fn test_stale_instance_accepted_for_registered_session() {
+        // MCP server processes can be reused across Maestro restarts.
+        // A registered session should be accepted even when the instance_id is stale.
         let (emit_fn, events) = test_emit_fn();
         let (addr, projects, _) = start_test_http_server("inst-current", emit_fn).await;
 
         projects.write().await.insert(1, "/path/project".to_string());
 
-        // Send with stale instance ID
+        // Send with stale instance ID — should succeed because session is registered
         let code = post_status(addr, &make_status(1, "inst-old", "working", "Stale")).await;
+        assert_eq!(code, 200);
+
+        // Event should still be emitted
+        let evts = events.lock().unwrap();
+        assert_eq!(evts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_wrong_instance_unregistered_session_returns_403() {
+        // An unregistered session with a foreign instance_id is from a different
+        // Maestro instance — reject it to prevent cross-instance pollution.
+        let (emit_fn, events) = test_emit_fn();
+        let (addr, _, _) = start_test_http_server("inst-current", emit_fn).await;
+        // Session NOT registered
+
+        let code = post_status(addr, &make_status(99, "inst-foreign", "idle", "Foreign")).await;
         assert_eq!(code, 403);
 
-        // No event should have been emitted
         assert!(events.lock().unwrap().is_empty());
     }
 
@@ -618,5 +860,100 @@ mod tests {
         }
 
         assert_eq!(events.lock().unwrap().len(), 5);
+    }
+
+    // ── Hook endpoint tests ──────────────────────────────────────────
+
+    /// Collected hook events.
+    type HookEventLog = Arc<std::sync::Mutex<Vec<ClaudeEvent>>>;
+
+    /// Spin up a test HTTP server with a hook_emit_fn that captures ClaudeEvents.
+    async fn start_test_http_server_with_hooks() -> (HookEventLog, u16) {
+        let hook_events: HookEventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let hook_events_clone = hook_events.clone();
+
+        let hook_emit_fn: HookEmitFn = Arc::new(move |event| {
+            hook_events_clone.lock().unwrap().push(event);
+        });
+
+        let (emit_fn, _) = test_emit_fn();
+
+        let state = Arc::new(ServerState {
+            emit_fn,
+            hook_emit_fn: Some(hook_emit_fn),
+            instance_id: "test-instance".to_string(),
+            session_projects: Arc::new(RwLock::new(HashMap::new())),
+            pending_statuses: Arc::new(RwLock::new(HashMap::new())),
+        });
+
+        let app = build_router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        (hook_events, port)
+    }
+
+    #[tokio::test]
+    async fn test_hook_session_start() {
+        let (hook_events, port) = start_test_http_server_with_hooks().await;
+
+        let body = serde_json::json!({
+            "session_id": "claude-uuid-123",
+            "transcript_path": "/tmp/transcript.jsonl",
+            "cwd": "/home/user/project",
+            "hook_event_name": "SessionStart"
+        });
+
+        let resp = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{}/hook/session-start", port))
+            .header("X-Maestro-Session", "42")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), 200);
+
+        let events = hook_events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            ClaudeEvent::SessionStarted {
+                session_id,
+                claude_session_uuid,
+                transcript_path,
+                ..
+            } => {
+                assert_eq!(*session_id, 42);
+                assert_eq!(claude_session_uuid, "claude-uuid-123");
+                assert_eq!(transcript_path, "/tmp/transcript.jsonl");
+            }
+            other => panic!("Expected SessionStarted, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hook_missing_session_header() {
+        let (_hook_events, port) = start_test_http_server_with_hooks().await;
+
+        let body = serde_json::json!({
+            "session_id": "claude-uuid-123",
+            "transcript_path": "/tmp/transcript.jsonl",
+            "cwd": "/home/user/project",
+            "hook_event_name": "SessionStart"
+        });
+
+        // POST without X-Maestro-Session header
+        let resp = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{}/hook/session-start", port))
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status().as_u16(), 400);
     }
 }

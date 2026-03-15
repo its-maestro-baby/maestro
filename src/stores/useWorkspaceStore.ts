@@ -76,6 +76,8 @@ type WorkspaceActions = {
   reorderTabs: (activeId: string, overId: string) => void;
   /** Move a tab one position left or right. Used by keyboard shortcut. */
   moveTab: (tabId: string, direction: "left" | "right") => void;
+  /** Re-scan repositories for all multi-repo tabs after rehydration. */
+  rehydrateRepositories: () => Promise<void>;
 };
 
 // --- Tauri LazyStore-backed StateStorage adapter ---
@@ -221,8 +223,9 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
       closeTab: (id: string) => {
         const tabToClose = get().tabs.find((t) => t.id === id);
 
-        // Kill all sessions belonging to this project (fire-and-forget)
+        // Kill all sessions belonging to this project and remove from backend
         if (tabToClose && tabToClose.sessionIds.length > 0) {
+          // Kill PTY processes
           Promise.allSettled(tabToClose.sessionIds.map((sessionId) => killSession(sessionId)))
             .then((results) => {
               for (const result of results) {
@@ -231,6 +234,9 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
                 }
               }
             });
+          // Remove sessions from backend SessionManager to prevent orphan accumulation
+          invoke("remove_sessions_for_project", { projectPath: tabToClose.projectPath })
+            .catch((err: unknown) => console.error("Failed to remove sessions on tab close:", err));
         }
 
         const remaining = get().tabs.filter((t) => t.id !== id);
@@ -332,6 +338,20 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
         const newIndex = direction === "left" ? index - 1 : index + 1;
         if (newIndex < 0 || newIndex >= tabs.length) return;
         set({ tabs: arrayMove(tabs, index, newIndex) });
+      },
+
+      rehydrateRepositories: async () => {
+        const { tabs } = get();
+        for (const tab of tabs) {
+          if (tab.workspaceType === "multi-repo") {
+            try {
+              const repos = await invoke<RepositoryInfo[]>("detect_repositories", { path: tab.projectPath });
+              get().updateRepositories(tab.id, repos);
+            } catch (err) {
+              console.error(`Failed to rehydrate repos for ${tab.projectPath}:`, err);
+            }
+          }
+        }
       },
     }),
     {

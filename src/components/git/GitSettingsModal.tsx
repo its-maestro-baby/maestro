@@ -1,5 +1,6 @@
 import {
   Check,
+  Download,
   Edit2,
   FolderGit2,
   FolderSearch,
@@ -18,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useGitStore } from "@/stores/useGitStore";
 import { useWorkspaceStore, type RepositoryInfo } from "@/stores/useWorkspaceStore";
+import { useWorktreeSettingsStore, type WorktreeCloseAction } from "@/stores/useWorktreeSettingsStore";
 import { RemoteStatusIndicator } from "./RemoteStatusIndicator";
 
 interface GitSettingsModalProps {
@@ -82,6 +84,7 @@ export function GitSettingsModal({ repoPath, tabId, onClose }: GitSettingsModalP
           <RemotesSection repoPath={repoPath} />
           <DefaultBranchSection repoPath={repoPath} />
           <WorktreeSection repoPath={repoPath} tabId={tabId} />
+          <SessionCloseBehaviorSection />
         </div>
       </div>
     </div>
@@ -291,8 +294,10 @@ function RepositoryDiscoverySection({ repoPath, tabId }: { repoPath: string; tab
 /* ── Remotes Section ── */
 
 function RemotesSection({ repoPath }: { repoPath: string }) {
-  const { remotes, remoteStatuses, fetchRemotes, addRemote, removeRemote, setRemoteUrl, testRemote, testAllRemotes } =
-    useGitStore();
+  const {
+    remotes, remoteStatuses, fetchRemotes, addRemote, removeRemote, setRemoteUrl,
+    testRemote, testAllRemotes, fetchRemoteRefs, fetchAllRemoteRefs, isFetching, fetchingRemotes,
+  } = useGitStore();
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
@@ -315,10 +320,13 @@ function RemotesSection({ repoPath }: { repoPath: string }) {
     if (!newName.trim() || !newUrl.trim()) return;
     setAdding(true);
     try {
-      await addRemote(repoPath, newName.trim(), newUrl.trim());
+      const remoteName = newName.trim();
+      await addRemote(repoPath, remoteName, newUrl.trim());
       setNewName("");
       setNewUrl("");
       setShowAdd(false);
+      // Auto-fetch the new remote so its branches appear immediately
+      fetchRemoteRefs(repoPath, remoteName).catch(() => {});
     } catch {
       // Error logged in store
     } finally {
@@ -362,6 +370,19 @@ function RemotesSection({ repoPath }: { repoPath: string }) {
           Remotes
         </h3>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => fetchAllRemoteRefs(repoPath).catch(() => {})}
+            disabled={isFetching}
+            className="rounded p-1 hover:bg-maestro-border/40 disabled:opacity-50"
+            title="Fetch all remotes"
+          >
+            {isFetching ? (
+              <Loader2 size={12} className="text-maestro-muted animate-spin" />
+            ) : (
+              <Download size={12} className="text-maestro-muted" />
+            )}
+          </button>
           <button
             type="button"
             onClick={() => testAllRemotes(repoPath)}
@@ -428,6 +449,19 @@ function RemotesSection({ repoPath }: { repoPath: string }) {
                   <RemoteStatusIndicator status={remoteStatuses[remote.name] ?? "unknown"} />
                   <span className="text-xs font-semibold text-maestro-text">{remote.name}</span>
                   <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => fetchRemoteRefs(repoPath, remote.name).catch(() => {})}
+                      disabled={!!fetchingRemotes[remote.name]}
+                      className="rounded p-1 hover:bg-maestro-border/40 disabled:opacity-50"
+                      title="Fetch remote"
+                    >
+                      {fetchingRemotes[remote.name] ? (
+                        <Loader2 size={10} className="text-maestro-muted animate-spin" />
+                      ) : (
+                        <Download size={10} className="text-maestro-muted" />
+                      )}
+                    </button>
                     <button
                       type="button"
                       onClick={() => testRemote(repoPath, remote.name)}
@@ -597,6 +631,48 @@ function DefaultBranchSection({ repoPath }: { repoPath: string }) {
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
             Save
           </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Session Close Behavior Section ── */
+
+function SessionCloseBehaviorSection() {
+  const { worktreeCloseAction, setWorktreeCloseAction } = useWorktreeSettingsStore();
+
+  const options: { value: WorktreeCloseAction; label: string; description: string }[] = [
+    { value: "keep", label: "Keep", description: "Preserve the worktree for the next session" },
+    { value: "delete", label: "Delete", description: "Remove the worktree when the session closes" },
+    { value: "ask", label: "Ask", description: "Prompt each time a session with a worktree closes" },
+  ];
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-maestro-muted">
+        Worktree on Session Close
+      </h3>
+      <div className="space-y-2 rounded-lg border border-maestro-border bg-maestro-card p-3">
+        <p className="text-xs text-maestro-muted">
+          What to do with a session's worktree when the session is closed.
+        </p>
+        <div className="flex gap-1 pt-1">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setWorktreeCloseAction(opt.value)}
+              title={opt.description}
+              className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                worktreeCloseAction === opt.value
+                  ? "bg-maestro-accent text-white"
+                  : "border border-maestro-border bg-maestro-card text-maestro-muted hover:text-maestro-text hover:border-maestro-accent/50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
     </section>

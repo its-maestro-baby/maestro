@@ -227,8 +227,30 @@ impl Git {
         new_branch: Option<&str>,
         checkout_ref: Option<&str>,
     ) -> Result<WorktreeInfo, GitError> {
+        self.worktree_add_inner(path, new_branch, checkout_ref, false).await
+    }
+
+    pub async fn worktree_add_force(
+        &self,
+        path: &Path,
+        checkout_ref: Option<&str>,
+    ) -> Result<WorktreeInfo, GitError> {
+        self.worktree_add_inner(path, None, checkout_ref, true).await
+    }
+
+    async fn worktree_add_inner(
+        &self,
+        path: &Path,
+        new_branch: Option<&str>,
+        checkout_ref: Option<&str>,
+        force: bool,
+    ) -> Result<WorktreeInfo, GitError> {
         let path_str = path.to_string_lossy();
         let mut args = vec!["worktree", "add"];
+
+        if force {
+            args.push("--force");
+        }
 
         // Collect owned strings to extend their lifetime
         let branch_flag;
@@ -562,19 +584,52 @@ impl Git {
     /// Tests connectivity to a remote by running `git ls-remote --heads`.
     ///
     /// Returns `true` if the remote is reachable, `false` otherwise.
-    /// Uses a 10-second timeout to avoid hanging on unresponsive remotes.
+    /// Uses a 15-second timeout (longer than SSH's own ConnectTimeout=5) so
+    /// that SSH fails with a meaningful error before we kill the process.
     pub async fn test_remote(&self, remote_name: &str) -> Result<bool, GitError> {
         match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(15),
             self.run(&["ls-remote", "--heads", remote_name]),
         )
         .await
         {
             Ok(Ok(_)) => Ok(true),
-            Ok(Err(GitError::CommandFailed { .. })) => Ok(false),
+            Ok(Err(GitError::CommandFailed { ref stderr, .. })) => {
+                log::warn!("test_remote('{remote_name}'): {stderr}");
+                Ok(false)
+            }
             Ok(Err(e)) => Err(e),
-            Err(_) => Ok(false), // Timeout = disconnected
+            Err(_) => {
+                log::warn!("test_remote('{remote_name}'): timed out after 15s");
+                Ok(false)
+            }
         }
+    }
+
+    /// Fetches refs and objects from a specific remote.
+    ///
+    /// Uses `--prune` to remove stale remote-tracking branches that no longer
+    /// exist on the remote. Allows up to 120 seconds for large repositories.
+    pub async fn fetch(&self, remote_name: &str) -> Result<(), GitError> {
+        self.run_with_timeout(
+            &["fetch", "--prune", remote_name],
+            std::time::Duration::from_secs(120),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Fetches refs and objects from all configured remotes.
+    ///
+    /// Uses `--all --prune` to update every remote and clean up stale
+    /// remote-tracking branches. Allows up to 120 seconds.
+    pub async fn fetch_all(&self) -> Result<(), GitError> {
+        self.run_with_timeout(
+            &["fetch", "--all", "--prune"],
+            std::time::Duration::from_secs(120),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Updates the URL of an existing remote.

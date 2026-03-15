@@ -12,6 +12,7 @@ use core::marketplace_manager::MarketplaceManager;
 use core::mcp_manager::McpManager;
 use core::plugin_manager::PluginManager;
 use core::status_server::StatusServer;
+use core::{ClaudeEvent, EventBus, TranscriptWatcher};
 use core::ProcessManager;
 use core::session_manager::SessionManager;
 use core::worktree_manager::WorktreeManager;
@@ -34,6 +35,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
     // Register macOS permissions plugin (for Full Disk Access check)
@@ -115,12 +117,36 @@ pub fn run() {
             let instance_id = uuid::Uuid::new_v4().to_string();
             log::info!("Maestro instance ID: {}", instance_id);
 
+            // Create EventBus - emits events to frontend via Tauri
+            let app_handle_for_bus = app.handle().clone();
+            let emit_fn: Arc<dyn Fn(ClaudeEvent) + Send + Sync> = Arc::new(move |event: ClaudeEvent| {
+                let _ = app_handle_for_bus.emit("claude-event", &event);
+            });
+            let event_bus = Arc::new(EventBus::new(emit_fn));
+
+            // Create TranscriptWatcher
+            let transcript_watcher = Arc::new(TranscriptWatcher::new(event_bus.clone()));
+
+            // Create hook emit callback
+            // When SessionStarted events arrive via hooks, start watching the transcript
+            let event_bus_for_hooks = event_bus.clone();
+            let transcript_watcher_for_hooks = transcript_watcher.clone();
+            let hook_emit_fn: Arc<dyn Fn(ClaudeEvent) + Send + Sync> = Arc::new(move |event: ClaudeEvent| {
+                if let ClaudeEvent::SessionStarted { session_id, ref transcript_path, .. } = event {
+                    transcript_watcher_for_hooks.start_watching(
+                        session_id,
+                        std::path::PathBuf::from(transcript_path),
+                    );
+                }
+                event_bus_for_hooks.emit(event);
+            });
+
             // Start the HTTP status server for MCP status reporting
             // IMPORTANT: This must be done synchronously so the server is ready
             // before any commands try to use it
             let app_handle = app.handle().clone();
             let server = tauri::async_runtime::block_on(async {
-                StatusServer::start(app_handle, instance_id).await
+                StatusServer::start(app_handle, instance_id, Some(hook_emit_fn)).await
             });
 
             match server {
@@ -139,6 +165,9 @@ pub fn run() {
                 }
             }
 
+            app.manage(event_bus);
+            app.manage(transcript_watcher);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -153,6 +182,7 @@ pub fn run() {
             commands::terminal::get_session_process_tree,
             commands::terminal::get_all_process_trees,
             commands::terminal::kill_process,
+            commands::terminal::save_pasted_image,
             // Git commands
             commands::git::git_branches,
             commands::git::git_current_branch,
@@ -170,6 +200,8 @@ pub fn run() {
             commands::git::git_add_remote,
             commands::git::git_remove_remote,
             commands::git::git_refs_for_commit,
+            commands::git::git_fetch,
+            commands::git::git_fetch_all,
             commands::git::git_test_remote,
             commands::git::git_set_remote_url,
             commands::git::git_get_default_branch,
@@ -189,6 +221,7 @@ pub fn run() {
             commands::worktree::prepare_session_worktree,
             commands::worktree::cleanup_session_worktree,
             commands::worktree::get_default_worktree_base_dir,
+            commands::worktree::has_managed_worktree,
             // MCP commands
             commands::mcp::get_project_mcp_servers,
             commands::mcp::refresh_project_mcp_servers,
@@ -273,6 +306,9 @@ pub fn run() {
             commands::update::check_for_updates,
             commands::update::download_and_install_update,
             commands::update::get_app_version,
+            // Hooks commands
+            commands::hooks::write_session_hooks_config,
+            commands::hooks::remove_session_hooks_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maestro");

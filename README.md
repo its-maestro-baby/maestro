@@ -5,6 +5,8 @@
 
 **Orchestrate multiple AI coding assistants in parallel**
 
+![Claude Maestro Platform](assets/platform_screenshot.png)
+
 A cross-platform desktop application that lets you run 1-6 Claude Code (or other AI CLI) sessions simultaneously, each in its own isolated git worktree.
 
 ![macOS](https://img.shields.io/badge/macOS-13%2B-blue)

@@ -203,6 +203,23 @@ pub async fn git_refs_for_commit(
     git.refs_for_commit(&commit_hash).await
 }
 
+/// Fetches refs and objects from a specific remote.
+/// Uses --prune to clean up stale remote-tracking branches.
+#[tauri::command]
+pub async fn git_fetch(repo_path: String, remote_name: String) -> Result<(), GitError> {
+    validate_repo_path(&repo_path)?;
+    let git = Git::new(&repo_path);
+    git.fetch(&remote_name).await
+}
+
+/// Fetches refs and objects from all configured remotes.
+#[tauri::command]
+pub async fn git_fetch_all(repo_path: String) -> Result<(), GitError> {
+    validate_repo_path(&repo_path)?;
+    let git = Git::new(&repo_path);
+    git.fetch_all().await
+}
+
 /// Tests connectivity to a remote.
 /// Returns true if reachable, false otherwise.
 #[tauri::command]

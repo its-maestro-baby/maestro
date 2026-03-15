@@ -21,6 +21,11 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
   return invoke<number>("spawn_shell", { cwd: cwd ?? null, env: env ?? null });
 }
 
+/** Saves pasted image data to a temporary file. Returns the absolute file path. */
+export async function savePastedImage(data: number[], mediaType: string): Promise<string> {
+  return invoke<string>("save_pasted_image", { data, mediaType });
+}
+
 /** Writes raw bytes to the PTY stdin of the given session. */
 export async function writeStdin(sessionId: number, data: string): Promise<void> {
   return invoke("write_stdin", { sessionId, data });
@@ -74,6 +79,24 @@ export const AI_CLI_CONFIG: Record<AiMode, {
     skipPermissionsFlag: null,
   },
 };
+
+/** Writes hooks configuration for a Claude session to .claude/settings.local.json. */
+export async function writeSessionHooksConfig(
+  workingDir: string,
+  sessionId: number
+): Promise<void> {
+  await invoke("write_session_hooks_config", {
+    workingDir,
+    sessionId,
+  });
+}
+
+/** Removes hooks configuration from .claude/settings.local.json. */
+export async function removeSessionHooksConfig(
+  workingDir: string
+): Promise<void> {
+  await invoke("remove_session_hooks_config", { workingDir });
+}
 
 /** Checks if a CLI tool is available in the user's PATH */
 export async function checkCliAvailable(command: string): Promise<boolean> {

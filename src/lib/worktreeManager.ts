@@ -17,6 +17,8 @@ export interface WorktreePreparationResult {
   working_directory: string;
   /** The worktree path if one was created or reused. */
   worktree_path: string | null;
+  /** The resolved branch name (auto-detected or explicitly specified). */
+  branch: string | null;
   /** Whether a new worktree was created (vs. reused or skipped). */
   created: boolean;
   /** Warning message if something unexpected happened but we recovered. */
@@ -200,13 +202,15 @@ export async function getWorktreeForBranch(
 export async function prepareSessionWorktree(
   projectPath: string,
   branch: string | null,
-  worktreeBasePath?: string | null
+  worktreeBasePath?: string | null,
+  forceNew?: boolean,
 ): Promise<WorktreePreparationResult> {
   try {
     const result = await invoke<WorktreePreparationResult>("prepare_session_worktree", {
       projectPath,
       branch,
       worktreeBasePath: worktreeBasePath ?? null,
+      forceNew: forceNew ?? false,
     });
 
     if (result.warning) {
@@ -228,6 +232,7 @@ export async function prepareSessionWorktree(
     return {
       working_directory: projectPath,
       worktree_path: null,
+      branch: null,
       created: false,
       warning: `Failed to prepare worktree: ${err}`,
     };
