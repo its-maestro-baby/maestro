@@ -3,18 +3,23 @@ import { useCallback, useEffect, useState } from "react";
 import type { GraphNode } from "../../lib/graphLayout";
 import { useGitStore } from "../../stores/useGitStore";
 import { useGitHubStore } from "../../stores/useGitHubStore";
+import type { RepositoryInfo, WorkspaceType } from "../../stores/useWorkspaceStore";
 import { CommitDetailPanel } from "./CommitDetailPanel";
 import { GitPanelTabs, type GitPanelTab } from "./GitPanelTabs";
 import { GitPanelContent } from "./GitPanelContent";
 import { PullRequestDetailPanel } from "./pulls/PullRequestDetailPanel";
 import { IssueDetailPanel } from "./issues/IssueDetailPanel";
 import { DiscussionDetailPanel } from "./discussions/DiscussionDetailPanel";
+import { RepoRail } from "./RepoRail";
 
 interface GitGraphPanelProps {
   open: boolean;
   onClose: () => void;
   repoPath: string | null;
   currentBranch: string | null;
+  repositories: RepositoryInfo[];
+  workspaceType: WorkspaceType;
+  onRepoChange: (repoPath: string) => void;
 }
 
 export function GitGraphPanel({
@@ -22,6 +27,9 @@ export function GitGraphPanel({
   onClose: _onClose,
   repoPath,
   currentBranch,
+  repositories,
+  workspaceType,
+  onRepoChange,
 }: GitGraphPanelProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedPRNumber, setSelectedPRNumber] = useState<number | null>(null);
@@ -46,6 +54,17 @@ export function GitGraphPanel({
     clearSelectedIssue,
     clearSelectedDiscussion,
   } = useGitHubStore();
+
+  // Clear all selections when switching repos
+  useEffect(() => {
+    setSelectedNode(null);
+    setSelectedPRNumber(null);
+    setSelectedIssueNumber(null);
+    setSelectedDiscussionNumber(null);
+    clearSelectedPR();
+    clearSelectedIssue();
+    clearSelectedDiscussion();
+  }, [repoPath, clearSelectedPR, clearSelectedIssue, clearSelectedDiscussion]);
 
   // Re-check auth whenever user switches to a GitHub tab or repo changes
   useEffect(() => {
@@ -325,6 +344,15 @@ export function GitGraphPanel({
             </div>
           )}
         </>
+      )}
+
+      {/* Repo rail for multi-repo workspaces — right edge */}
+      {workspaceType === "multi-repo" && (
+        <RepoRail
+          repositories={repositories}
+          selectedRepoPath={repoPath}
+          onSelectRepo={onRepoChange}
+        />
       )}
     </aside>
   );
