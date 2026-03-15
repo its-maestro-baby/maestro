@@ -200,6 +200,8 @@ pub fn run() {
             commands::git::git_add_remote,
             commands::git::git_remove_remote,
             commands::git::git_refs_for_commit,
+            commands::git::git_fetch,
+            commands::git::git_fetch_all,
             commands::git::git_test_remote,
             commands::git::git_set_remote_url,
             commands::git::git_get_default_branch,
