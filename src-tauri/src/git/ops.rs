@@ -227,8 +227,30 @@ impl Git {
         new_branch: Option<&str>,
         checkout_ref: Option<&str>,
     ) -> Result<WorktreeInfo, GitError> {
+        self.worktree_add_inner(path, new_branch, checkout_ref, false).await
+    }
+
+    pub async fn worktree_add_force(
+        &self,
+        path: &Path,
+        checkout_ref: Option<&str>,
+    ) -> Result<WorktreeInfo, GitError> {
+        self.worktree_add_inner(path, None, checkout_ref, true).await
+    }
+
+    async fn worktree_add_inner(
+        &self,
+        path: &Path,
+        new_branch: Option<&str>,
+        checkout_ref: Option<&str>,
+        force: bool,
+    ) -> Result<WorktreeInfo, GitError> {
         let path_str = path.to_string_lossy();
         let mut args = vec!["worktree", "add"];
+
+        if force {
+            args.push("--force");
+        }
 
         // Collect owned strings to extend their lifetime
         let branch_flag;

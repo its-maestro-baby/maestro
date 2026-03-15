@@ -9,30 +9,24 @@ pub(crate) fn worktree_base_dir() -> PathBuf {
     directories::ProjectDirs::from("com", "maestro", "maestro")
         .map(|p| p.data_dir().to_path_buf())
         .unwrap_or_else(|| {
-            dirs_fallback()
+            std::env::var("HOME")
+                .map(PathBuf::from)
+                .map(|p| p.join(".local").join("share").join("maestro"))
+                .expect("HOME environment variable must be set for worktree management")
         })
         .join("worktrees")
 }
 
-/// Fallback if ProjectDirs fails (e.g., no HOME set).
-/// This GUI app assumes a user session on a desktop environment where HOME is set.
-/// Panicking here is intentional to fail fast in headless/container/systemd scenarios.
-fn dirs_fallback() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .map(|p| p.join(".local").join("share").join("maestro"))
-        .expect("HOME environment variable must be set for worktree management")
+/// Extracts the project name from a repo path (last path component, lowercased).
+/// Falls back to "project" if the path has no file name component.
+fn project_name(repo_path: &Path) -> String {
+    repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_lowercase()
 }
 
-/// Produces a 16-hex-char SHA-256 digest of the canonicalized repo path.
-/// Falls back to the raw path if canonicalization fails (e.g., path does not exist yet).
-async fn repo_hash(repo_path: &Path) -> String {
-    let canonical = tokio::fs::canonicalize(repo_path)
-        .await
-        .unwrap_or_else(|_| repo_path.to_path_buf());
-    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
-    format!("{:x}", digest)[..16].to_string()
-}
 
 /// Replaces filesystem-unsafe characters in branch names with hyphens.
 /// Covers `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, and `|`.
@@ -94,9 +88,13 @@ impl WorktreeManager {
         branch: &str,
         base_override: Option<&Path>,
     ) -> PathBuf {
-        let hash = repo_hash(repo_path).await;
-        let sanitized = sanitize_branch(branch);
-        effective_base_dir(base_override).join(hash).join(sanitized)
+        let name = project_name(repo_path);
+        // Hash the branch name for a short, unique worktree identifier.
+        // Pattern: <base>/<repoName>/moist-<8-char-hash>  (e.g. perfectbooth/moist-8477cc01)
+        let digest = Sha256::digest(branch.as_bytes());
+        let hash = &format!("{:x}", digest)[..8];
+        let worktree_name = format!("moist-{}", hash);
+        effective_base_dir(base_override).join(name).join(worktree_name)
     }
 
     /// Creates a worktree for the given branch, returning its path on disk.
@@ -110,37 +108,85 @@ impl WorktreeManager {
         branch: &str,
         repo_path: &Path,
     ) -> Result<PathBuf, GitError> {
-        self.create_with_base(branch, repo_path, None).await
+        self.create_with_base(branch, repo_path, None, false).await
     }
 
     /// Creates a worktree with an optional base directory override.
+    ///
+    /// `force` — use `--force` on `git worktree add` (needed when the branch is
+    /// already checked out in the main repo or another worktree).
+    /// `force_new` — skip the duplicate-branch guard and append a unique suffix to the
+    /// path so a fresh worktree is always created even if one already exists for this branch.
     pub async fn create_with_base(
         &self,
         branch: &str,
         repo_path: &Path,
         base_override: Option<&Path>,
+        force: bool,
+    ) -> Result<PathBuf, GitError> {
+        self.create_with_base_inner(branch, repo_path, base_override, force, false).await
+    }
+
+    pub async fn create_with_base_new(
+        &self,
+        branch: &str,
+        repo_path: &Path,
+        base_override: Option<&Path>,
+    ) -> Result<PathBuf, GitError> {
+        self.create_with_base_inner(branch, repo_path, base_override, true, true).await
+    }
+
+    async fn create_with_base_inner(
+        &self,
+        branch: &str,
+        repo_path: &Path,
+        base_override: Option<&Path>,
+        force: bool,
+        force_new: bool,
     ) -> Result<PathBuf, GitError> {
         let git = Git::new(repo_path);
 
-        // Check if branch is already checked out in another (non-main) worktree.
-        // The main worktree is managed by `prepare_session_worktree` which switches
-        // it to a fallback branch before calling `create()`, so we skip it here.
-        let existing = git.worktree_list().await?;
-        for wt in &existing {
-            if wt.is_main_worktree {
-                continue;
-            }
-            if let Some(ref wt_branch) = wt.branch {
-                if wt_branch == branch {
-                    return Err(GitError::BranchAlreadyCheckedOut {
-                        branch: branch.to_string(),
-                        path: wt.path.clone(),
-                    });
+        let wt_path = self.worktree_path_with_base(repo_path, branch, base_override).await;
+
+        // Guard against duplicate branch in non-main worktrees unless force_new.
+        if !force_new {
+            let existing = git.worktree_list().await?;
+            for wt in &existing {
+                if wt.is_main_worktree {
+                    continue;
+                }
+                if let Some(ref wt_branch) = wt.branch {
+                    if wt_branch == branch {
+                        return Err(GitError::BranchAlreadyCheckedOut {
+                            branch: branch.to_string(),
+                            path: wt.path.clone(),
+                        });
+                    }
                 }
             }
+        } else {
+            // force_new: tear down any existing worktree at this path (git-registered or not)
+            // so git worktree add always gets a clean, non-existent target directory.
+            if let Ok(existing) = git.worktree_list().await {
+                for wt in &existing {
+                    if wt.is_main_worktree {
+                        continue;
+                    }
+                    if Path::new(&wt.path) == wt_path {
+                        log::info!("force_new: unregistering existing worktree at {}", wt.path);
+                        let _ = git.worktree_remove(Path::new(&wt.path), true).await;
+                        let _ = git.worktree_prune().await;
+                        break;
+                    }
+                }
+            }
+            // Remove the directory regardless of whether git knew about it —
+            // git worktree add fails if the target path already exists on disk.
+            if wt_path.exists() {
+                log::info!("force_new: removing leftover directory at {}", wt_path.display());
+                let _ = tokio::fs::remove_dir_all(&wt_path).await;
+            }
         }
-
-        let wt_path = self.worktree_path_with_base(repo_path, branch, base_override).await;
 
         // Create parent directories
         if let Some(parent) = wt_path.parent() {
@@ -150,7 +196,11 @@ impl WorktreeManager {
             })?;
         }
 
-        git.worktree_add(&wt_path, None, Some(branch)).await?;
+        if force || force_new {
+            git.worktree_add_force(&wt_path, Some(branch)).await?;
+        } else {
+            git.worktree_add(&wt_path, None, Some(branch)).await?;
+        }
 
         Ok(wt_path)
     }
@@ -203,17 +253,18 @@ impl WorktreeManager {
         let git = Git::new(repo_path);
         git.worktree_prune().await?;
 
-        // Scan managed directory for orphans not in git worktree list
-        let hash = repo_hash(repo_path).await;
-        let managed_dir = worktree_base_dir().join(&hash);
+        // Scan the project's managed dir for orphaned branch worktrees.
+        // Pattern: <base>/<repoName>/<branch> — prune scans <base>/<repoName>/.
+        let name = project_name(repo_path);
+        let managed_dir = worktree_base_dir().join(&name);
 
-        let managed_exists = tokio::fs::try_exists(&managed_dir)
+        let base_exists = tokio::fs::try_exists(&managed_dir)
             .await
             .map_err(|e| GitError::SpawnError {
                 source: e,
                 command: format!("try_exists {:?}", managed_dir),
             })?;
-        if !managed_exists {
+        if !base_exists {
             return Ok(());
         }
 

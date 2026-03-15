@@ -221,6 +221,7 @@ pub fn run() {
             commands::worktree::prepare_session_worktree,
             commands::worktree::cleanup_session_worktree,
             commands::worktree::get_default_worktree_base_dir,
+            commands::worktree::has_managed_worktree,
             // MCP commands
             commands::mcp::get_project_mcp_servers,
             commands::mcp::refresh_project_mcp_servers,
