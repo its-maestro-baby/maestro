@@ -32,12 +32,14 @@ import { checkFullDiskAccess, pathRequiresFDA } from "@/lib/permissions";
 import { useFDAStore } from "@/stores/useFDAStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
+import { useTerminalDragDrop } from "@/hooks/useTerminalDragDrop";
 import { useTerminalKeyboard } from "@/hooks/useTerminalKeyboard";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { usePluginStore } from "@/stores/usePluginStore";
 import { useSessionStore } from "@/stores/useSessionStore";
 import type { AiMode } from "@/stores/useSessionStore";
 import { useWorkspaceStore, type RepositoryInfo, type WorkspaceType } from "@/stores/useWorkspaceStore";
+import { shellEscapePaths } from "@/lib/shellEscape";
 import { PreLaunchCard, type SessionSlot } from "./PreLaunchCard";
 import { SplitPaneView } from "./SplitPaneView";
 import { createLeaf, splitLeaf, removeLeaf, updateRatio, collectSlotIds, findSiblingSlotId, buildGridTree, type TreeNode, type SplitDirection } from "./splitTree";
@@ -294,6 +296,15 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSplitHorizontal: useCallback(() => handleSplit("horizontal"), [handleSplit]),
     onClosePane: closePaneRef.current,
     enabled: isActive,
+  });
+
+  // Drag-and-drop files from Finder/Explorer onto terminal panes
+  const { dropTargetSlotId, isDraggingFiles } = useTerminalDragDrop({
+    slots,
+    onDrop: useCallback((sessionId: number, paths: string[]) => {
+      const escaped = shellEscapePaths(paths);
+      writeStdin(sessionId, escaped).catch(console.error);
+    }, []),
   });
 
   // Sync refs with state and report counts to parent
@@ -1184,7 +1195,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
           </div>
 
           {/* Zoomed Terminal Content */}
-          <div className="flex-1 p-2 animate-in zoom-in-95 duration-300">
+          <div className="flex-1 p-2 animate-in zoom-in-95 duration-300 relative" data-slot-id={zoomedSlotId}>
             {zoomedSlot.sessionId !== null ? (
               <TerminalView
                 key={zoomedSlot.id}
@@ -1223,6 +1234,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                 onToggleZoom={() => handleToggleZoom(zoomedSlot.id)}
               />
             )}
+            {isDraggingFiles && dropTargetSlotId === zoomedSlotId && zoomedSlot.sessionId !== null && (
+              <div className="drop-zone-overlay">
+                <span>Drop to paste path</span>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -1233,19 +1249,28 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     const slot = slots.find((s) => s.id === slotId);
     if (!slot) return null;
 
+    const dropOverlay = isDraggingFiles && dropTargetSlotId === slot.id && slot.sessionId !== null && (
+      <div className="drop-zone-overlay">
+        <span>Drop to paste path</span>
+      </div>
+    );
+
     if (slot.sessionId !== null) {
       return (
-        <TerminalView
-          key={slot.id}
-          sessionId={slot.sessionId}
-          isFocused={focusedSlotId === slot.id}
-          isActive={isActive}
-          onFocus={getFocusCallback(slot.id)}
-          onKill={handleKill}
-          terminalCount={slots.length}
-          isZoomed={false}
-          onToggleZoom={() => handleToggleZoom(slot.id)}
-        />
+        <>
+          <TerminalView
+            key={slot.id}
+            sessionId={slot.sessionId}
+            isFocused={focusedSlotId === slot.id}
+            isActive={isActive}
+            onFocus={getFocusCallback(slot.id)}
+            onKill={handleKill}
+            terminalCount={slots.length}
+            isZoomed={false}
+            onToggleZoom={() => handleToggleZoom(slot.id)}
+          />
+          {dropOverlay}
+        </>
       );
     }
 
@@ -1282,7 +1307,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       />
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Deps cover all render-affecting state
-  }, [slots, focusedSlotId, isActive, getFocusCallback, handleKill, handleToggleZoom, projectPath, branches, isLoadingBranches, isGitRepo, repositories, workspaceType, effectiveRepoPath, onRepoChange, mcpServers, skills, plugins, handleCreateBranch, updateSlotMode, updateSlotBranch, toggleSlotMcp, toggleSlotSkill, toggleSlotPlugin, selectAllMcp, unselectAllMcp, selectAllPlugins, unselectAllPlugins, launchSlot, removeSlot]);
+  }, [slots, focusedSlotId, isActive, isDraggingFiles, dropTargetSlotId, getFocusCallback, handleKill, handleToggleZoom, projectPath, branches, isLoadingBranches, isGitRepo, repositories, workspaceType, effectiveRepoPath, onRepoChange, mcpServers, skills, plugins, handleCreateBranch, updateSlotMode, updateSlotBranch, toggleSlotMcp, toggleSlotSkill, toggleSlotPlugin, selectAllMcp, unselectAllMcp, selectAllPlugins, unselectAllPlugins, launchSlot, removeSlot]);
 
   const handleRatioChange = useCallback((nodeId: string, ratio: number) => {
     setLayoutTree((prev) => updateRatio(prev, nodeId, ratio));
