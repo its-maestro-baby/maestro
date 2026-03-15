@@ -166,7 +166,7 @@ pub(crate) async fn prepare_worktree_inner(
     // which allows worktree creation even with uncommitted changes present.
     let current_branch = git.current_branch().await.ok();
     let branch_in_main = current_branch.as_ref() == Some(&local_branch);
-    let mut warning = None;
+    let warning = None;
 
     // Ensure the branch exists locally, handling remote branches correctly
     if let Err(e) = ensure_local_branch(&git, &branch, &local_branch, &branches).await {

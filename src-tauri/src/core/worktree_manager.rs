@@ -17,6 +17,16 @@ pub(crate) fn worktree_base_dir() -> PathBuf {
         .join("worktrees")
 }
 
+/// Produces a 16-hex-char SHA-256 digest of the canonicalized repo path.
+/// Falls back to the raw path if canonicalization fails (e.g., path does not exist yet).
+async fn repo_hash(repo_path: &Path) -> String {
+    let canonical = tokio::fs::canonicalize(repo_path)
+        .await
+        .unwrap_or_else(|_| repo_path.to_path_buf());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    format!("{:x}", digest)[..16].to_string()
+}
+
 /// Extracts the project name from a repo path (last path component, lowercased).
 /// Falls back to "project" if the path has no file name component.
 fn project_name(repo_path: &Path) -> String {
@@ -58,9 +68,9 @@ fn effective_base_dir(base_override: Option<&Path>) -> PathBuf {
 /// Manages Maestro-owned git worktrees under a deterministic, repo-specific
 /// directory inside XDG data dirs.
 ///
-/// Worktree paths are derived from a SHA-256 hash of the canonical repo path
-/// (truncated to 16 hex chars) so that different repos never collide, and a
-/// sanitized branch name so each branch gets its own subdirectory.
+/// Worktree paths follow the pattern `<base>/<projectName>-<repo-hash>/<branch>`.
+/// The repo hash (8-char SHA-256 of the canonical repo path) ensures repos with
+/// the same directory name don't collide, while the project name keeps paths readable.
 pub struct WorktreeManager;
 
 impl Default for WorktreeManager {
@@ -82,6 +92,9 @@ impl WorktreeManager {
     }
 
     /// Compute the worktree path with an optional base directory override.
+    ///
+    /// Pattern: `<base>/<projectName>-<8-char-repo-hash>/<sanitized-branch>`
+    /// The repo hash ensures repos with the same directory name don't collide.
     pub(crate) async fn worktree_path_with_base(
         &self,
         repo_path: &Path,
@@ -89,12 +102,28 @@ impl WorktreeManager {
         base_override: Option<&Path>,
     ) -> PathBuf {
         let name = project_name(repo_path);
-        // Hash the branch name for a short, unique worktree identifier.
-        // Pattern: <base>/<repoName>/moist-<8-char-hash>  (e.g. perfectbooth/moist-8477cc01)
-        let digest = Sha256::digest(branch.as_bytes());
-        let hash = &format!("{:x}", digest)[..8];
-        let worktree_name = format!("moist-{}", hash);
-        effective_base_dir(base_override).join(name).join(worktree_name)
+        let hash = &repo_hash(repo_path).await[..8];
+        let repo_dir = format!("{}-{}", name, hash);
+        let sanitized = sanitize_branch(branch);
+        effective_base_dir(base_override).join(repo_dir).join(sanitized)
+    }
+
+    /// Compute a unique worktree path for force_new mode using a UUID suffix.
+    ///
+    /// Pattern: `<base>/<projectName>-<8-char-repo-hash>/<sanitized-branch>-<uuid-short>`
+    pub(crate) async fn worktree_path_new(
+        &self,
+        repo_path: &Path,
+        branch: &str,
+        base_override: Option<&Path>,
+    ) -> PathBuf {
+        let name = project_name(repo_path);
+        let hash = &repo_hash(repo_path).await[..8];
+        let repo_dir = format!("{}-{}", name, hash);
+        let sanitized = sanitize_branch(branch);
+        let uuid_short = &uuid::Uuid::new_v4().to_string()[..8];
+        let worktree_name = format!("{}-{}", sanitized, uuid_short);
+        effective_base_dir(base_override).join(repo_dir).join(worktree_name)
     }
 
     /// Creates a worktree for the given branch, returning its path on disk.
@@ -146,7 +175,13 @@ impl WorktreeManager {
     ) -> Result<PathBuf, GitError> {
         let git = Git::new(repo_path);
 
-        let wt_path = self.worktree_path_with_base(repo_path, branch, base_override).await;
+        // force_new: use a UUID-based unique path so each session gets its own directory.
+        // Normal mode: use the deterministic branch-based path.
+        let wt_path = if force_new {
+            self.worktree_path_new(repo_path, branch, base_override).await
+        } else {
+            self.worktree_path_with_base(repo_path, branch, base_override).await
+        };
 
         // Guard against duplicate branch in non-main worktrees unless force_new.
         if !force_new {
@@ -163,28 +198,6 @@ impl WorktreeManager {
                         });
                     }
                 }
-            }
-        } else {
-            // force_new: tear down any existing worktree at this path (git-registered or not)
-            // so git worktree add always gets a clean, non-existent target directory.
-            if let Ok(existing) = git.worktree_list().await {
-                for wt in &existing {
-                    if wt.is_main_worktree {
-                        continue;
-                    }
-                    if Path::new(&wt.path) == wt_path {
-                        log::info!("force_new: unregistering existing worktree at {}", wt.path);
-                        let _ = git.worktree_remove(Path::new(&wt.path), true).await;
-                        let _ = git.worktree_prune().await;
-                        break;
-                    }
-                }
-            }
-            // Remove the directory regardless of whether git knew about it —
-            // git worktree add fails if the target path already exists on disk.
-            if wt_path.exists() {
-                log::info!("force_new: removing leftover directory at {}", wt_path.display());
-                let _ = tokio::fs::remove_dir_all(&wt_path).await;
             }
         }
 
@@ -254,9 +267,11 @@ impl WorktreeManager {
         git.worktree_prune().await?;
 
         // Scan the project's managed dir for orphaned branch worktrees.
-        // Pattern: <base>/<repoName>/<branch> — prune scans <base>/<repoName>/.
+        // Pattern: <base>/<projectName>-<repo-hash>/<branch>
         let name = project_name(repo_path);
-        let managed_dir = worktree_base_dir().join(&name);
+        let hash = &repo_hash(repo_path).await[..8];
+        let repo_dir = format!("{}-{}", name, hash);
+        let managed_dir = worktree_base_dir().join(&repo_dir);
 
         let base_exists = tokio::fs::try_exists(&managed_dir)
             .await
