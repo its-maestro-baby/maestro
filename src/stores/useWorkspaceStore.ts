@@ -221,8 +221,9 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
       closeTab: (id: string) => {
         const tabToClose = get().tabs.find((t) => t.id === id);
 
-        // Kill all sessions belonging to this project (fire-and-forget)
+        // Kill all sessions belonging to this project and remove from backend
         if (tabToClose && tabToClose.sessionIds.length > 0) {
+          // Kill PTY processes
           Promise.allSettled(tabToClose.sessionIds.map((sessionId) => killSession(sessionId)))
             .then((results) => {
               for (const result of results) {
@@ -231,6 +232,9 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
                 }
               }
             });
+          // Remove sessions from backend SessionManager to prevent orphan accumulation
+          invoke("remove_sessions_for_project", { projectPath: tabToClose.projectPath })
+            .catch((err: unknown) => console.error("Failed to remove sessions on tab close:", err));
         }
 
         const remaining = get().tabs.filter((t) => t.id !== id);

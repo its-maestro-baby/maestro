@@ -267,14 +267,27 @@ pub async fn save_pasted_image(data: Vec<u8>, media_type: String) -> Result<Stri
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// Kills all active PTY sessions.
+/// Kills all active PTY sessions and clears the session registry.
 ///
 /// Used to clean up orphaned sessions when the frontend reloads.
-/// Returns the number of sessions that were killed.
+/// Clears both PTY processes (ProcessManager) and session metadata
+/// (SessionManager) to prevent stale "idle" sessions from appearing
+/// in the sidebar after a page reload.
+/// Returns the number of PTY sessions that were killed.
 #[tauri::command]
-pub async fn kill_all_sessions(state: State<'_, ProcessManager>) -> Result<u32, PtyError> {
+pub async fn kill_all_sessions(
+    state: State<'_, ProcessManager>,
+    session_state: State<'_, SessionManager>,
+) -> Result<u32, PtyError> {
     let pm = state.inner().clone();
-    pm.kill_all_sessions().await
+    let killed = pm.kill_all_sessions().await?;
+    let cleared = session_state.clear_all();
+    log::info!(
+        "Cleanup: killed {} PTY session(s), cleared {} session entries",
+        killed,
+        cleared
+    );
+    Ok(killed)
 }
 
 /// Checks if a command is available in the user's PATH.

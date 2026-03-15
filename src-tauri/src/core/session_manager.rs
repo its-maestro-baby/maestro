@@ -137,6 +137,14 @@ impl SessionManager {
             .collect()
     }
 
+    /// Removes all sessions. Returns the number of sessions that were cleared.
+    /// Used to clean up stale session entries when the frontend reloads.
+    pub fn clear_all(&self) -> usize {
+        let count = self.sessions.len();
+        self.sessions.clear();
+        count
+    }
+
     /// Removes all sessions for a project. Returns the removed configs.
     /// Useful when closing a project tab.
     pub fn remove_sessions_for_project(&self, project_path: &str) -> Vec<SessionConfig> {

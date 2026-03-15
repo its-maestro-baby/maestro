@@ -396,6 +396,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         for (const slot of slotsRef.current) {
           if (slot.sessionId !== null) {
             killSession(slot.sessionId).catch(console.error);
+            // Also remove from session store to prevent orphaned entries
+            useSessionStore.getState().removeSession(slot.sessionId);
           }
         }
       }
