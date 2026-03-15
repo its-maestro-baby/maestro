@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -156,6 +157,26 @@ interface TerminalGridProps {
  * - When all sessions are killed by the user, an auto-respawn effect creates
  *   a fresh slot so the user is never left with an empty grid.
  */
+function PlaceholderLeaf({ container, isZoomed }: {
+  container: HTMLDivElement;
+  isZoomed: boolean;
+}) {
+  const placeholderRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const placeholder = placeholderRef.current;
+    if (!placeholder || isZoomed) return;
+    placeholder.appendChild(container);
+    return () => {
+      if (container.parentNode === placeholder) {
+        placeholder.removeChild(container);
+      }
+    };
+  }, [container, isZoomed]);
+
+  return <div ref={placeholderRef} className="h-full w-full" />;
+}
+
 export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(function TerminalGrid(
   { projectPath, repoPath, repositories, workspaceType, onRepoChange, tabId, preserveOnHide = false, isActive = true, onSessionCountChange, onAllSessionsClosed },
   ref,
@@ -193,6 +214,21 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
   // Track which terminal slot is zoomed (takes full screen)
   const [zoomedSlotId, setZoomedSlotId] = useState<string | null>(null);
+
+  // Persistent container divs for DOM reparenting (preserves xterm instances across zoom)
+  const terminalContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const zoomedContainerRef = useRef<HTMLDivElement>(null);
+
+  const getOrCreateContainer = useCallback((slotId: string) => {
+    let container = terminalContainersRef.current.get(slotId);
+    if (!container) {
+      container = document.createElement('div');
+      container.style.width = '100%';
+      container.style.height = '100%';
+      terminalContainersRef.current.set(slotId, container);
+    }
+    return container;
+  }, []);
 
   // Binary split tree layout (drives pane arrangement)
   const [layoutTree, setLayoutTree] = useState<TreeNode>(() => createLeaf(slots[0].id));
@@ -816,6 +852,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
    */
   const removeSlot = useCallback((slotId: string) => {
     focusCallbacksRef.current.delete(slotId);
+    terminalContainersRef.current.delete(slotId);
 
     // If removing the last slot, return to idle landing view immediately
     // rather than going through an intermediate empty state
@@ -1109,6 +1146,14 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [zoomedSlotId, handleToggleZoom]);
 
+  // Reparent container div into zoom overlay when zooming
+  useEffect(() => {
+    if (!zoomedSlotId || !zoomedContainerRef.current) return;
+    const container = terminalContainersRef.current.get(zoomedSlotId);
+    if (!container) return;
+    zoomedContainerRef.current.appendChild(container);
+  }, [zoomedSlotId]);
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-maestro-muted">
@@ -1137,128 +1182,26 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     );
   }
 
-  // If a terminal is zoomed, show only that one at full screen with navigation bar
-  if (zoomedSlotId) {
-    const zoomedSlot = slots.find(s => s.id === zoomedSlotId);
-    if (!zoomedSlot) {
-      setZoomedSlotId(null);
-    } else {
-      const orderedSlots = orderedSlotIds.map((id) => slots.find((s) => s.id === id)).filter(Boolean) as SessionSlot[];
-      const zoomedIndex = orderedSlots.findIndex(s => s.id === zoomedSlotId);
-
-      return (
-        <div className="relative flex h-full flex-col bg-maestro-bg">
-          {/* Top Navigation Bar */}
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-maestro-border bg-maestro-surface px-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-maestro-muted">
-              Terminal {zoomedIndex + 1}/{orderedSlots.length}
-            </span>
-            <div className="h-3.5 w-px bg-maestro-border" />
-            <div className="flex gap-0.5">
-              {orderedSlots.map((slot, index) => {
-                const isActive = slot.id === zoomedSlotId;
-                const hasSession = slot.sessionId !== null;
-
-                return (
-                  <button
-                    key={slot.id}
-                    onClick={() => handleToggleZoom(slot.id)}
-                    className={`
-                      flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors
-                      ${isActive
-                        ? 'bg-maestro-accent/15 text-maestro-accent'
-                        : 'text-maestro-muted hover:bg-maestro-card hover:text-maestro-text'
-                      }
-                    `}
-                    title={isActive ? 'Current terminal (click to exit zoom)' : `Switch to terminal ${index + 1}`}
-                  >
-                    <span className="font-mono text-xs">{index + 1}</span>
-                    {hasSession && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-maestro-green" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex-1" />
-            <button
-              onClick={() => handleToggleZoom(zoomedSlotId)}
-              className="rounded p-0.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-              title="Exit zoom (Esc)"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Zoomed Terminal Content */}
-          <div className="flex-1 p-2 animate-in zoom-in-95 duration-300">
-            {zoomedSlot.sessionId !== null ? (
-              <TerminalView
-                key={zoomedSlot.id}
-                sessionId={zoomedSlot.sessionId}
-                isFocused={true}
-                onFocus={() => setFocusedSlotId(zoomedSlot.id)}
-                onKill={handleKill}
-                terminalCount={slots.length}
-                isZoomed={true}
-                onToggleZoom={() => handleToggleZoom(zoomedSlot.id)}
-              />
-            ) : (
-              <PreLaunchCard
-                key={zoomedSlot.id}
-                slot={zoomedSlot}
-                projectPath={projectPath ?? ""}
-                branches={branches}
-                isLoadingBranches={isLoadingBranches}
-                isGitRepo={isGitRepo}
-                mcpServers={mcpServers}
-                skills={skills}
-                plugins={plugins}
-                onCreateBranch={handleCreateBranch}
-                onModeChange={(mode) => updateSlotMode(zoomedSlot.id, mode)}
-                onBranchChange={(branch) => updateSlotBranch(zoomedSlot.id, branch)}
-                onMcpToggle={(serverName) => toggleSlotMcp(zoomedSlot.id, serverName)}
-                onSkillToggle={(skillId) => toggleSlotSkill(zoomedSlot.id, skillId)}
-                onPluginToggle={(pluginId) => toggleSlotPlugin(zoomedSlot.id, pluginId)}
-                onMcpSelectAll={() => selectAllMcp(zoomedSlot.id)}
-                onMcpUnselectAll={() => unselectAllMcp(zoomedSlot.id)}
-                onPluginsSelectAll={() => selectAllPlugins(zoomedSlot.id)}
-                onPluginsUnselectAll={() => unselectAllPlugins(zoomedSlot.id)}
-                onLaunch={() => launchSlot(zoomedSlot.id)}
-                onRemove={() => removeSlot(zoomedSlot.id)}
-                isZoomed={true}
-                onToggleZoom={() => handleToggleZoom(zoomedSlot.id)}
-              />
-            )}
-          </div>
-        </div>
-      );
-    }
-  }
-
   const renderLeaf = useCallback((slotId: string) => {
     const slot = slots.find((s) => s.id === slotId);
     if (!slot) return null;
 
-    if (slot.sessionId !== null) {
-      return (
-        <TerminalView
-          key={slot.id}
-          sessionId={slot.sessionId}
-          isFocused={focusedSlotId === slot.id}
-          isActive={isActive}
-          onFocus={getFocusCallback(slot.id)}
-          onKill={handleKill}
-          terminalCount={slots.length}
-          isZoomed={false}
-          onToggleZoom={() => handleToggleZoom(slot.id)}
-        />
-      );
-    }
+    const container = getOrCreateContainer(slotId);
+    const isThisZoomed = zoomedSlotId === slotId;
 
-    return (
+    const content = slot.sessionId !== null ? (
+      <TerminalView
+        key={slot.id}
+        sessionId={slot.sessionId}
+        isFocused={isThisZoomed || focusedSlotId === slot.id}
+        isActive={isActive}
+        onFocus={getFocusCallback(slot.id)}
+        onKill={handleKill}
+        terminalCount={slots.length}
+        isZoomed={isThisZoomed}
+        onToggleZoom={() => handleToggleZoom(slot.id)}
+      />
+    ) : (
       <PreLaunchCard
         key={slot.id}
         slot={slot}
@@ -1286,25 +1229,98 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         onPluginsUnselectAll={() => unselectAllPlugins(slot.id)}
         onLaunch={() => launchSlot(slot.id)}
         onRemove={() => removeSlot(slot.id)}
-        isZoomed={false}
+        isZoomed={isThisZoomed}
         onToggleZoom={() => handleToggleZoom(slot.id)}
       />
     );
+
+    return (
+      <>
+        {createPortal(content, container)}
+        <PlaceholderLeaf container={container} isZoomed={isThisZoomed} />
+      </>
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Deps cover all render-affecting state
-  }, [slots, focusedSlotId, isActive, getFocusCallback, handleKill, handleToggleZoom, projectPath, branches, isLoadingBranches, isGitRepo, repositories, workspaceType, effectiveRepoPath, onRepoChange, mcpServers, skills, plugins, handleCreateBranch, updateSlotMode, updateSlotBranch, toggleSlotMcp, toggleSlotSkill, toggleSlotPlugin, selectAllMcp, unselectAllMcp, selectAllPlugins, unselectAllPlugins, launchSlot, removeSlot]);
+  }, [slots, focusedSlotId, isActive, getFocusCallback, handleKill, handleToggleZoom, projectPath, branches, isLoadingBranches, isGitRepo, repositories, workspaceType, effectiveRepoPath, onRepoChange, mcpServers, skills, plugins, handleCreateBranch, updateSlotMode, updateSlotBranch, toggleSlotMcp, toggleSlotSkill, toggleSlotPlugin, selectAllMcp, unselectAllMcp, selectAllPlugins, unselectAllPlugins, launchSlot, removeSlot, zoomedSlotId, getOrCreateContainer]);
 
   const handleRatioChange = useCallback((nodeId: string, ratio: number) => {
     setLayoutTree((prev) => updateRatio(prev, nodeId, ratio));
   }, []);
 
   return (
-    <div className={`flex h-full bg-maestro-bg p-2 ${isDragging ? "split-dragging" : ""}`}>
-      <SplitPaneView
-        node={layoutTree}
-        renderLeaf={renderLeaf}
-        onRatioChange={handleRatioChange}
-        onDragStateChange={setIsDragging}
-      />
+    <div className="flex h-full flex-col bg-maestro-bg">
+      {/* Zoom navigation bar */}
+      {zoomedSlotId && (() => {
+        const zoomedOrderedSlots = orderedSlotIds
+          .map((id) => slots.find((s) => s.id === id))
+          .filter(Boolean) as SessionSlot[];
+        const zoomedIndex = zoomedOrderedSlots.findIndex(s => s.id === zoomedSlotId);
+
+        return (
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-maestro-border bg-maestro-surface px-3">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-maestro-muted">
+              Terminal {zoomedIndex + 1}/{zoomedOrderedSlots.length}
+            </span>
+            <div className="h-3.5 w-px bg-maestro-border" />
+            <div className="flex gap-0.5">
+              {zoomedOrderedSlots.map((slot, index) => {
+                const isSlotActive = slot.id === zoomedSlotId;
+                const hasSession = slot.sessionId !== null;
+                return (
+                  <button
+                    key={slot.id}
+                    onClick={() =>
+                      isSlotActive
+                        ? setZoomedSlotId(null)
+                        : setZoomedSlotId(slot.id)
+                    }
+                    className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isSlotActive
+                        ? 'bg-maestro-accent/15 text-maestro-accent'
+                        : 'text-maestro-muted hover:bg-maestro-card hover:text-maestro-text'
+                    }`}
+                    title={isSlotActive ? 'Exit zoom' : `Switch to terminal ${index + 1}`}
+                  >
+                    <span className="font-mono text-xs">{index + 1}</span>
+                    {hasSession && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-maestro-green" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex-1" />
+            <button
+              onClick={() => setZoomedSlotId(null)}
+              className="rounded p-0.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+              title="Exit zoom (Esc)"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* Content area */}
+      <div className="relative flex-1 min-h-0">
+        {/* Zoomed terminal target */}
+        <div
+          ref={zoomedContainerRef}
+          className={zoomedSlotId ? "absolute inset-0 z-10 p-2" : "hidden"}
+        />
+
+        {/* SplitPaneView - invisible when zoomed (preserves layout/xterm state) */}
+        <div className={`h-full p-2 ${isDragging ? "split-dragging" : ""} ${zoomedSlotId ? "invisible" : ""}`}>
+          <SplitPaneView
+            node={layoutTree}
+            renderLeaf={renderLeaf}
+            onRatioChange={handleRatioChange}
+            onDragStateChange={setIsDragging}
+          />
+        </div>
+      </div>
     </div>
   );
 });
